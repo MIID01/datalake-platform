@@ -10,6 +10,16 @@ const db = admin.firestore();
 const bucket = admin.storage().bucket("datalake-cv-uploads");
 const { getUserAccessProfile, logAccessEvent } = require("./lib/access");
 
+// ── CORS origin whitelist ──
+// Only production hosting + localhost dev are allowed.
+// Update when custom domain (e.g. app.datalake.sa) is configured.
+const ALLOWED_ORIGINS = [
+  "https://datalake-production-sa.web.app",
+  "https://datalake-production-sa.firebaseapp.com",
+  "http://localhost:5173",   // Vite dev server
+  "http://localhost:4173",   // Vite preview
+];
+
 // HTTP endpoint: submitCareerApplication
 // Accepts multipart/form-data: candidate fields + cv file
 // Writes to Firestore talent_pool collection with state=PENDING_CONSENT
@@ -18,7 +28,7 @@ exports.submitCareerApplication = onRequest(
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 60,
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -154,7 +164,7 @@ exports.createTask = onRequest(
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 30,
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -282,7 +292,7 @@ exports.submitHRScore = onRequest(
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 30,
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -485,7 +495,7 @@ exports.createProject = onRequest(
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 30,
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
@@ -557,7 +567,7 @@ exports.assignEngineerToProject = onRequest(
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 30,
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
@@ -627,7 +637,7 @@ exports.getEngineerProjectView = onRequest(
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 30,
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST" && req.method !== "GET") {
@@ -733,7 +743,7 @@ exports.getEngineerProjectView = onRequest(
 // Enforces 18th-25th submission window (Riyadh time)
 // ============================================================
 exports.submitTimesheet = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: true },
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
@@ -837,7 +847,7 @@ exports.submitTimesheet = onRequest(
 // CTO (or CEO for escalated) approves/rejects a timesheet
 // ============================================================
 exports.ctoApproveTimesheet = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: true },
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
@@ -906,15 +916,32 @@ exports.ctoApproveTimesheet = onRequest(
 // ============================================================
 // HTTP endpoint: clientSignTimesheet
 // Client approver signs or rejects an approved timesheet
-// No Firebase auth — uses email verification against approver
+// Requires Firebase Auth — client_email derived from ID token
 // ============================================================
 exports.clientSignTimesheet = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: true },
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
+
+    // Verify Firebase Auth
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ error: "Missing authorization. Please sign in." });
+      return;
+    }
+    let decodedToken;
     try {
-      const { timesheet_id, client_email, signature_method, signature_data, decision, rejection_reason } = req.body;
-      if (!timesheet_id || !client_email || !decision) { res.status(400).json({ error: "Missing required fields" }); return; }
+      decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]);
+    } catch (err) {
+      res.status(401).json({ error: "Invalid or expired token." });
+      return;
+    }
+
+    try {
+      // Client email comes from the authenticated token, NOT from request body
+      const client_email = decodedToken.email;
+      const { timesheet_id, signature_method, signature_data, decision, rejection_reason } = req.body;
+      if (!timesheet_id || !decision) { res.status(400).json({ error: "Missing required fields" }); return; }
       if (!["SIGN", "REJECT"].includes(decision)) { res.status(400).json({ error: "Decision must be SIGN or REJECT" }); return; }
       if (decision === "SIGN" && (!signature_method || !signature_data)) { res.status(400).json({ error: "Signature method and data required" }); return; }
       if (decision === "REJECT" && !rejection_reason) { res.status(400).json({ error: "Rejection reason required" }); return; }
@@ -1025,7 +1052,7 @@ exports.escalateStaleTimesheets = onSchedule(
 // Returns engineer's own timesheets (no rates, no days detail)
 // ============================================================
 exports.getMyTimesheets = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 20, cors: true },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 20, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) { res.status(401).json({ error: "Missing auth" }); return; }
@@ -1051,33 +1078,66 @@ exports.getMyTimesheets = onRequest(
 
 // ============================================================
 // HTTP endpoint: getClientTimesheets
-// Returns CTO-approved timesheets for a client (via demo token)
+// Returns CTO-approved timesheets for an authenticated client user
+// Requires Firebase Auth + client role in RBAC system
 // ============================================================
 exports.getClientTimesheets = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 20, cors: true },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 20, cors: ALLOWED_ORIGINS },
   async (req, res) => {
-    const token = req.query.token || req.body?.token;
-    if (!token) { res.status(400).json({ error: "Missing token" }); return; }
+    // Verify Firebase Auth token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ error: "Missing authorization. Please sign in." });
+      return;
+    }
 
-    // v1 demo token mapping — replace with OTP auth in v2
-    const tokenMap = { "DEMO_EMKAN_001": "ahmad@emkan.com" };
-    const clientEmail = tokenMap[token];
-    if (!clientEmail) { res.status(403).json({ error: "Invalid token" }); return; }
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]);
+    } catch (err) {
+      res.status(401).json({ error: "Invalid or expired token. Please sign in again." });
+      return;
+    }
 
-    const snapshot = await db.collection("timesheets")
-      .where("client_approver_email", "==", clientEmail)
-      .where("state", "==", "CTO_APPROVED").get();
+    try {
+      const clientEmail = decodedToken.email;
 
-    const timesheets = snapshot.docs.map(d => {
-      const t = d.data();
-      return {
-        timesheet_id: t.timesheet_id, project_name: t.project_name, engineer_name: t.engineer_name,
-        period_label: t.period_label, total_hours: t.total_hours, in_house_hours: t.in_house_hours,
-        remote_hours: t.remote_hours, leave_hours: t.leave_hours, days: t.days, cto_action_at: t.cto_action_at,
-        // NO: rates, PO values, engineer email, CTO notes
-      };
-    });
-    res.status(200).json({ timesheets, client_email: clientEmail });
+      // Look up user in RBAC system to verify client role
+      const userDoc = await db.collection("users").doc(decodedToken.uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        if (userData.status === "disabled") {
+          res.status(403).json({ error: "Account is disabled. Contact support." });
+          return;
+        }
+        // If user exists in RBAC, verify they have client role
+        if (userData.role_id !== "client") {
+          res.status(403).json({ error: "Access denied. Client role required." });
+          return;
+        }
+      }
+      // If user not in RBAC system, allow by email match (backward compat)
+      // — the query below will only return timesheets where they are the approver
+
+      // Find timesheets where this user is the client approver
+      const snapshot = await db.collection("timesheets")
+        .where("client_approver_email", "==", clientEmail)
+        .where("state", "==", "CTO_APPROVED").get();
+
+      const timesheets = snapshot.docs.map(d => {
+        const t = d.data();
+        return {
+          timesheet_id: t.timesheet_id, project_name: t.project_name, engineer_name: t.engineer_name,
+          period_label: t.period_label, total_hours: t.total_hours, in_house_hours: t.in_house_hours,
+          remote_hours: t.remote_hours, leave_hours: t.leave_hours, days: t.days, cto_action_at: t.cto_action_at,
+          // NO: rates, PO values, engineer email, CTO notes
+        };
+      });
+      res.status(200).json({ timesheets, client_email: clientEmail });
+    } catch (err) {
+      console.error("getClientTimesheets error:", err);
+      res.status(500).json({ error: "Internal server error", detail: err.message });
+    }
   }
 );
 
@@ -1091,7 +1151,7 @@ exports.extractCVData = onRequest(
     region: "me-central2",
     memory: "1GiB",
     timeoutSeconds: 120,
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -1312,7 +1372,7 @@ async function requireCeo(req) {
 
 // ── 1. getRBACState ──
 exports.getRBACState = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     try {
       const profile = await requireCeo(req);
@@ -1337,7 +1397,7 @@ exports.getRBACState = onRequest(
 
 // ── 2. addUser ──
 exports.addUser = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1388,7 +1448,7 @@ exports.addUser = onRequest(
 
 // ── 3. updateUserRole ──
 exports.updateUserRole = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1418,7 +1478,7 @@ exports.updateUserRole = onRequest(
 
 // ── 4. disableUser ──
 exports.disableUser = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1444,7 +1504,7 @@ exports.disableUser = onRequest(
 
 // ── 5. createCustomRole ──
 exports.createCustomRole = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1484,7 +1544,7 @@ exports.createCustomRole = onRequest(
 
 // ── 6. deleteCustomRole ──
 exports.deleteCustomRole = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1514,7 +1574,7 @@ exports.deleteCustomRole = onRequest(
 
 // ── 7. updateAccessMatrix ──
 exports.updateAccessMatrix = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
