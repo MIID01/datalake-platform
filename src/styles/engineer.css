@@ -1,0 +1,399 @@
+/* ============================================================
+   ENGINEER PORTAL — LAYOUT STYLES
+   ============================================================ */
+
+/* -- Timesheet Calendar Colors -- */
+[data-portal="engineer"] {
+  --weekend-bg: #edeef1;
+  --weekend-border: #d0d2d8;
+  --holiday-bg: #fef3e2;
+  --holiday-border: #f0c27a;
+  --holiday-text: #b5790f;
+  --filled-bg: #e8f5e9;
+}
+
+[data-portal="engineer"][data-theme="dark"] {
+  --weekend-bg: #1e2230;
+  --weekend-border: #2a2e3e;
+  --holiday-bg: #2a2010;
+  --holiday-border: #5c4a1a;
+  --holiday-text: #e8b84a;
+  --filled-bg: #0e2a12;
+}
+
+
+/* -- Stat Cards (Engineer) -- */
+.eng-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-card);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.eng-stat-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--stat-color, var(--steel-blue));
+}
+
+.eng-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated);
+}
+
+.eng-stat-card .stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  background: var(--stat-bg, var(--steel-blue-dim));
+  color: var(--stat-color, var(--steel-blue));
+}
+
+.eng-stat-card .stat-value {
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.eng-stat-card .stat-label {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.eng-stat-card .stat-sub {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+
+/* -- Action Items List -- */
+.action-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.action-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+  transition: background 0.15s;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.action-item:hover {
+  background: var(--bg-surface);
+}
+
+.action-item:last-child { border-bottom: none; }
+
+.action-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.action-icon.urgent { background: var(--red-dim); color: var(--red); }
+.action-icon.warning { background: var(--warning-dim); color: var(--warning); }
+.action-icon.info { background: var(--steel-blue-dim); color: var(--steel-blue); }
+
+.action-info { flex: 1; min-width: 0; }
+.action-title { font-weight: 600; font-size: 0.875rem; color: var(--text-primary); }
+.action-due { font-size: 0.75rem; color: var(--text-tertiary); margin-top: 2px; }
+
+/* -- Quick Links Grid -- */
+.quick-links {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .quick-links { grid-template-columns: repeat(2, 1fr); }
+}
+
+.quick-link-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.quick-link-btn:hover {
+  border-color: var(--border-active);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  transform: translateY(-1px);
+}
+
+.quick-link-btn .ql-icon {
+  font-size: 1.3rem;
+}
+
+/* -- Timesheet Grid -- */
+.timesheet-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.timesheet-day-header {
+  padding: 8px;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.timesheet-day {
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  cursor: pointer;
+  border: 1px solid var(--border-primary);
+  transition: all 0.15s;
+  min-height: 60px;
+}
+
+.timesheet-day:hover {
+  border-color: var(--border-active);
+  background: var(--bg-surface);
+}
+
+.timesheet-day.filled {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+
+.timesheet-day .day-num {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.timesheet-day .day-hours {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--green);
+  margin-top: 4px;
+}
+
+/* -- Leave Calendar -- */
+.leave-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.leave-day {
+  aspect-ratio: 1;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.leave-day.approved { background: var(--green-dim); color: var(--green); font-weight: 600; }
+.leave-day.pending { background: var(--warning-dim); color: var(--warning); font-weight: 600; }
+.leave-day.rejected { background: var(--red-dim); color: var(--red); font-weight: 600; }
+.leave-day.holiday { background: var(--steel-blue-dim); color: var(--steel-blue); font-weight: 600; }
+
+/* -- Document Card -- */
+.doc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.doc-card:hover {
+  border-color: var(--border-active);
+  box-shadow: var(--shadow-card);
+}
+
+.doc-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.doc-info { flex: 1; min-width: 0; }
+.doc-name { font-weight: 600; font-size: 0.9rem; color: var(--text-primary); }
+.doc-meta { font-size: 0.75rem; color: var(--text-tertiary); margin-top: 2px; }
+
+/* -- Travel Timeline -- */
+.timeline {
+  position: relative;
+  padding-left: 24px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--border-primary);
+}
+
+.timeline-item {
+  position: relative;
+  padding: 12px 0;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 18px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--steel-blue);
+  border: 2px solid var(--bg-primary);
+}
+
+.timeline-item.completed::before { background: var(--green); }
+.timeline-item.active::before { background: var(--amber); box-shadow: 0 0 0 4px var(--amber-dim); }
+
+/* -- Support Ticket Thread -- */
+.ticket-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.thread-msg {
+  display: flex;
+  gap: 12px;
+  max-width: 80%;
+}
+
+.thread-msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.thread-msg.system { align-self: flex-start; }
+
+.thread-bubble {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.thread-msg.user .thread-bubble {
+  background: var(--steel-blue);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.thread-msg.system .thread-bubble {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+
+.thread-time {
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* -- Profile Sections -- */
+.profile-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 20px;
+}
+
+.profile-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.profile-field:last-child { border-bottom: none; }
+
+.profile-field .field-label {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.profile-field .field-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* -- SLA Progress Bar -- */
+.sla-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-primary);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.sla-bar .sla-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.sla-bar .sla-fill.green { background: var(--green); }
+.sla-bar .sla-fill.amber { background: var(--amber, var(--warning)); }
+.sla-bar .sla-fill.red { background: var(--red); }

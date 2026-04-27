@@ -1,0 +1,71 @@
+import { initializeApp } from "firebase/app";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCTtKUiMS1eByd_ttHBkTF13S7EDggXvmg",
+  authDomain: "datalake-production-sa.firebaseapp.com",
+  projectId: "datalake-production-sa",
+  storageBucket: "datalake-production-sa.firebasestorage.app",
+  messagingSenderId: "808056940626",
+  appId: "1:808056940626:web:7aee4d64f616554c39d78b",
+  measurementId: "G-C00D870R71"
+};
+
+export const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope("https://www.googleapis.com/auth/userinfo.email");
+
+export const CLOUD_FUNCTION_URL =
+  "https://submitcareerapplication-ifzodp5svq-wx.a.run.app";
+
+export const CREATE_TASK_URL =
+  "https://createtask-ifzodp5svq-wx.a.run.app";
+
+export const SUBMIT_HR_SCORE_URL =
+  "https://submithrscore-ifzodp5svq-wx.a.run.app";
+
+export const CREATE_PROJECT_URL =
+  "https://createproject-ifzodp5svq-wx.a.run.app";
+
+export const ASSIGN_ENGINEER_URL =
+  "https://assignengineertoproject-ifzodp5svq-wx.a.run.app";
+
+export const GET_ENGINEER_PROJECT_VIEW_URL =
+  "https://getengineerprojectview-ifzodp5svq-wx.a.run.app";
+
+export const SUBMIT_TIMESHEET_URL =
+  "https://submittimesheet-ifzodp5svq-wx.a.run.app";
+
+export const CTO_APPROVE_TIMESHEET_URL =
+  "https://ctoapprovetimesheet-ifzodp5svq-wx.a.run.app";
+
+export const CLIENT_SIGN_TIMESHEET_URL =
+  "https://clientsigntimesheet-ifzodp5svq-wx.a.run.app";
+
+export const GET_MY_TIMESHEETS_URL =
+  "https://getmytimesheets-ifzodp5svq-wx.a.run.app";
+
+export const GET_CLIENT_TIMESHEETS_URL =
+  "https://getclienttimesheets-ifzodp5svq-wx.a.run.app";
+
+export const EXTRACT_CV_URL =
+  "https://extractcvdata-ifzodp5svq-wx.a.run.app";
+
+// RBAC Admin APIs
+export const GET_RBAC_STATE_URL =
+  "https://getrbacstate-ifzodp5svq-wx.a.run.app";
+export const ADD_USER_URL =
+  "https://adduser-ifzodp5svq-wx.a.run.app";
+export const UPDATE_USER_ROLE_URL =
+  "https://updateuserrole-ifzodp5svq-wx.a.run.app";
+export const DISABLE_USER_URL =
+  "https://disableuser-ifzodp5svq-wx.a.run.app";
+export const CREATE_CUSTOM_ROLE_URL =
+  "https://createcustomrole-ifzodp5svq-wx.a.run.app";
+export const DELETE_CUSTOM_ROLE_URL =
+  "https://deletecustomrole-ifzodp5svq-wx.a.run.app";
+export const UPDATE_ACCESS_MATRIX_URL =
+  "https://updateaccessmatrix-ifzodp5svq-wx.a.run.app";

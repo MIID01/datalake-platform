@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" fill="none">
+  <!-- Pixel dots decoration -->
+  <rect x="42" y="2" width="12" height="12" rx="2" fill="#1598CC"/>
+  <rect x="58" y="2" width="8" height="8" rx="1.5" fill="#1598CC" opacity="0.6"/>
+  <rect x="30" y="14" width="8" height="8" rx="1.5" fill="#1598CC" opacity="0.4"/>
+  <rect x="56" y="14" width="14" height="14" rx="2" fill="#EF5829"/>
+  <rect x="74" y="14" width="8" height="8" rx="1.5" fill="#EF5829" opacity="0.5"/>
+  <rect x="44" y="30" width="10" height="10" rx="2" fill="#34BF3A"/>
+  <rect x="58" y="32" width="6" height="6" rx="1" fill="#1598CC" opacity="0.5"/>
+  <rect x="72" y="26" width="8" height="8" rx="1.5" fill="#34BF3A" opacity="0.4"/>
+  
+  <!-- "D" letter -->
+  <path d="M10 40 L10 110 L45 110 C80 110 100 92 100 75 C100 58 80 40 45 40 Z M30 56 L45 56 C68 56 80 63 80 75 C80 87 68 94 45 94 L30 94 Z" fill="#FFFFFF"/>
+  
+  <!-- "atalake" text -->
+  <text x="98" y="105" font-family="'DM Sans', 'Inter', Arial, sans-serif" font-size="62" font-weight="700" fill="#FFFFFF" letter-spacing="-1">atalake</text>
+  
+  <!-- "analytics data technology" tagline -->
+  <text x="180" y="118" font-family="'DM Sans', 'Inter', Arial, sans-serif" font-size="16" font-weight="500" fill="#1598CC" letter-spacing="0.5">analytics data technology</text>
+</svg>

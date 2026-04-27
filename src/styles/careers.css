@@ -1,0 +1,104 @@
+/* Careers 3-Stage CV Flow */
+.careers-page{min-height:100vh;background:#F4F6F9;font-family:'DM Sans','Inter',sans-serif;color:#1A1A2E}
+.careers-header{background:#022873;padding:14px 32px;display:flex;align-items:center;justify-content:space-between}
+.careers-header-left{display:flex;align-items:center;gap:14px}
+.careers-header-title{color:#fff;font-weight:700;font-size:1rem}
+.careers-header-sub{color:rgba(255,255,255,0.6);font-size:0.72rem}
+.careers-back{color:rgba(255,255,255,0.7);font-size:0.82rem;display:flex;align-items:center;gap:6px;cursor:pointer;background:none;border:none;font-family:inherit}
+.careers-hero{max-width:960px;margin:0 auto;padding:64px 24px 48px;text-align:center}
+.careers-hero h1{font-size:2.8rem;font-weight:800;color:#022873;margin-bottom:12px;font-family:'Outfit','DM Sans',sans-serif;letter-spacing:-0.02em}
+.careers-hero p{font-size:1.05rem;color:#475569;line-height:1.6;max-width:640px;margin:0 auto}
+.careers-roles{max-width:960px;margin:0 auto;padding:0 24px 48px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.careers-role-card{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:28px 24px;box-shadow:0 1px 3px rgba(0,0,0,0.06);transition:all 0.2s}
+.careers-role-card:hover{border-color:#1598CC;box-shadow:0 4px 16px rgba(21,152,204,0.12)}
+.role-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.role-id{font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:#64748b;background:#F4F6F9;padding:2px 8px;border-radius:4px}
+.role-type{font-size:0.72rem;font-weight:600;color:#1598CC;background:rgba(21,152,204,0.1);padding:2px 10px;border-radius:12px}
+.role-title{font-size:1.1rem;font-weight:700;color:#1A1A2E;margin-bottom:10px}
+.role-details{display:flex;flex-direction:column;gap:6px;font-size:0.82rem;color:#475569;margin-bottom:16px}
+.role-detail{display:flex;align-items:center;gap:6px}
+.role-apply-btn{width:100%;padding:10px;border:none;border-radius:8px;background:#022873;color:#fff;font-weight:600;font-size:0.85rem;font-family:inherit;cursor:pointer;transition:all 0.2s}
+.role-apply-btn:hover{background:#1598CC}
+
+/* Upload Zone */
+.careers-upload-section{max-width:640px;margin:0 auto;padding:0 24px 48px}
+.upload-card{background:#fff;border:1px solid #E5E7EB;border-radius:16px;padding:48px 40px;box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center}
+.upload-card h2{font-size:1.5rem;font-weight:700;color:#022873;margin-bottom:8px}
+.upload-card>p{font-size:0.9rem;color:#475569;margin-bottom:32px}
+.drop-zone{border:2px dashed #1598CC;border-radius:12px;padding:48px 24px;cursor:pointer;transition:all 0.25s;background:#F8FBFF}
+.drop-zone:hover,.drop-zone.drag-over{border-color:#EF5829;background:#FFF8F5;transform:scale(1.01)}
+.drop-zone .icon-circle{width:64px;height:64px;border-radius:50%;background:rgba(21,152,204,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.drop-zone p.main-text{font-size:0.95rem;font-weight:600;color:#1A1A2E;margin-bottom:4px}
+.drop-zone p.sub-text{font-size:0.78rem;color:#64748b}
+.file-attached{display:flex;align-items:center;gap:10px;padding:14px 16px;border:1px solid #34BF3A;border-radius:10px;background:#e8fbe5;margin-top:16px;text-align:left}
+.file-attached .info{flex:1}
+.file-attached .name{font-size:0.85rem;font-weight:600;color:#1A1A2E}
+.file-attached .size{font-size:0.72rem;color:#475569}
+.upload-error{font-size:0.72rem;color:#C0392B;margin-top:8px}
+.extract-btn{margin-top:24px;padding:14px 40px;border:none;border-radius:10px;background:#EF5829;color:#fff;font-weight:700;font-size:1rem;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(239,88,41,0.3);transition:all 0.2s}
+.extract-btn:hover{background:#d94d20;transform:translateY(-1px)}
+
+/* Processing Stage */
+.processing-section{max-width:520px;margin:0 auto;padding:60px 24px;text-align:center}
+.processing-card{background:#fff;border:1px solid #E5E7EB;border-radius:16px;padding:56px 40px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.spinner-ring{width:72px;height:72px;border:4px solid #E5E7EB;border-top-color:#1598CC;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 24px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.processing-card h2{font-size:1.3rem;font-weight:700;color:#022873;margin-bottom:8px}
+.processing-card p{font-size:0.88rem;color:#475569;line-height:1.5}
+.processing-steps{margin-top:24px;text-align:left}
+.proc-step{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:0.82rem;color:#64748b}
+.proc-step.active{color:#1598CC;font-weight:600}
+.proc-step.done{color:#34BF3A}
+.proc-step .dot{width:8px;height:8px;border-radius:50%;background:#E5E7EB;flex-shrink:0}
+.proc-step.active .dot{background:#1598CC;box-shadow:0 0 8px rgba(21,152,204,0.5);animation:pulse 1.2s infinite}
+.proc-step.done .dot{background:#34BF3A}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.proc-error{margin-top:20px;padding:12px 16px;background:#fde8e8;border:1px solid #f5c6cb;border-radius:8px;font-size:0.82rem;color:#C0392B}
+.proc-retry{margin-top:12px;padding:10px 28px;border:1px solid #022873;border-radius:8px;background:#fff;color:#022873;font-weight:600;font-size:0.85rem;font-family:inherit;cursor:pointer}
+
+/* Review Form */
+.careers-form-section{max-width:720px;margin:0 auto;padding:0 24px 64px}
+.form-card{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.ai-banner{display:flex;align-items:center;gap:10px;padding:12px 16px;background:rgba(21,152,204,0.08);border:1px solid rgba(21,152,204,0.2);border-radius:10px;margin-bottom:24px;font-size:0.82rem;color:#1598CC}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.form-group{margin-bottom:16px}
+.form-label{font-size:0.82rem;font-weight:600;color:#1A1A2E;margin-bottom:6px;display:block}
+.form-input{width:100%;padding:10px 14px;border:1px solid #E5E7EB;border-radius:8px;font-size:0.9rem;font-family:inherit;outline:none;color:#1A1A2E;background:#F4F6F9;transition:border-color 0.2s;box-sizing:border-box}
+.form-input:focus{border-color:#1598CC}
+.form-input.error{border-color:#C0392B}
+.form-select{width:100%;padding:10px 14px;border:1px solid #E5E7EB;border-radius:8px;font-size:0.9rem;font-family:inherit;outline:none;color:#1A1A2E;background:#F4F6F9;appearance:none;cursor:pointer;box-sizing:border-box}
+.select-wrap{position:relative}
+.select-wrap svg{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#64748b;pointer-events:none}
+.skills-box{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;background:#F4F6F9;min-height:42px;align-items:center}
+.skill-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:0.78rem;font-weight:600;background:#e0f0f8;color:#022873;border:1px solid #b8d8eb}
+.skill-tag button{background:none;border:none;padding:0;cursor:pointer;display:flex;color:#475569}
+.skill-input{border:none;outline:none;background:transparent;font-size:0.85rem;flex:1;min-width:120px;font-family:inherit;color:#1A1A2E}
+.consent-box{background:#F8F9FB;border:1px solid #E5E7EB;border-radius:10px;padding:24px;margin-top:24px}
+.consent-title{font-size:0.95rem;font-weight:700;color:#022873;margin-bottom:12px}
+.consent-intro{font-size:0.78rem;color:#475569;margin-bottom:16px;line-height:1.5}
+.check-row{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;cursor:pointer}
+.check-box{width:20px;height:20px;border-radius:4px;flex-shrink:0;margin-top:2px;border:2px solid #ccc;background:#fff;display:flex;align-items:center;justify-content:center;transition:all 0.15s;cursor:pointer}
+.check-box.checked{border-color:#34BF3A;background:#e8fbe5}
+.check-text{font-size:0.78rem;color:#1A1A2E;line-height:1.5}
+.privacy-link{margin-top:12px;font-size:0.72rem}
+.privacy-link a{color:#1598CC;text-decoration:underline}
+.submit-btn{width:100%;padding:14px 24px;border:none;border-radius:10px;background:#ccc;color:#fff;font-weight:700;font-size:1rem;font-family:inherit;cursor:default;transition:all 0.2s;margin-top:24px}
+.submit-btn.enabled{background:#022873;cursor:pointer;box-shadow:0 4px 14px rgba(2,40,115,0.3)}
+.submit-btn.enabled:hover{background:#1598CC}
+.submit-error{font-size:0.82rem;color:#C0392B;text-align:center;margin-top:12px;padding:10px 16px;background:#fde8e8;border-radius:8px;border:1px solid #f5c6cb}
+.validation-hint{font-size:0.72rem;color:#64748b;text-align:center;margin-top:8px}
+.careers-footer{text-align:center;padding:32px 24px;font-size:0.75rem;color:#64748b;border-top:1px solid #E5E7EB;background:#fff}
+.careers-footer .links{display:flex;justify-content:center;gap:24px;margin-bottom:8px}
+.careers-footer a{color:#475569}
+
+/* Success Modal */
+.careers-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:1000}
+.careers-modal{background:#fff;border-radius:16px;padding:48px 40px;max-width:480px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);animation:slideUp 0.3s ease}
+.success-icon{width:64px;height:64px;border-radius:50%;background:#e8fbe5;border:2px solid #34BF3A;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+.modal-return-btn{padding:12px 32px;border:none;border-radius:10px;background:#022873;color:#fff;font-weight:700;font-size:0.9rem;font-family:inherit;cursor:pointer}
+
+@media(max-width:768px){
+  .careers-roles{grid-template-columns:1fr}
+  .form-row{grid-template-columns:1fr}
+  .careers-hero h1{font-size:2rem}
+}

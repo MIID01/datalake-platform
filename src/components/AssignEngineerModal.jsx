@@ -1,0 +1,101 @@
+import { useState } from 'react'
+import { X, Loader, UserPlus, ChevronDown } from 'lucide-react'
+import { auth, ASSIGN_ENGINEER_URL } from '../lib/firebase'
+
+const ENGINEERS = [
+  { id:'ENG-001', name:'Mohammed Al-Fahad', email:'mohammed@datalake.sa' },
+  { id:'ENG-002', name:'Fatimah Al-Harbi', email:'fatimah@datalake.sa' },
+  { id:'ENG-003', name:'Ahmad Al-Otaibi', email:'ahmad@datalake.sa' },
+]
+
+export default function AssignEngineerModal({ project, onClose, onAssigned }) {
+  const startDefault = project.start_date?.toDate ? project.start_date.toDate().toISOString().split('T')[0] : ''
+  const endDefault = project.end_date?.toDate ? project.end_date.toDate().toISOString().split('T')[0] : ''
+
+  const [form, setForm] = useState({
+    engineer_id:'', role_on_project:'', assignment_start_date:startDefault,
+    assignment_end_date:endDefault, allocation_percentage:'100', notes:'',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const u = (k,v) => setForm(p=>({...p,[k]:v}))
+
+  const selectedEng = ENGINEERS.find(e=>e.id===form.engineer_id)
+  const canSubmit = form.engineer_id && form.role_on_project && form.assignment_start_date && form.assignment_end_date && !submitting
+
+  const handleSubmit = async () => {
+    if (!canSubmit || !selectedEng) return
+    setSubmitting(true); setError('')
+    try {
+      const user = auth.currentUser
+      if (!user) { setError('Please sign in'); setSubmitting(false); return }
+      const idToken = await user.getIdToken()
+      const res = await fetch(ASSIGN_ENGINEER_URL, {
+        method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${idToken}`},
+        body: JSON.stringify({
+          project_id: project.project_id, engineer_id: selectedEng.id,
+          engineer_name: selectedEng.name, engineer_email: selectedEng.email,
+          role_on_project: form.role_on_project,
+          assignment_start_date: new Date(form.assignment_start_date).toISOString(),
+          assignment_end_date: new Date(form.assignment_end_date).toISOString(),
+          allocation_percentage: Number(form.allocation_percentage)||100,
+          notes: form.notes||null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error||'Failed')
+      onAssigned?.(data)
+      onClose()
+    } catch(err) { setError(err.message) } finally { setSubmitting(false) }
+  }
+
+  const st = {
+    overlay: { position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',backdropFilter:'blur(6px)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20 },
+    modal: { background:'var(--bg-card,#fff)',border:'1px solid var(--border-card,#e0e0e0)',borderRadius:16,width:'100%',maxWidth:520,boxShadow:'0 20px 60px rgba(0,0,0,0.3)' },
+    input: { width:'100%',padding:'10px 14px',border:'1px solid var(--border-primary,#E5E7EB)',borderRadius:8,fontSize:'0.88rem',fontFamily:'inherit',outline:'none',color:'var(--text-primary,#1A1A2E)',background:'var(--bg-surface,#f4f6f9)',boxSizing:'border-box' },
+    label: { fontSize:'0.82rem',fontWeight:600,color:'var(--text-primary,#1A1A2E)',marginBottom:6,display:'block' },
+    field: { marginBottom:14 },
+  }
+
+  return (
+    <div style={st.overlay} onClick={onClose}>
+      <div style={st.modal} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:'20px 28px',borderBottom:'1px solid var(--border-primary,#e5e7eb)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div>
+            <h2 style={{fontSize:'1.1rem',fontWeight:700,margin:0,color:'var(--text-primary)'}}>Assign Engineer</h2>
+            <div style={{fontSize:'0.72rem',color:'var(--text-tertiary)',marginTop:2}}>{project.project_name} · {project.client_name}</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-tertiary)',display:'flex'}}><X size={20}/></button>
+        </div>
+        <div style={{padding:'24px 28px'}}>
+          <div style={st.field}>
+            <label style={st.label}>Engineer *</label>
+            <div style={{position:'relative'}}>
+              <select style={{...st.input,appearance:'none',cursor:'pointer'}} value={form.engineer_id} onChange={e=>u('engineer_id',e.target.value)}>
+                <option value="">Select engineer...</option>
+                {ENGINEERS.map(e=><option key={e.id} value={e.id}>{e.name} ({e.id})</option>)}
+              </select>
+              <ChevronDown size={16} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',color:'#8898aa',pointerEvents:'none'}} />
+            </div>
+          </div>
+          <div style={st.field}><label style={st.label}>Role on Project *</label><input style={st.input} value={form.role_on_project} onChange={e=>u('role_on_project',e.target.value)} placeholder="Senior Data Engineer" /></div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,...st.field}}>
+            <div><label style={st.label}>Start Date *</label><input type="date" style={st.input} value={form.assignment_start_date} onChange={e=>u('assignment_start_date',e.target.value)} /></div>
+            <div><label style={st.label}>End Date *</label><input type="date" style={st.input} value={form.assignment_end_date} onChange={e=>u('assignment_end_date',e.target.value)} /></div>
+          </div>
+          <div style={st.field}><label style={st.label}>Allocation %</label><input type="number" min="1" max="100" style={st.input} value={form.allocation_percentage} onChange={e=>u('allocation_percentage',e.target.value)} /></div>
+          <div style={st.field}><label style={st.label}>Notes</label><textarea style={{...st.input,minHeight:50,resize:'vertical'}} value={form.notes} onChange={e=>u('notes',e.target.value)} placeholder="Optional notes..." /></div>
+
+          {error && <div style={{padding:'10px 16px',background:'rgba(192,57,43,0.1)',border:'1px solid rgba(192,57,43,0.3)',borderRadius:8,color:'#C0392B',fontSize:'0.82rem',marginBottom:16}}>{error}</div>}
+
+          <div style={{display:'flex',justifyContent:'flex-end',gap:10,paddingTop:8,borderTop:'1px solid var(--border-primary,#e5e7eb)'}}>
+            <button onClick={onClose} style={{padding:'10px 20px',border:'1px solid var(--border-primary,#E5E7EB)',borderRadius:8,background:'transparent',color:'var(--text-secondary)',fontWeight:600,fontSize:'0.85rem',cursor:'pointer',fontFamily:'inherit'}}>Cancel</button>
+            <button onClick={handleSubmit} disabled={!canSubmit} style={{padding:'10px 24px',border:'none',borderRadius:8,background:canSubmit?'#34BF3A':'#ccc',color:'#fff',fontWeight:700,fontSize:'0.85rem',fontFamily:'inherit',cursor:canSubmit?'pointer':'default',display:'flex',alignItems:'center',gap:8,boxShadow:canSubmit?'0 2px 8px rgba(52,191,58,0.3)':'none'}}>
+              {submitting?<><Loader size={16} className="spin"/>Assigning...</>:<><UserPlus size={16}/>Assign</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

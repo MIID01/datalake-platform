@@ -1,0 +1,598 @@
+import { useState, useMemo, useEffect } from 'react'
+import { Upload, Calendar, Clock, CheckCircle, XCircle, Plus, FileText, ChevronLeft, ChevronRight, User, Mail, ArrowRight, Briefcase, MapPin, Send, AlertTriangle } from 'lucide-react'
+import { auth, GET_ENGINEER_PROJECT_VIEW_URL, SUBMIT_TIMESHEET_URL, GET_MY_TIMESHEETS_URL } from '../../lib/firebase'
+import { onAuthChange } from '../../lib/auth'
+
+const stateColors = {
+  SUBMITTED: { label: 'Submitted', cls: 'badge-info' },
+  CTO_APPROVED: { label: 'CTO Approved', cls: 'badge-success' },
+  CEO_ESCALATED: { label: 'Escalated', cls: 'badge-warning' },
+  CLIENT_SIGNED: { label: 'Signed', cls: 'badge-success' },
+  REJECTED_BY_CTO: { label: 'Rejected', cls: 'badge-critical' },
+  REJECTED_BY_CLIENT: { label: 'Client Rejected', cls: 'badge-critical' },
+  DRAFT: { label: 'Draft', cls: 'badge-neutral' },
+}
+
+// ── Saudi Arabia 2026 Public Holidays ──────────────────────
+// Source: Saudi Ministry of Human Resources & government gazette
+const SAUDI_HOLIDAYS_2026 = [
+  // Founding Day
+  { date: '2026-02-22', name: 'Founding Day' },
+  { date: '2026-02-23', name: 'Founding Day (observed)' },
+  // Eid Al-Fitr (estimated — depends on moon sighting, ~Shawwal 1-3, 1447 AH)
+  { date: '2026-03-20', name: 'Eid Al-Fitr' },
+  { date: '2026-03-21', name: 'Eid Al-Fitr' },
+  { date: '2026-03-22', name: 'Eid Al-Fitr' },
+  { date: '2026-03-23', name: 'Eid Al-Fitr' },
+  { date: '2026-03-24', name: 'Eid Al-Fitr' },
+  // Arafat Day + Eid Al-Adha (estimated — ~Dhul Hijjah 9-13, 1447 AH)
+  { date: '2026-05-27', name: 'Arafat Day' },
+  { date: '2026-05-28', name: 'Eid Al-Adha' },
+  { date: '2026-05-29', name: 'Eid Al-Adha' },
+  { date: '2026-05-30', name: 'Eid Al-Adha' },
+  { date: '2026-05-31', name: 'Eid Al-Adha' },
+  // Saudi National Day
+  { date: '2026-09-23', name: 'National Day' },
+  { date: '2026-09-24', name: 'National Day (observed)' },
+]
+
+const holidayMap = new Map(SAUDI_HOLIDAYS_2026.map(h => [h.date, h.name]))
+
+// Check if a date falls on Saudi weekend (Friday = 5, Saturday = 6)
+function isSaudiWeekend(date) {
+  const day = date.getDay()
+  return day === 5 || day === 6
+}
+
+function formatDateKey(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export default function Timesheets() {
+  const [showForm, setShowForm] = useState(false)
+  const [method, setMethod] = useState('manual')
+  const [liveProjects, setLiveProjects] = useState([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+  const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [periodStart, setPeriodStart] = useState(new Date(2026, 3, 1))   // Apr 1, 2026
+  const [periodEnd, setPeriodEnd] = useState(new Date(2026, 3, 30))      // Apr 30, 2026
+  const [dayHours, setDayHours] = useState({})
+  const [myTimesheets, setMyTimesheets] = useState([])
+  const [submitLoading, setSubmitLoading] = useState(false)
+  const [submitResult, setSubmitResult] = useState(null)
+  const totalHours = myTimesheets.filter(t => t.state === 'CLIENT_SIGNED' || t.state === 'CTO_APPROVED').reduce((s, t) => s + (t.total_hours || 0), 0)
+
+  // Fetch submission history from Cloud Function (no direct Firestore access)
+  const fetchHistory = async () => {
+    const user = auth.currentUser
+    if (!user) return
+    try {
+      const idToken = await user.getIdToken()
+      const res = await fetch(GET_MY_TIMESHEETS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      })
+      const data = await res.json()
+      setMyTimesheets(data.timesheets || [])
+    } catch (err) { console.warn('Failed to fetch history:', err.message) }
+  }
+
+  useEffect(() => {
+    const unsub = onAuthChange((user) => { if (user) fetchHistory() })
+    return () => unsub()
+  }, [])
+
+  const handleSubmitTimesheet = async () => {
+    const user = auth.currentUser
+    if (!user || !selectedProjectId) return
+    setSubmitLoading(true)
+    setSubmitResult(null)
+    try {
+      const idToken = await user.getIdToken()
+      const res = await fetch(SUBMIT_TIMESHEET_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({
+          project_id: selectedProjectId,
+          period_month: periodStart.getMonth() + 1,
+          period_year: periodStart.getFullYear(),
+          days: Object.fromEntries(
+            calendarDays.map(d => [
+              String(d.date),
+              {
+                type: d.isWeekend ? 'weekend' : d.isHoliday ? 'holiday' : (dayHours[d.dateKey] ? 'in_house' : 'none'),
+                hours: parseFloat(dayHours[d.dateKey]) || 0
+              }
+            ])
+          ),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || data.detail || 'Submission failed')
+      setSubmitResult({ success: true, message: data.message, id: data.timesheet_id })
+      setDayHours({})
+      fetchHistory()
+    } catch (err) {
+      setSubmitResult({ success: false, message: err.message })
+    }
+    setSubmitLoading(false)
+  }
+
+  // Fetch projects from Cloud Function (financial fields pre-stripped server-side)
+  // Engineers NEVER read Firestore directly — all access goes through getEngineerProjectView
+  useEffect(() => {
+    const unsub = onAuthChange(async (user) => {
+      if (!user) { setLiveProjects([]); setProjectsLoading(false); return }
+      try {
+        const idToken = await user.getIdToken()
+        const res = await fetch(GET_ENGINEER_PROJECT_VIEW_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        })
+        const data = await res.json()
+        const projs = (data.projects || []).filter(p => p.status === 'ACTIVE')
+        setLiveProjects(projs)
+        if (projs.length > 0 && !selectedProjectId) setSelectedProjectId(projs[0].project_id)
+      } catch (err) { console.warn('Failed to fetch projects:', err.message) }
+      setProjectsLoading(false)
+    })
+    return () => unsub()
+  }, [])
+
+  // ── Submission Window: 18th–25th of each month ──────────
+  const WINDOW_OPEN_DAY = 18
+  const WINDOW_CLOSE_DAY = 25
+
+  const now = new Date() // In production, use server time
+  const currentDay = now.getDate()
+  const currentMonth = now.getMonth()
+  const currentYear = now.getFullYear()
+
+  const isWindowOpen = currentDay >= WINDOW_OPEN_DAY && currentDay <= WINDOW_CLOSE_DAY
+  const daysUntilOpen = currentDay < WINDOW_OPEN_DAY
+    ? WINDOW_OPEN_DAY - currentDay
+    : (new Date(currentYear, currentMonth + 1, WINDOW_OPEN_DAY) - now) / (1000 * 60 * 60 * 24)
+  const daysUntilClose = isWindowOpen ? WINDOW_CLOSE_DAY - currentDay : 0
+
+  const windowOpenDate = `${MONTH_NAMES[currentDay < WINDOW_OPEN_DAY ? currentMonth : (currentMonth + 1) % 12]} ${WINDOW_OPEN_DAY}`
+  const windowCloseDate = `${MONTH_NAMES[currentMonth]} ${WINDOW_CLOSE_DAY}`
+
+  // Generate all days in billing period (full month)
+  const calendarDays = useMemo(() => {
+    const days = []
+    const current = new Date(periodStart)
+    while (current <= periodEnd) {
+      const dateKey = formatDateKey(current)
+      const weekend = isSaudiWeekend(current)
+      const holidayName = holidayMap.get(dateKey) || null
+      days.push({
+        dateKey,
+        dateObj: new Date(current),
+        date: current.getDate(),
+        month: current.getMonth(),
+        dayOfWeek: current.getDay(),
+        dayLabel: DAY_LABELS[current.getDay()],
+        isWeekend: weekend,
+        isHoliday: !!holidayName,
+        holidayName,
+        isNonWorking: weekend || !!holidayName,
+      })
+      current.setDate(current.getDate() + 1)
+    }
+    return days
+  }, [periodStart, periodEnd])
+
+  const workingDays = calendarDays.filter(d => !d.isNonWorking)
+  const totalEnteredHours = Object.values(dayHours).reduce((s, h) => s + (parseFloat(h) || 0), 0)
+  const expectedHours = workingDays.length * 8
+
+  const handleHourChange = (dateKey, value) => {
+    const num = parseFloat(value)
+    if (value === '' || (num >= 0 && num <= 24)) {
+      setDayHours(prev => ({ ...prev, [dateKey]: value }))
+    }
+  }
+
+  const fillAllWorkingDays = () => {
+    const filled = {}
+    calendarDays.forEach(d => {
+      if (!d.isNonWorking) filled[d.dateKey] = '8'
+    })
+    setDayHours(filled)
+  }
+
+  const clearAll = () => setDayHours({})
+
+  // Period navigation (month-by-month)
+  const shiftPeriod = (direction) => {
+    setPeriodStart(prev => {
+      const d = new Date(prev)
+      d.setMonth(d.getMonth() + direction)
+      d.setDate(1)
+      return d
+    })
+    setPeriodEnd(prev => {
+      const d = new Date(prev)
+      d.setMonth(d.getMonth() + direction + 1)
+      d.setDate(0) // Last day of the target month
+      return d
+    })
+    setDayHours({})
+  }
+
+  const periodLabel = `${MONTH_NAMES[periodStart.getMonth()]} ${periodStart.getDate()} — ${MONTH_NAMES[periodEnd.getMonth()]} ${periodEnd.getDate()}, ${periodEnd.getFullYear()}`
+
+  return (
+    <div>
+      <div className="flex-between" style={{ marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Timesheets</h1>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem', marginTop: 4 }}>
+            Total approved hours this contract: <strong style={{ color: 'var(--text-primary)' }}>{totalHours}</strong>
+          </p>
+        </div>
+        <button
+          className={`btn ${isWindowOpen ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => isWindowOpen && setShowForm(!showForm)}
+          disabled={!isWindowOpen}
+          style={!isWindowOpen ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+          title={!isWindowOpen ? `Submission window: ${WINDOW_OPEN_DAY}th — ${WINDOW_CLOSE_DAY}th of each month` : ''}
+        >
+          <Plus size={16} /> New Timesheet
+        </button>
+      </div>
+
+      {/* ── Submission Window Banner ── */}
+      {isWindowOpen ? (
+        <div style={{
+          padding: '12px 20px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--green-dim)',
+          border: '1px solid var(--green)',
+          marginBottom: 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          fontSize: '0.85rem',
+        }}>
+          <span style={{ fontSize: '1.2rem' }}>✅</span>
+          <div>
+            <strong style={{ color: 'var(--green)' }}>Submission window is OPEN</strong>
+            <span style={{ color: 'var(--text-secondary)', marginLeft: 8 }}>
+              Closes on the <strong>{WINDOW_CLOSE_DAY}th</strong> ({daysUntilClose === 0 ? 'today!' : `${Math.ceil(daysUntilClose)} day${Math.ceil(daysUntilClose) !== 1 ? 's' : ''} remaining`})
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          padding: '14px 20px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-primary)',
+          marginBottom: 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          fontSize: '0.85rem',
+        }}>
+          <span style={{ fontSize: '1.2rem' }}>🔒</span>
+          <div>
+            <strong style={{ color: 'var(--text-primary)' }}>Submission window is CLOSED</strong>
+            <div style={{ color: 'var(--text-tertiary)', marginTop: 4, fontSize: '0.8rem' }}>
+              Timesheets can only be submitted between the <strong>{WINDOW_OPEN_DAY}th</strong> and <strong>{WINDOW_CLOSE_DAY}th</strong> of each month.
+              {currentDay < WINDOW_OPEN_DAY
+                ? <> Opens in <strong style={{ color: 'var(--amber)' }}>{Math.ceil(daysUntilOpen)} days</strong> ({windowOpenDate})</>
+                : <> Next window opens <strong style={{ color: 'var(--amber)' }}>{windowOpenDate}</strong></>
+              }
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Submission Form */}
+      {showForm && (
+        <div className="card animate-fade-in-up" style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            <button className={`btn btn-sm ${method === 'manual' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMethod('manual')}>
+              <Calendar size={14} /> Manual Entry
+            </button>
+            <button className={`btn btn-sm ${method === 'pdf' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMethod('pdf')}>
+              <Upload size={14} /> PDF Upload
+            </button>
+          </div>
+
+          {method === 'manual' ? (
+            <div>
+              {/* Project / Client Selection — NO PO numbers, rates, or approver details shown */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
+                <div className="form-group">
+                  <label className="form-label">Project</label>
+                  <select className="form-input" value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}>
+                    {liveProjects.length > 0 ? liveProjects.map(p => (
+                      <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
+                    )) : <option value="">No projects assigned</option>}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Client</label>
+                  <input className="form-input" type="text" value={
+                    liveProjects.find(p => p.project_id === selectedProjectId)?.client_name || '—'
+                  } readOnly />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Billing Period</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button className="btn-icon" style={{ color: 'var(--text-secondary)' }} onClick={() => shiftPeriod(-1)}><ChevronLeft size={18} /></button>
+                    <input className="form-input" type="text" value={periodLabel} readOnly style={{ textAlign: 'center', fontWeight: 600 }} />
+                    <button className="btn-icon" style={{ color: 'var(--text-secondary)' }} onClick={() => shiftPeriod(1)}><ChevronRight size={18} /></button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Assignment Info — operational fields ONLY (no rates, PO, approver) */}
+              {(() => {
+                const proj = liveProjects.find(p => p.project_id === selectedProjectId)
+                if (!proj) return null
+                return (
+                  <div style={{
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-primary)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '14px 20px',
+                    marginBottom: 20,
+                  }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: 10 }}>
+                      Assignment Details
+                    </div>
+                    {/* Approval pipeline (generic — no approver names/emails) */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: 'var(--steel-blue-dim, var(--sky-blue-dim))', border: '1px solid var(--steel-blue, var(--sky-blue))', fontSize: '0.78rem', fontWeight: 600, color: 'var(--steel-blue, var(--sky-blue))' }}>
+                        <User size={14} /> You Submit
+                      </div>
+                      <ArrowRight size={16} style={{ color: 'var(--text-tertiary)' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: 'var(--warning-dim)', border: '1px solid var(--amber)', fontSize: '0.78rem', fontWeight: 600, color: 'var(--amber)' }}>
+                        <Mail size={14} /> Client Review
+                      </div>
+                      <ArrowRight size={16} style={{ color: 'var(--text-tertiary)' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: 'var(--green-dim)', border: '1px solid var(--green)', fontSize: '0.78rem', fontWeight: 600, color: 'var(--green)' }}>
+                        <CheckCircle size={14} /> Approved
+                      </div>
+                    </div>
+                    {/* Operational info only — no financial or approver data */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, fontSize: '0.82rem' }}>
+                      <div>
+                        <div style={{ color: 'var(--text-tertiary)', fontSize: '0.72rem', marginBottom: 2 }}>Your Role</div>
+                        <div style={{ fontWeight: 600 }}>{proj.my_assignment?.role_on_project || '—'}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-tertiary)', fontSize: '0.72rem', marginBottom: 2 }}><MapPin size={11} style={{verticalAlign:-1}}/> Location</div>
+                        <div style={{ fontWeight: 600 }}>{(proj.work_location_type || '').replace(/_/g, ' ')}</div>
+                        {proj.work_location_address && <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{proj.work_location_address}</div>}
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-tertiary)', fontSize: '0.72rem', marginBottom: 2 }}>Project Period</div>
+                        <div style={{ fontWeight: 600, fontSize: '0.78rem' }}>
+                          {proj.start_date?._seconds ? new Date(proj.start_date._seconds*1000).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}
+                          {' — '}
+                          {proj.end_date?._seconds ? new Date(proj.end_date._seconds*1000).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Calendar Grid — Full month view with all days */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600 }}>Daily Hours</h4>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={fillAllWorkingDays}>Fill 8h All</button>
+                    <button className="btn btn-ghost btn-sm" onClick={clearAll} style={{ color: 'var(--red)' }}>Clear</button>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: totalEnteredHours >= expectedHours ? 'var(--green)' : 'var(--amber)', fontWeight: 700, marginLeft: 8 }}>
+                      Total: {totalEnteredHours}h / {expectedHours}h
+                    </span>
+                  </div>
+                </div>
+
+                {/* Legend */}
+                <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--bg-elevated, #fff)', border: '1px solid var(--border-primary)' }}></span> Working Day
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--weekend-bg, #e8e9ec)' }}></span> Weekend (Fri-Sat)
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--holiday-bg, #fef3e2)' }}></span> Public Holiday
+                  </span>
+                </div>
+
+                {/* Day headers — full 7-day week */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 6 }}>
+                  {DAY_LABELS.map(label => (
+                    <div key={label} style={{
+                      textAlign: 'center',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      color: (label === 'Fri' || label === 'Sat') ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+                      padding: '6px 0',
+                    }}>
+                      {label}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Calendar grid — 7 columns, all days including weekends/holidays */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+                  {/* Empty slots for days before the period starts (align to correct weekday) */}
+                  {Array.from({ length: calendarDays[0]?.dayOfWeek || 0 }, (_, i) => (
+                    <div key={`empty-${i}`} />
+                  ))}
+
+                  {calendarDays.map(d => {
+                    const hours = dayHours[d.dateKey] || ''
+                    const hasEntry = hours !== '' && parseFloat(hours) > 0
+                    
+                    return (
+                      <div
+                        key={d.dateKey}
+                        className="ts-day-cell"
+                        style={{
+                          '--cell-bg': d.isHoliday
+                            ? 'var(--holiday-bg, #fef3e2)'
+                            : d.isWeekend
+                              ? 'var(--weekend-bg, #e8e9ec)'
+                              : hasEntry
+                                ? 'var(--filled-bg, #e8f5e9)'
+                                : 'var(--bg-elevated, #fff)',
+                          '--cell-border': d.isHoliday
+                            ? 'var(--holiday-border, #f0c27a)'
+                            : d.isWeekend
+                              ? 'var(--weekend-border, #ccc)'
+                              : hasEntry
+                                ? 'var(--green)'
+                                : 'var(--border-primary)',
+                          borderRadius: 'var(--radius-sm, 8px)',
+                          border: '1.5px solid var(--cell-border)',
+                          background: 'var(--cell-bg)',
+                          padding: '8px 6px',
+                          minHeight: 72,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 4,
+                          position: 'relative',
+                          opacity: d.isNonWorking ? 0.75 : 1,
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {/* Date + Day */}
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', fontWeight: 600 }}>
+                          {d.dayLabel}
+                        </div>
+                        <div style={{
+                          fontSize: '1rem',
+                          fontWeight: 700,
+                          fontFamily: 'var(--font-heading)',
+                          color: d.isHoliday ? 'var(--holiday-text, #c47a15)' : d.isWeekend ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                        }}>
+                          {d.date}
+                        </div>
+
+                        {/* Input or label */}
+                        {d.isNonWorking ? (
+                          <div style={{
+                            fontSize: '0.62rem',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: d.isHoliday ? 'var(--holiday-text, #c47a15)' : 'var(--text-tertiary)',
+                            textAlign: 'center',
+                            lineHeight: 1.2,
+                            marginTop: 2,
+                          }}>
+                            {d.isHoliday ? d.holidayName : 'Weekend'}
+                          </div>
+                        ) : (
+                          <input
+                            type="number"
+                            min="0"
+                            max="24"
+                            step="0.5"
+                            value={hours}
+                            onChange={e => handleHourChange(d.dateKey, e.target.value)}
+                            placeholder="0"
+                            style={{
+                              width: '100%',
+                              maxWidth: 48,
+                              textAlign: 'center',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: 6,
+                              padding: '4px 2px',
+                              fontSize: '0.9rem',
+                              fontWeight: 700,
+                              fontFamily: 'var(--font-mono)',
+                              background: 'var(--bg-base, #fff)',
+                              color: hasEntry ? 'var(--green)' : 'var(--text-tertiary)',
+                              outline: 'none',
+                              transition: 'border-color 0.15s ease',
+                            }}
+                            onFocus={e => { e.target.style.borderColor = 'var(--steel-blue, var(--sky-blue))' }}
+                            onBlur={e => { e.target.style.borderColor = 'var(--border-primary)' }}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">Notes (optional)</label>
+                <textarea className="form-input" rows={2} placeholder="Additional notes for the client approver..." />
+              </div>
+
+              {submitResult && (
+                <div className="animate-fade-in-up" style={{ padding: '12px 20px', marginBottom: 16, borderRadius: 'var(--radius-md)', background: submitResult.success ? 'rgba(52,191,58,0.12)' : 'rgba(192,57,43,0.12)', border: `1px solid ${submitResult.success ? 'rgba(52,191,58,0.3)' : 'rgba(192,57,43,0.3)'}`, color: submitResult.success ? '#34BF3A' : '#C0392B', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {submitResult.success ? <CheckCircle size={16} /> : <AlertTriangle size={16} />} {submitResult.message}
+                  {submitResult.id && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', opacity: 0.8 }}>({submitResult.id})</span>}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSubmitTimesheet} disabled={submitLoading || totalEnteredHours === 0} style={{ opacity: submitLoading ? 0.7 : 1 }}>
+                  <Send size={16} /> {submitLoading ? 'Submitting...' : 'Submit Timesheet'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ width: 80, height: 80, borderRadius: 16, background: 'var(--bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '2rem' }}>
+                📄
+              </div>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>Drag & drop your client timesheet PDF here</p>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: '0.78rem', marginBottom: 20 }}>PDF only, max 10MB. Document AI will auto-extract hours.</p>
+              <button className="btn btn-primary"><Upload size={16} /> Choose File</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Submission History — from Cloud Function, NO PO numbers or client approver shown */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <table className="data-table">
+          <thead>
+            <tr><th>Period</th><th>Project</th><th>Client</th><th>Hours</th><th>Status</th><th>Submitted</th></tr>
+          </thead>
+          <tbody>
+            {myTimesheets.length === 0 ? (
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--text-tertiary)' }}>No submitted timesheets yet</td></tr>
+            ) : myTimesheets.map(ts => {
+              const sc = stateColors[ts.state] || { label: ts.state, cls: 'badge-neutral' }
+              return (
+                <tr key={ts.timesheet_id}>
+                  <td style={{ fontWeight: 600 }}>{ts.period_label}</td>
+                  <td>{ts.project_name}</td>
+                  <td>{ts.client_name}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{ts.total_hours}h</td>
+                  <td><span className={`badge ${sc.cls}`}>{sc.label}</span></td>
+                  <td style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>{ts.submitted_at?._seconds ? new Date(ts.submitted_at._seconds * 1000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
