@@ -1386,7 +1386,7 @@ async function requireCeo(req) {
 
 // ── 1. getRBACState ──
 exports.getRBACState = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     try {
       const profile = await requireCeo(req);
@@ -1411,7 +1411,7 @@ exports.getRBACState = onRequest(
 
 // ── 2. addUser ──
 exports.addUser = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1462,7 +1462,7 @@ exports.addUser = onRequest(
 
 // ── 3. updateUserRole ──
 exports.updateUserRole = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1492,7 +1492,7 @@ exports.updateUserRole = onRequest(
 
 // ── 4. disableUser ──
 exports.disableUser = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1518,7 +1518,7 @@ exports.disableUser = onRequest(
 
 // ── 5. createCustomRole ──
 exports.createCustomRole = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1558,7 +1558,7 @@ exports.createCustomRole = onRequest(
 
 // ── 6. deleteCustomRole ──
 exports.deleteCustomRole = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
@@ -1588,7 +1588,7 @@ exports.deleteCustomRole = onRequest(
 
 // ── 7. updateAccessMatrix ──
 exports.updateAccessMatrix = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
