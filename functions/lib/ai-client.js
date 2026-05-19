@@ -30,11 +30,11 @@ const { GoogleAuth } = require("google-auth-library");
 // Fallback values are placeholders; real URLs are injected via Cloud Run env vars.
 const AI_INFERENCE_URL =
   process.env.AI_INFERENCE_URL ||
-  "https://datalake-ai-inference-placeholder.me-central2.run.app";
+  "https://datalake-ai-inference-808056940626.me-central2.run.app";
 
 const OCR_URL =
   process.env.OCR_URL ||
-  "https://datalake-ocr-placeholder.me-central2.run.app";
+  "https://datalake-ocr-808056940626.me-central2.run.app";
 
 // ── Constants ──
 const MODEL_NAME = "qwen2.5:3b-instruct-q4_K_M";
