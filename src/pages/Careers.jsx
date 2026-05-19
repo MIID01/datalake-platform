@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { openRoles } from '../data/mockCareers'
-import { EXTRACT_CV_URL, CLOUD_FUNCTION_URL } from '../lib/firebase'
+import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore'
+import { db, EXTRACT_CV_URL, CLOUD_FUNCTION_URL } from '../lib/firebase'
 import { MapPin, Briefcase, DollarSign, Upload, X, CheckCircle, ArrowLeft, ChevronDown, Loader, Sparkles, FileText, Shield } from 'lucide-react'
 import '../styles/careers.css'
 
@@ -14,19 +14,27 @@ const PDPL_ITEMS = [
   'I understand my data will be retained for 12 months, renewable for an additional 12 months with my explicit consent.',
   'I understand I can request access to, correction of, or deletion of my data at any time by visiting datalake.sa/data-rights or emailing privacy@datalake.sa.',
   "I understand that Datalake complies with Saudi Arabia's PDPL (Personal Data Protection Law) and stores my data in KSA sovereign region only.",
-  'I consent to Datalake using AI (Vertex AI Gemini, hosted in KSA me-central2 region) to extract structured data from my CV. No data leaves KSA sovereign infrastructure.',
+  'I consent to Datalake using AI (self-hosted in KSA me-central2 region) to extract structured data from my CV. No data leaves KSA sovereign infrastructure.',
 ]
 
-const PROC_LABELS = ['Uploading CV…', 'Extracting with Vertex AI Gemini…', 'Mapping fields…', 'Done']
+const PROC_LABELS = ['Uploading CV…', 'Extracting with Datalake AI…', 'Mapping fields…', 'Done']
 
 export default function Careers() {
   const navigate = useNavigate()
   const formRef = useRef(null)
   const fileInputRef = useRef(null)
 
-  // Stage
-  // AI auto-fill temporarily disabled — start at manual form directly
-  const [stage, setStage] = useState(STAGES.REVIEW)
+  // Live job listings from Firestore
+  const [openRoles, setOpenRoles] = useState([])
+  const [jobsLoading, setJobsLoading] = useState(true)
+  useEffect(() => {
+    const q = query(collection(db, 'job_listings'), where('status', '==', 'open'), orderBy('created_at', 'desc'))
+    const unsub = onSnapshot(q, snap => { setOpenRoles(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setJobsLoading(false) }, () => setJobsLoading(false))
+    return () => unsub()
+  }, [])
+
+  // Stage — CV upload → AI extraction → review form
+  const [stage, setStage] = useState(STAGES.UPLOAD)
 
   // CV blob kept in state for re-attach on final submit
   const [cvFile, setCvFile] = useState(null)
@@ -50,6 +58,7 @@ export default function Careers() {
   const [candidateId, setCandidateId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [selectedJobId, setSelectedJobId] = useState(null)
 
   // --- Helpers ---
   const updateForm = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -163,6 +172,7 @@ export default function Careers() {
       fd.append('role_interest', form.roleInterest)
       fd.append('consent_granted', 'true')
       fd.append('ai_extraction_consent', 'true')
+      if (selectedJobId) fd.append('job_listing_id', selectedJobId)
       // Re-attach original CV blob
       fd.append('cv', cvFile)
 
@@ -208,26 +218,124 @@ export default function Careers() {
 
       {/* Open Roles */}
       <section className="careers-roles">
-        {openRoles.map((role) => (
-          <div key={role.id} className="careers-role-card">
+        {jobsLoading ? (
+          <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: '0.9rem' }}>Loading open positions…</div>
+        ) : openRoles.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: '0.9rem' }}>
+            No open positions at the moment. Check back soon or submit a general application below.
+          </div>
+        ) : openRoles.map((role) => (
+          <div key={role.id} className={`careers-role-card${selectedJobId === role.id ? ' selected' : ''}`} style={{ cursor: 'pointer', outline: selectedJobId === role.id ? '2px solid #1598CC' : 'none' }}>
             <div className="role-meta">
-              <span className="role-id">{role.id}</span>
-              <span className="role-type">{role.type}</span>
+              <span className="role-id">{role.id.slice(0, 8).toUpperCase()}</span>
+              <span className="role-type">Full-time</span>
             </div>
             <h3 className="role-title">{role.title}</h3>
             <div className="role-details">
-              <div className="role-detail"><MapPin size={14} color="#8898aa" /> {role.location}</div>
-              <div className="role-detail"><DollarSign size={14} color="#8898aa" /> SAR {(role.salaryMin / 1000).toFixed(0)}K – {(role.salaryMax / 1000).toFixed(0)}K /month</div>
-              <div className="role-detail"><Briefcase size={14} color="#8898aa" /> {role.client}</div>
+              {role.location && <div className="role-detail"><MapPin size={14} color="#8898aa" /> {role.location}</div>}
+              {role.salary_range && <div className="role-detail"><DollarSign size={14} color="#8898aa" /> {role.salary_range}</div>}
+              {role.client && <div className="role-detail"><Briefcase size={14} color="#8898aa" /> {role.client}</div>}
             </div>
-            <button className="role-apply-btn" onClick={scrollToUpload} aria-label={`Apply for ${role.title}`}>
-              Apply Now
+            <button className="role-apply-btn" onClick={() => { setSelectedJobId(role.id); setForm(p => ({ ...p, roleInterest: p.roleInterest || role.title })); document.getElementById('careers-upload-section')?.scrollIntoView({ behavior: 'smooth' }) }} aria-label={`Apply for ${role.title}`}>
+              {selectedJobId === role.id ? '✓ Selected — Upload CV below' : 'Apply Now'}
             </button>
           </div>
         ))}
       </section>
 
-      {/* Stage 1 (Upload) and Stage 2 (Processing) hidden — AI auto-fill temporarily disabled */}
+      {/* ══════ STAGE 1 — Upload ══════ */}
+      {stage === STAGES.UPLOAD && (
+        <section ref={formRef} className="careers-form-section">
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#022873', marginBottom: 8, textAlign: 'center' }}>
+            Apply Now
+          </h2>
+          <p style={{ textAlign: 'center', color: '#64748b', fontSize: '0.9rem', marginBottom: 24 }}>
+            Upload your CV and our AI will auto-fill the application form for you.
+          </p>
+          <div className="form-card" style={{ maxWidth: 520, margin: '0 auto' }}>
+            <div
+              className={`drop-zone${dragOver ? ' drag-over' : ''}`}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              aria-label="Upload CV"
+            >
+              {cvFile ? (
+                <div className="file-attached">
+                  <FileText size={24} color="#34BF3A" />
+                  <div className="info">
+                    <div className="name">{cvFile.name}</div>
+                    <div className="size">{(cvFile.size / 1024).toFixed(0)} KB</div>
+                  </div>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setCvFile(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: '#475569' }} aria-label="Remove file">
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <Upload size={36} color="#1598CC" style={{ marginBottom: 12 }} />
+                  <div style={{ fontWeight: 600, color: '#1A1A2E', marginBottom: 4 }}>Drag & drop your CV here</div>
+                  <div style={{ fontSize: '0.82rem', color: '#64748b' }}>PDF or DOCX · max 5 MB</div>
+                </div>
+              )}
+              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc" onChange={handleFileInput} style={{ display: 'none' }} />
+            </div>
+            {cvError && <div className="upload-error" style={{ marginTop: 6 }}>{cvError}</div>}
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button
+                type="button"
+                disabled={!cvFile}
+                onClick={startExtraction}
+                className={`submit-btn${cvFile ? ' enabled' : ''}`}
+                style={{ flex: 1 }}
+              >
+                <Sparkles size={16} style={{ marginRight: 6 }} /> Extract & Auto-Fill
+              </button>
+              <button
+                type="button"
+                onClick={() => setStage(STAGES.REVIEW)}
+                style={{ flex: 0, padding: '10px 20px', background: 'none', border: '1px solid #e2e8f0', borderRadius: 8, color: '#64748b', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+              >
+                Skip — Fill Manually
+              </button>
+            </div>
+            <div style={{ marginTop: 12, fontSize: '0.72rem', color: '#94a3b8', textAlign: 'center' }}>
+              <Shield size={12} style={{ verticalAlign: -2, marginRight: 4 }} />
+              All processing in me-central2 (Dammam). Self-hosted AI — no data leaves KSA.
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ══════ STAGE 2 — Processing ══════ */}
+      {stage === STAGES.PROCESSING && (
+        <section className="careers-form-section">
+          <div className="form-card" style={{ maxWidth: 480, margin: '0 auto', textAlign: 'center', padding: '48px 32px' }}>
+            <Sparkles size={40} color="#1598CC" style={{ marginBottom: 16 }} />
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#022873', marginBottom: 24 }}>Extracting Your CV</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'left', marginBottom: 24 }}>
+              {PROC_LABELS.map((label, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.88rem', color: i <= procStep ? '#1A1A2E' : '#cbd5e1', fontWeight: i === procStep ? 600 : 400, transition: 'all 0.3s' }}>
+                  {i < procStep ? <CheckCircle size={18} color="#34BF3A" /> : i === procStep ? <Loader size={18} color="#1598CC" className="spin" /> : <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid #e2e8f0' }} />}
+                  {label}
+                </div>
+              ))}
+            </div>
+            {procError && (
+              <div style={{ padding: '12px 16px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, color: '#DC2626', fontSize: '0.85rem', marginBottom: 16 }}>
+                {procError}
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  <button onClick={startExtraction} style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #DC2626', background: 'transparent', color: '#DC2626', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>Retry</button>
+                  <button onClick={() => setStage(STAGES.REVIEW)} style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'transparent', color: '#64748b', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>Fill Manually</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ══════ STAGE 3 — Review ══════ */}
       {stage === STAGES.REVIEW && (
@@ -236,9 +344,9 @@ export default function Careers() {
             Apply Now
           </h2>
           <div className="form-card">
-            <div className="ai-banner" style={{ background: '#FFF8E1', borderColor: '#FFD54F' }}>
-              <FileText size={18} color="#F59E0B" />
-              <span>AI auto-fill is temporarily unavailable — please fill in the form manually. Your CV is still required.</span>
+            <div className="ai-banner" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+              <Sparkles size={18} color="#22C55E" />
+              <span>Review the auto-filled fields below and correct anything that looks off. Your CV is still required.</span>
             </div>
 
             <form onSubmit={handleSubmit}>

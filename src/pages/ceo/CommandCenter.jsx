@@ -1,8 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useCountUp } from '../../hooks/useUtils'
-import { ceoKPIs, criticalAlerts, pendingApprovals, activityFeed } from '../../data/mockCEO'
-import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
+import { LineChart, Line, ResponsiveContainer } from 'recharts'
 import { TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, CheckCircle, XCircle } from 'lucide-react'
+
+// TODO: Replace with live Firestore hooks
+const liveKPIs = {
+  monthlyRevenue: { value: 0, trend: 0 },
+  activeEngineers: { value: 0, trend: 0 },
+  cashPosition: { value: 0, trend: 0 },
+  complianceScore: { value: 0, trend: 0 },
+}
 
 function KPICard({ label, value, unit, trend, color, delay, sparkData }) {
   const displayVal = useCountUp(value, 900)
@@ -23,7 +30,7 @@ function KPICard({ label, value, unit, trend, color, delay, sparkData }) {
           {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
           {Math.abs(trend)}%
         </span>
-        {sparkData && (
+        {sparkData && sparkData.length > 0 && (
           <div style={{ width: 100, height: 32 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={sparkData}>
@@ -64,14 +71,15 @@ function ApprovalItem({ item, onApprove, onReject }) {
 }
 
 export default function CommandCenter() {
-  const [alerts, setAlerts] = useState(criticalAlerts)
-  const [approvals, setApprovals] = useState(pendingApprovals)
+  const [alerts, setAlerts] = useState([])
+  const [approvals, setApprovals] = useState([])
+  const [activityFeed, setActivityFeed] = useState([])
   const [undoItem, setUndoItem] = useState(null)
 
-  const sparkRevenue = [{ v: 720 }, { v: 780 }, { v: 810 }, { v: 750 }, { v: 830 }, { v: 847 }]
-  const sparkEngineers = [{ v: 18 }, { v: 19 }, { v: 20 }, { v: 21 }, { v: 22 }, { v: 23 }]
-  const sparkCash = [{ v: 1800 }, { v: 1900 }, { v: 2000 }, { v: 1950 }, { v: 2100 }, { v: 2145 }]
-  const sparkCompliance = [{ v: 88 }, { v: 90 }, { v: 91 }, { v: 93 }, { v: 92 }, { v: 94 }]
+  const sparkRevenue = []
+  const sparkEngineers = []
+  const sparkCash = []
+  const sparkCompliance = []
 
   const handleApprove = (id) => {
     const item = approvals.find(a => a.id === id)
@@ -113,10 +121,10 @@ export default function CommandCenter() {
 
       {/* KPI Cards */}
       <div className="grid-4" style={{ marginBottom: 28 }}>
-        <KPICard label="Monthly Revenue" value={ceoKPIs.monthlyRevenue.value} unit="SAR" trend={ceoKPIs.monthlyRevenue.trend} color="var(--green)" delay={1} sparkData={sparkRevenue} />
-        <KPICard label="Active Engineers" value={ceoKPIs.activeEngineers.value} unit="" trend={ceoKPIs.activeEngineers.trend} color="var(--sky-blue)" delay={2} sparkData={sparkEngineers} />
-        <KPICard label="Cash Position" value={ceoKPIs.cashPosition.value} unit="SAR" trend={ceoKPIs.cashPosition.trend} color="var(--green)" delay={3} sparkData={sparkCash} />
-        <KPICard label="Compliance Score" value={ceoKPIs.complianceScore.value} unit="%" trend={ceoKPIs.complianceScore.trend} color="var(--green)" delay={4} sparkData={sparkCompliance} />
+        <KPICard label="Monthly Revenue" value={liveKPIs.monthlyRevenue.value} unit="SAR" trend={liveKPIs.monthlyRevenue.trend} color="var(--green)" delay={1} sparkData={sparkRevenue} />
+        <KPICard label="Active Engineers" value={liveKPIs.activeEngineers.value} unit="" trend={liveKPIs.activeEngineers.trend} color="var(--sky-blue)" delay={2} sparkData={sparkEngineers} />
+        <KPICard label="Cash Position" value={liveKPIs.cashPosition.value} unit="SAR" trend={liveKPIs.cashPosition.trend} color="var(--green)" delay={3} sparkData={sparkCash} />
+        <KPICard label="Compliance Score" value={liveKPIs.complianceScore.value} unit="%" trend={liveKPIs.complianceScore.trend} color="var(--green)" delay={4} sparkData={sparkCompliance} />
       </div>
 
       {/* Main Content: Approvals + Activity Feed */}
@@ -151,6 +159,11 @@ export default function CommandCenter() {
             </h3>
           </div>
           <div className="activity-feed" style={{ padding: '8px 20px' }}>
+            {activityFeed.length === 0 && (
+               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+                 No recent activity
+               </div>
+            )}
             {activityFeed.map(item => (
               <div key={item.id} className="feed-item">
                 <span className={`feed-dot ${item.status}`}></span>

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore'
 import { db, CTO_APPROVE_TIMESHEET_URL } from '../../lib/firebase'
 import { auth } from '../../lib/firebase'
-import { ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle, Calendar, ChevronDown, Send, MessageSquare } from 'lucide-react'
+import { ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle, Calendar, ChevronDown, Send, MessageSquare, Bot } from 'lucide-react'
 
 const STATE_CONFIG = {
   SUBMITTED: { label: 'Pending', color: '#EF5829', bg: 'rgba(239,88,41,0.12)' },
@@ -92,7 +92,7 @@ export default function Approvals() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>Timesheet Approvals</h1>
-        <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 4 }}>Review, approve, or reject engineer timesheets. 48hr SLA before CEO escalation.</p>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 4 }}>Review, approve, or reject engineer timesheets. 48hr SLA before Management escalation.</p>
       </div>
 
       {toast && (
@@ -147,6 +147,17 @@ export default function Approvals() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                       <span style={{ fontWeight: 700, fontSize: '0.92rem' }}>{ts.engineer_name}</span>
                       <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: '0.62rem', fontWeight: 600, background: sc.bg, color: sc.color }}>{sc.label}</span>
+                      {ts.ai_validation_status && (
+                        <div title={ts.ai_validation_reason || 'AI Validation'} style={{
+                          display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12,
+                          fontSize: '0.62rem', fontWeight: 700,
+                          background: ts.ai_validation_status === 'PASSED' ? '#eafbe7' : ts.ai_validation_status === 'FAILED' ? '#fdecea' : '#fff3cd',
+                          color: ts.ai_validation_status === 'PASSED' ? '#27ae60' : ts.ai_validation_status === 'FAILED' ? '#C0392B' : '#F39C12',
+                          border: `1px solid ${ts.ai_validation_status === 'PASSED' ? '#27ae60' : ts.ai_validation_status === 'FAILED' ? '#C0392B' : '#F39C12'}`
+                        }}>
+                          <Bot size={12} /> {ts.ai_validation_status === 'PASSED' ? 'AI: PASS' : ts.ai_validation_status === 'FAILED' ? 'AI: FAIL' : 'AI: PEND'}
+                        </div>
+                      )}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                       {ts.project_name} · {ts.client_name} · {ts.period_label}
@@ -217,8 +228,22 @@ export default function Approvals() {
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginBottom: 16 }}>
                       <span>Submitted: {fmtTs(ts.submitted_at)}</span>
                       {ts.cto_action_at && <span> · Reviewed: {fmtTs(ts.cto_action_at)} by {ts.cto_action_by}</span>}
+                      {ts.ai_validation_status === 'FAILED' && (
+                        <div style={{ marginTop: 8, padding: '8px 12px', background: '#fdecea', borderLeft: '3px solid #C0392B', borderRadius: 4, color: '#C0392B' }}>
+                          <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Bot size={14} /> AI Flag:</strong> {ts.ai_validation_reason}
+                        </div>
+                      )}
                       {ts.rejection_reason && <div style={{ marginTop: 4, color: '#C0392B' }}>Reason: {ts.rejection_reason}</div>}
                     </div>
+
+                    {/* Signed PDF Link */}
+                    {ts.signed_pdf_url && (
+                      <div style={{ marginBottom: 16 }}>
+                        <a href={ts.signed_pdf_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#eafbe7', color: '#27ae60', border: '1px solid #27ae60', borderRadius: 6, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none' }}>
+                          <CheckCircle size={14} /> View Signed Audit Record (PDF)
+                        </a>
+                      </div>
+                    )}
 
                     {/* Action Buttons */}
                     {(ts.state === 'SUBMITTED' || ts.state === 'CEO_ESCALATED') && (

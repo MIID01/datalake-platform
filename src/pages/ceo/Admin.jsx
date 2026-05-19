@@ -78,14 +78,16 @@ export default function Admin() {
   useEffect(() => { loadState() }, [])
 
   const handleAddUser = async () => {
-    const { email, display_name, role_id, client_id } = modalData
+    const { email, display_name, role_id, client_id, employee_id } = modalData
     if (!email || !display_name || !role_id) return
     setSaving(true)
     try {
       const uid = email.replace(/[^a-zA-Z0-9]/g, '_')
       await setDoc(doc(db, 'users', uid), {
         uid, email, display_name, role_id, status: 'active',
+        employee_id: employee_id || null,
         client_id: client_id || null, assigned_projects: [],
+        pdpl_consent_state: 'GRANTED', // Auto-grant for CEO-created users
         created_at: serverTimestamp(), created_by: auth.currentUser?.email,
       })
       await auditLog('USER_CREATED', { target_email: email, role_id })
@@ -202,6 +204,15 @@ export default function Admin() {
             <td style={s.td}><div style={{ display: 'flex', gap: 6 }}>
               <button style={{...s.btn('sm'), background: 'rgba(21,152,204,0.2)', color: '#38bdf8'}} onClick={() => { setModal('changeRole'); setModalData({ uid: u.id, new_role_id: u.role_id, email: u.email }) }}>Role</button>
               <button style={{...s.btn('sm'), background: u.status === 'active' ? 'rgba(239,88,41,0.15)' : 'rgba(52,191,58,0.15)', color: u.status === 'active' ? '#fb923c' : '#4ade80'}} onClick={() => handleToggleDisable(u.id, u.status)}>{u.status === 'active' ? 'Disable' : 'Enable'}</button>
+              <button style={{...s.btn('sm'), background: 'rgba(239,88,41,0.15)', color: '#fb923c'}} onClick={async () => {
+                if(window.confirm('Delete user from database? This cannot be undone.')) {
+                  try {
+                    await deleteDoc(doc(db, 'users', u.id))
+                    showToast('User deleted')
+                    await loadState()
+                  } catch(e) { setError(e.message) }
+                }
+              }}>Delete</button>
             </div></td>
           </tr>)}
         </tbody></table></div>
@@ -257,6 +268,7 @@ export default function Admin() {
           <div><label style={s.label}>Email *</label><input style={s.input} placeholder="user@datalake.sa" value={modalData.email || ''} onChange={e => setModalData(p => ({...p, email: e.target.value}))} /></div>
           <div><label style={s.label}>Display Name *</label><input style={s.input} placeholder="Full name" value={modalData.display_name || ''} onChange={e => setModalData(p => ({...p, display_name: e.target.value}))} /></div>
           <div><label style={s.label}>Role *</label><select style={s.select} value={modalData.role_id || ''} onChange={e => setModalData(p => ({...p, role_id: e.target.value}))}>{state.roles.map(r => <option key={r.id} value={r.id} style={{background:'#1a2744',color:'#fff'}}>{r.role_name}</option>)}</select></div>
+          {(modalData.role_id === 'engineer' || modalData.role_id === 'pm') && <div><label style={s.label}>Employee ID</label><input style={s.input} placeholder="e.g. DLSA1001" value={modalData.employee_id || ''} onChange={e => setModalData(p => ({...p, employee_id: e.target.value}))} /></div>}
           {modalData.role_id === 'client' && <div><label style={s.label}>Client *</label><select style={s.select} value={modalData.client_id || ''} onChange={e => setModalData(p => ({...p, client_id: e.target.value}))}><option value="">Select...</option>{state.clients.map(c => <option key={c.id} value={c.id} style={{background:'#1a2744',color:'#fff'}}>{c.client_name}</option>)}</select></div>}
           <button style={{...s.btn(), width: '100%', justifyContent: 'center', marginTop: 8}} onClick={handleAddUser} disabled={saving}>{saving ? 'Creating...' : 'Create User'}</button>
         </div>

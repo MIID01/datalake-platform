@@ -1,9 +1,19 @@
-import { clientProjects } from '../../data/mockClient'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { Users, Calendar, Clock, TrendingUp } from 'lucide-react'
 
 export default function ClientEngineers() {
+  const [clientProjects, setClientProjects] = useState([])
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'client_projects'), snap => {
+      setClientProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
+
   const allEngineers = clientProjects.flatMap(p =>
-    p.engineers.map(e => ({ ...e, project: p.name, projectStatus: p.status }))
+    (p.engineers || []).map(e => ({ ...e, project: p.name, projectStatus: p.status }))
   )
   const active = allEngineers.filter(e => e.status === 'Active')
   const offboarded = allEngineers.filter(e => e.status === 'Offboarded')

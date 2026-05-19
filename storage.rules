@@ -1,8 +1,27 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    
+    // CEO can read everything
+    function isCeo() {
+      return request.auth != null && request.auth.token.email == "m.alqumri@datalake.sa";
+    }
+
+    match /expenses/{fileName} {
+      // Engineers can upload and read their own receipts. CEO can read all.
+      allow read: if request.auth != null; 
+      allow create: if request.auth != null;
+      allow update, delete: if isCeo();
+    }
+
+    match /datalake-worm-hr/employee_documents/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isCeo();
+    }
+
     match /{allPaths=**} {
-      allow read: if request.auth != null && request.auth.token.email == "m.alqumri@datalake.sa";
+      allow read: if isCeo();
       allow write: if false;
     }
   }

@@ -2,6 +2,32 @@
    CEO COMMAND CENTER — LAYOUT STYLES
    ============================================================ */
 
+/* -- App Shell -- */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.main-area {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  margin-top: var(--topbar-height);
+  padding: 28px;
+  min-height: calc(100vh - var(--topbar-height));
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow-x: hidden;
+}
+
+.main-area.collapsed {
+  margin-left: var(--sidebar-collapsed);
+}
+
+.page-content {
+  max-width: 1400px;
+}
+
 /* -- Sidebar -- */
 .ceo-sidebar {
   position: fixed;

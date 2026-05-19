@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
-import { pendingApprovals } from '../../data/mockCEO'
+import { useState, useEffect, useMemo } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { CheckCircle, XCircle, X, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useKeyboardShortcuts } from '../../hooks/useUtils'
 
@@ -8,11 +9,18 @@ const typeMap = { Invoices: 'invoice', Hires: 'hire', Leave: 'leave', Expenses: 
 
 export default function Approvals() {
   const [activeTab, setActiveTab] = useState('All')
-  const [approvals, setApprovals] = useState(pendingApprovals)
+  const [approvals, setApprovals] = useState([])
   const [selected, setSelected] = useState(new Set())
   const [detailItem, setDetailItem] = useState(null)
   const [showBulkModal, setShowBulkModal] = useState(false)
   const [focusIndex, setFocusIndex] = useState(0)
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'pending_approvals'), snap => {
+      setApprovals(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
 
   const filtered = useMemo(() => {
     if (activeTab === 'All') return approvals

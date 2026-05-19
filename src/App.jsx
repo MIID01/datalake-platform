@@ -1,12 +1,25 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
+import AuthGate from './components/AuthGate'
+import Consent from './pages/Consent'
+
+// Layouts
 import CEOLayout from './layouts/CEOLayout'
-import EngineerLayout from './layouts/EngineerLayout'
-// Client Portal — single standalone page (no layout wrapper)
+import EmployeeLayout from './layouts/EmployeeLayout'
+import HRLayout from './layouts/HRLayout'
+import CTOLayout from './layouts/CTOLayout'
+
+// CEO Pages
 import CEOCommandCenter from './pages/ceo/CommandCenter'
 import CEOPipeline from './pages/ceo/Pipeline'
 import CEOTalent from './pages/ceo/Talent'
 import CEOFinance from './pages/ceo/Finance'
+import CEOExpenses from './pages/ceo/CEOExpenses'
+import CEOLeave from './pages/ceo/CEOLeave'
+import CEOPayroll from './pages/ceo/CEOPayroll'
+import CEOTickets from './pages/ceo/CEOTickets'
+import CEOTraining from './pages/ceo/CEOTraining'
+import GrcLibrary from './pages/ceo/GrcLibrary'
 import CEOContracts from './pages/ceo/Contracts'
 import CEOApprovals from './pages/ceo/Approvals'
 import CEOCompliance from './pages/ceo/Compliance'
@@ -17,74 +30,114 @@ import CEOAIOperations from './pages/ceo/AIOperations'
 import CEOTaskInbox from './pages/ceo/TaskInbox'
 import CEOProjects from './pages/ceo/Projects'
 import CEOAdmin from './pages/ceo/Admin'
-import CTOLayout from './layouts/CTOLayout'
+import CEOEmployees from './pages/ceo/CEOEmployees'
+
+// CTO Pages
 import CTODashboard from './pages/cto/Dashboard'
 import CTOApprovals from './pages/cto/Approvals'
 import CTOProjects from './pages/cto/Projects'
-import EngDashboard from './pages/engineer/Dashboard'
-import EngTimesheets from './pages/engineer/Timesheets'
-import EngLeave from './pages/engineer/Leave'
-import EngExpenses from './pages/engineer/Expenses'
-import EngDocuments from './pages/engineer/Documents'
-import EngTravel from './pages/engineer/Travel'
-import EngTraining from './pages/engineer/Training'
-import EngSupport from './pages/engineer/Support'
-import EngProfile from './pages/engineer/Profile'
-import ClientTimesheetApproval from './pages/client/ClientDashboard'
+
+// Employee Pages
+import EmpDashboard from './pages/employee/Dashboard'
+import EmpTimesheets from './pages/employee/Timesheets'
+import EmpLeave from './pages/employee/Leave'
+import EmpExpenses from './pages/employee/Expenses'
+import EmpDocuments from './pages/employee/Documents'
+import EmpTravel from './pages/employee/Travel'
+import EmpTraining from './pages/employee/Training'
+import EmpSupport from './pages/employee/Support'
+import EmpProfile from './pages/employee/Profile'
+import OnboardingGate from './pages/employee/OnboardingGate'
+
+// HR Pages
+import HRTalentPool from './pages/hr/HRTalentPool'
 import HRScoring from './pages/hr/HRScoring'
+import InterviewCVPrep from './pages/hr/InterviewCVPrep'
+import HRJobListings from './pages/hr/HRJobListings'
+import HREmployees from './pages/hr/HREmployees'
+
+// Client Pages
+import ClientTimesheetApproval from './pages/client/ClientDashboard'
+import ClientScorecard from './pages/client/ClientScorecard'
+import ContractAcceptance from './pages/client/ContractAcceptance'
+
 import Careers from './pages/Careers'
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
+    <AuthGate>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
 
-      {/* CEO Command Center */}
-      <Route path="/ceo" element={<CEOLayout />}>
-        <Route index element={<CEOCommandCenter />} />
-        <Route path="pipeline" element={<CEOPipeline />} />
-        <Route path="projects" element={<CEOProjects />} />
-        <Route path="talent" element={<CEOTalent />} />
-        <Route path="finance" element={<CEOFinance />} />
-        <Route path="contracts" element={<CEOContracts />} />
-        <Route path="approvals" element={<CEOApprovals />} />
-        <Route path="compliance" element={<CEOCompliance />} />
-        <Route path="analytics" element={<CEOAnalytics />} />
-        <Route path="alerts" element={<CEOAlerts />} />
-        <Route path="system" element={<CEOSystem />} />
-        <Route path="ai-ops" element={<CEOAIOperations />} />
-        <Route path="tasks" element={<CEOTaskInbox />} />
-        <Route path="admin" element={<CEOAdmin />} />
-      </Route>
+        {/* CEO Command Center */}
+        <Route path="/ceo" element={<CEOLayout />}>
+          <Route index element={<CEOCommandCenter />} />
+          <Route path="pipeline" element={<CEOPipeline />} />
+          <Route path="projects" element={<CEOProjects />} />
+          <Route path="employees" element={<CEOEmployees />} />
+          <Route path="talent" element={<CEOTalent />} />
+          <Route path="finance" element={<CEOFinance />} />
+          <Route path="expenses" element={<CEOExpenses />} />
+          <Route path="leave" element={<CEOLeave />} />
+          <Route path="payroll" element={<CEOPayroll />} />
+          <Route path="tickets" element={<CEOTickets />} />
+          <Route path="training" element={<CEOTraining />} />
+          <Route path="grc" element={<GrcLibrary />} />
+          <Route path="contracts" element={<CEOContracts />} />
+          <Route path="approvals" element={<CEOApprovals />} />
+          <Route path="compliance" element={<CEOCompliance />} />
+          <Route path="analytics" element={<CEOAnalytics />} />
+          <Route path="alerts" element={<CEOAlerts />} />
+          <Route path="system" element={<CEOSystem />} />
+          <Route path="ai-ops" element={<CEOAIOperations />} />
+          <Route path="tasks" element={<CEOTaskInbox />} />
+          <Route path="admin" element={<CEOAdmin />} />
+        </Route>
 
-      {/* CTO Portal */}
-      <Route path="/cto" element={<CTOLayout />}>
-        <Route index element={<CTODashboard />} />
-        <Route path="approvals" element={<CTOApprovals />} />
-        <Route path="projects" element={<CTOProjects />} />
-      </Route>
+        {/* CTO Portal */}
+        <Route path="/cto" element={<CTOLayout />}>
+          <Route index element={<CTODashboard />} />
+          <Route path="approvals" element={<CTOApprovals />} />
+          <Route path="projects" element={<CTOProjects />} />
+        </Route>
 
-      {/* Engineer Self-Service Portal */}
-      <Route path="/portal" element={<EngineerLayout />}>
-        <Route index element={<EngDashboard />} />
-        <Route path="timesheets" element={<EngTimesheets />} />
-        <Route path="leave" element={<EngLeave />} />
-        <Route path="expenses" element={<EngExpenses />} />
-        <Route path="documents" element={<EngDocuments />} />
-        <Route path="travel" element={<EngTravel />} />
-        <Route path="training" element={<EngTraining />} />
-        <Route path="support" element={<EngSupport />} />
-        <Route path="profile" element={<EngProfile />} />
-      </Route>
+        {/* Employee Portal */}
+        <Route path="/employee" element={<EmployeeLayout />}>
+          <Route index element={<EmpDashboard />} />
+          <Route path="onboarding" element={<OnboardingGate />} />
+          <Route path="timesheets" element={<EmpTimesheets />} />
+          <Route path="leave" element={<EmpLeave />} />
+          <Route path="expenses" element={<EmpExpenses />} />
+          <Route path="documents" element={<EmpDocuments />} />
+          <Route path="travel" element={<EmpTravel />} />
+          <Route path="training" element={<EmpTraining />} />
+          <Route path="support" element={<EmpSupport />} />
+          <Route path="profile" element={<EmpProfile />} />
+        </Route>
 
-      {/* Client Portal — Single page, no sidebar */}
-      <Route path="/client" element={<ClientTimesheetApproval />} />
+        {/* Legacy /portal and /engineer redirect to /employee */}
+        <Route path="/portal/*" element={<Navigate to="/employee" replace />} />
+        <Route path="/engineer/*" element={<Navigate to="/employee" replace />} />
 
-      {/* HR Interview Scoring — Single page (hr.datalake.sa) */}
-      <Route path="/hr" element={<HRScoring />} />
+        {/* HR Portal */}
+        <Route path="/hr" element={<HRLayout />}>
+          <Route index element={<HRTalentPool />} />
+          <Route path="employees" element={<HREmployees />} />
+          <Route path="scoring" element={<HRScoring />} />
+          <Route path="interview-cv" element={<InterviewCVPrep />} />
+          <Route path="jobs" element={<HRJobListings />} />
+        </Route>
 
-      {/* Public Careers Page (datalake.sa/careers) */}
-      <Route path="/careers" element={<Careers />} />
-    </Routes>
+        {/* Client Portal */}
+        <Route path="/client" element={<ClientTimesheetApproval />} />
+        <Route path="/client/timesheet/:token" element={<ClientTimesheetApproval />} />
+        <Route path="/client/scorecard/:token" element={<ClientScorecard />} />
+        <Route path="/contract/:token" element={<ContractAcceptance />} />
+
+        {/* Public Pages */}
+        <Route path="/careers" element={<Careers />} />
+        <Route path="/consent/:token" element={<Consent />} />
+      </Routes>
+    </AuthGate>
   )
 }

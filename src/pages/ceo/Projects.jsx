@@ -130,7 +130,6 @@ export default function Projects() {
                     <span>Timesheet: {p.timesheet_type}</span>
                   </div>
 
-                  {/* Assigned engineers */}
                   {pAssignments.length > 0 && (
                     <div style={{marginBottom:12}}>
                       <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--text-tertiary)',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.06em'}}>Assigned Engineers</div>
@@ -148,9 +147,25 @@ export default function Projects() {
                     </div>
                   )}
 
-                  <button onClick={(e)=>{e.stopPropagation();setAssignProject(p)}} className="btn btn-sm btn-primary" style={{background:'#1598CC',display:'flex',alignItems:'center',gap:6}}>
-                    <UserPlus size={14}/> Assign Engineer
-                  </button>
+                  <div style={{display:'flex', gap: 12, alignItems: 'center'}}>
+                    <button onClick={(e)=>{e.stopPropagation();setAssignProject(p)}} className="btn btn-sm btn-primary" style={{background:'#1598CC',display:'flex',alignItems:'center',gap:6}}>
+                      <UserPlus size={14}/> Assign Engineer
+                    </button>
+                    <button onClick={(e)=>{e.stopPropagation(); showToast('Edit Project functionality placeholder')}} className="btn btn-sm btn-outline">
+                      Edit
+                    </button>
+                    <button onClick={async (e)=>{
+                      e.stopPropagation(); 
+                      if(window.confirm('Delete this project?')) {
+                        try {
+                          await import('firebase/firestore').then(m => m.deleteDoc(m.doc(db, 'projects', p.id)))
+                          showToast('Project deleted')
+                        } catch(err) { console.error(err) }
+                      }
+                    }} className="btn btn-sm" style={{color: 'var(--red)', border: '1px solid var(--red)'}}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

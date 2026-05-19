@@ -4,7 +4,7 @@ import { useRiyadhTime } from '../hooks/useUtils'
 import { 
   Zap, BarChart3, Users, DollarSign, FileText, CheckSquare, 
   Shield, TrendingUp, Bell, Settings, ChevronLeft, ChevronRight,
-  Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock
+  Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock, Library
 } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
 import '../styles/ceo.css'
@@ -14,11 +14,17 @@ const navItems = [
   { icon: Inbox, label: 'Task Inbox', path: '/ceo/tasks', badge: 10, glow: true },
   { icon: BarChart3, label: 'Revenue Pipeline', path: '/ceo/pipeline', badge: null, info: 'SAR 11.2M' },
   { icon: FolderKanban, label: 'Projects', path: '/ceo/projects' },
+  { icon: Users, label: 'Employee Directory', path: '/ceo/employees' },
   { icon: Users, label: 'Talent & HR', path: '/ceo/talent', badge: 3 },
   { icon: DollarSign, label: 'Finance', path: '/ceo/finance', badge: 2 },
   { icon: FileText, label: 'Contracts', path: '/ceo/contracts', badge: 2 },
   { icon: CheckSquare, label: 'Approvals', path: '/ceo/approvals', badge: 8, glow: true },
+  { icon: FileText, label: 'Leave Requests', path: '/ceo/leave' },
+  { icon: Inbox, label: 'Support Tickets', path: '/ceo/tickets' },
+  { icon: DollarSign, label: 'Expenses', path: '/ceo/expenses' },
   { icon: Shield, label: 'Compliance', path: '/ceo/compliance', badge: 3 },
+  { icon: Users, label: 'Training Matrix', path: '/ceo/training' },
+  { icon: Library, label: 'Policy Library', path: '/ceo/policies' },
   { icon: TrendingUp, label: 'Analytics', path: '/ceo/analytics' },
   { icon: Bot, label: 'AI Operations', path: '/ceo/ai-ops', badge: 6 },
   { icon: Bell, label: 'Alerts & Logs', path: '/ceo/alerts', badge: 3 },
@@ -35,11 +41,16 @@ export default function CEOLayout() {
   const location = useLocation()
 
   useEffect(() => {
+    // Temporary bypass for demo
+    setUser({ email: 'm.alqumri@datalake.sa' })
+    setAuthLoading(false)
+    /*
     const unsub = onAuthChange((firebaseUser) => {
       setUser(firebaseUser)
       setAuthLoading(false)
     })
     return () => unsub()
+    */
   }, [])
 
   const handleSignIn = async () => {

@@ -1,4 +1,6 @@
-import { systemHealth } from '../../data/mockCEO'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { Activity, Server, Database, Cloud, MessageSquare, Clock, CreditCard } from 'lucide-react'
 
@@ -17,6 +19,14 @@ const generate24hrData = (baseline, variance) => {
 }
 
 export default function SystemHealth() {
+  const [systemHealth, setSystemHealth] = useState([])
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'system_health'), snap => {
+      setSystemHealth(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
+
   const allGreen = systemHealth.every(s => s.status === 'green')
 
   return (

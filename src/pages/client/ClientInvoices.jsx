@@ -1,11 +1,21 @@
-import { clientInvoices } from '../../data/mockClient'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { Download, Eye, CheckCircle, Clock } from 'lucide-react'
 
 const statusColors = { Paid: 'badge-success', Pending: 'badge-warning', Overdue: 'badge-critical', Draft: 'badge-neutral' }
 
 export default function ClientInvoices() {
-  const totalPaid = clientInvoices.filter(i => i.status === 'Paid').reduce((s, i) => s + i.amount, 0)
-  const totalPending = clientInvoices.filter(i => i.status === 'Pending').reduce((s, i) => s + i.amount, 0)
+  const [clientInvoices, setClientInvoices] = useState([])
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'client_invoices'), snap => {
+      setClientInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
+
+  const totalPaid = clientInvoices.filter(i => i.status === 'Paid').reduce((s, i) => s + (i.amount || 0), 0)
+  const totalPending = clientInvoices.filter(i => i.status === 'Pending').reduce((s, i) => s + (i.amount || 0), 0)
 
   return (
     <div>

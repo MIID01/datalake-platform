@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { complianceData } from '../../data/mockCEO'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { useCountUp } from '../../hooks/useUtils'
 import { Shield, AlertTriangle, CheckCircle, XCircle, Clock, Eye, FileText, Download } from 'lucide-react'
 
@@ -28,7 +29,31 @@ function ComplianceGauge({ score }) {
 }
 
 export default function Compliance() {
+  const [complianceData, setComplianceData] = useState(null)
   const [activeRegister, setActiveRegister] = useState('capa')
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'compliance'), snap => {
+      if (snap.empty) {
+        setComplianceData(null)
+        return
+      }
+      setComplianceData(snap.docs[0].data())
+    }, (err) => {
+      console.warn('compliance listener error:', err.message)
+      setComplianceData(null)
+    })
+    return () => unsub()
+  }, [])
+
+  if (!complianceData) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 24 }}>Compliance Center</h1>
+        <p>No data available (Collection empty)</p>
+      </div>
+    )
+  }
   const registers = ['Compliance', 'Conflict of Interest', 'Gifts & Entertainment', 'CAPA']
 
   return (

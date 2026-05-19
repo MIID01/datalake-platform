@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-
+import { getStorage } from "firebase/storage";
 const firebaseConfig = {
   apiKey: "AIzaSyCTtKUiMS1eByd_ttHBkTF13S7EDggXvmg",
   authDomain: "datalake-production-sa.firebaseapp.com",
@@ -15,6 +15,7 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope("https://www.googleapis.com/auth/userinfo.email");
 
@@ -69,3 +70,25 @@ export const DELETE_CUSTOM_ROLE_URL =
   "https://deletecustomrole-ifzodp5svq-wx.a.run.app";
 export const UPDATE_ACCESS_MATRIX_URL =
   "https://updateaccessmatrix-ifzodp5svq-wx.a.run.app";
+
+// Recruitment Pipeline APIs
+export const PREPARE_INTERVIEW_CV_URL =
+  "https://prepareinterviewcv-ifzodp5svq-wx.a.run.app";
+export const SEND_INTERVIEW_CV_URL =
+  "https://sendinterviewcv-ifzodp5svq-wx.a.run.app";
+export const DOWNLOAD_CANDIDATE_CV_URL =
+  "https://downloadcandidatecv-ifzodp5svq-wx.a.run.app";
+export const UPDATE_CANDIDATE_STAGE_URL =
+  "https://updatecandidatestage-ifzodp5svq-wx.a.run.app";
+
+// Backfill & GRC APIs
+export const BACKFILL_EMPLOYEE_URL = 
+  "https://backfillemployee-ifzodp5svq-wx.a.run.app";
+export const RECORD_LEAVER_URL = 
+  "https://recordleaver-ifzodp5svq-wx.a.run.app";
+export const GET_BACKFILL_CONSENT_URL = 
+  "https://getbackfillconsent-ifzodp5svq-wx.a.run.app";
+export const SUBMIT_BACKFILL_CONSENT_URL = 
+  "https://submitbackfillconsent-ifzodp5svq-wx.a.run.app";
+export const UPLOAD_GRC_DOC_URL = 
+  "https://uploadgrcdoc-ifzodp5svq-wx.a.run.app";

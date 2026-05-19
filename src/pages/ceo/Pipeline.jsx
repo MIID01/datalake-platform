@@ -1,13 +1,42 @@
-import { useState } from 'react'
-import { pipelineData } from '../../data/mockCEO'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { GripVertical, ExternalLink, Clock, DollarSign, AlertCircle, CheckCircle } from 'lucide-react'
 
 const statusColors = { Registered: 'badge-success', Pending: 'badge-warning', 'Not Started': 'badge-neutral' }
 
 export default function Pipeline() {
-  const [columns, setColumns] = useState(pipelineData.columns)
+  const [pipelineData, setPipelineData] = useState(null)
+  const [columns, setColumns] = useState([])
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'pipeline'), snap => {
+      if (snap.empty) {
+        setPipelineData(null)
+        setColumns([])
+        return
+      }
+      const data = snap.docs[0].data()
+      setPipelineData(data)
+      setColumns(data.columns || [])
+    }, (err) => {
+      console.warn('pipeline listener error:', err.message)
+      setPipelineData(null)
+      setColumns([])
+    })
+    return () => unsub()
+  }, [])
   const [showWonModal, setShowWonModal] = useState(null)
+
+  if (!pipelineData) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 24 }}>Revenue Pipeline</h1>
+        <p>No data available (Collection empty)</p>
+      </div>
+    )
+  }
 
   const totalPipelineValue = columns.flatMap(c => c.cards).reduce((sum, card) => sum + card.value, 0)
 

@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { contractsData } from '../../data/mockCEO'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { FileText, Shield, Eye, ExternalLink } from 'lucide-react'
 
 const statusColors = { Active: 'badge-success', Expiring: 'badge-critical', Expired: 'badge-neutral', Terminated: 'badge-neutral' }
@@ -7,7 +8,16 @@ const riskColors = { Low: 'badge-success', Medium: 'badge-warning', High: 'badge
 const typeIcons = { Employment: '👤', 'Client SLA': '🏢', NDA: '🔒', Vendor: '🔧' }
 
 export default function Contracts() {
+  const [contractsData, setContractsData] = useState([])
   const [filter, setFilter] = useState('All')
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'contracts'), snap => {
+      setContractsData(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
+
   const filtered = filter === 'All' ? contractsData : contractsData.filter(c => c.type === filter)
 
   // Gantt timeline data

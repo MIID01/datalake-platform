@@ -1,8 +1,18 @@
-import { clientProjects } from '../../data/mockClient'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { useCountUp } from '../../hooks/useUtils'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 export default function ClientPOs() {
+  const [clientProjects, setClientProjects] = useState([])
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'client_projects'), snap => {
+      setClientProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
+
   const activeProject = clientProjects.find(p => p.status === 'Active')
 
   return (

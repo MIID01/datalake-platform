@@ -1,6 +1,12 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { clientProfile, clientProjects } from '../../data/mockClient'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { CheckCircle, Download, Pen, Printer, Type, Upload, Eraser, Clock, Mail, ShieldCheck } from 'lucide-react'
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
+import ExcelJS from 'exceljs'
+import { saveAs } from 'file-saver'
 
 // TODO: When client OTP auth is implemented, create a Cloud Function
 // getClientProjectView that filters projects by client_id and strips
@@ -150,41 +156,18 @@ function SignaturePad({ onSave, onCancel }) {
   )
 }
 
-// ─── Engineer submission data (in production: pulled from Firestore after engineer submits) ───
-// Each engineer's per-day entry comes directly from their submitted timesheet.
-// 'remote' = worked remotely,  'inhouse' = on-site at client,  'leave' = approved leave
-// Weekends & holidays are auto-filled by the system, NOT by the engineer.
-const engineerSubmissions = [
-  {
-    id: 'EMP-001', name: 'Mohammed Al-Fahad', role: 'Senior Java Engineer',
-    email: 'mohammed.alfahad@datalake.sa',
-    submitted: true, submittedDate: '2026-04-21', hours: 176, totalDays: 22,
-    // Per-day data from their submitted timesheet (working days only)
-    days: {
-      1:'inhouse', 2:'inhouse',
-      5:'inhouse', 6:'remote', 7:'remote', 8:'inhouse', 9:'inhouse',
-      12:'inhouse', 13:'inhouse', 14:'remote', 15:'inhouse', 16:'inhouse',
-      19:'inhouse', 20:'remote', 21:'inhouse', 22:'inhouse', 23:'inhouse',
-      26:'inhouse', 27:'inhouse', 28:'remote', 29:'inhouse', 30:'inhouse',
-    },
-  },
-  {
-    id: 'EMP-002', name: 'Fatimah Al-Harbi', role: 'DevOps Engineer',
-    email: 'fatimah.harbi@datalake.sa',
-    submitted: true, submittedDate: '2026-04-20', hours: 168, totalDays: 21,
-    // She took 1 day approved leave on Apr 9
-    days: {
-      1:'remote', 2:'remote',
-      5:'inhouse', 6:'inhouse', 7:'remote', 8:'remote', 9:'leave',
-      12:'remote', 13:'inhouse', 14:'inhouse', 15:'remote', 16:'inhouse',
-      19:'remote', 20:'inhouse', 21:'inhouse', 22:'remote', 23:'inhouse',
-      26:'inhouse', 27:'remote', 28:'inhouse', 29:'inhouse', 30:'remote',
-    },
-  },
-]
+// Removed mock engineerSubmissions
 
 // ─── Main Component ───────────────────────────────────────
+import { useParams } from 'react-router-dom'
+import { query, where } from 'firebase/firestore'
+
 export default function ClientTimesheetApproval() {
+  const { token } = useParams()
+  const [timesheet, setTimesheet] = useState(null)
+  const [invalidToken, setInvalidToken] = useState(false)
+  const [clientProfile, setClientProfile] = useState({ company: '', contactName: '' })
+  const [clientProjects, setClientProjects] = useState([])
   const [signing, setSigning] = useState(false)
   const [sigMethod, setSigMethod] = useState('draw')
   const [signatureText, setSignatureText] = useState('')
@@ -193,13 +176,51 @@ export default function ClientTimesheetApproval() {
   const [signedTimestamp, setSignedTimestamp] = useState('')
   const [reminderSent, setReminderSent] = useState(new Set())
 
-  const activeProject = clientProjects.find(p => p.status === 'Active')
-  const engineers = engineerSubmissions
-  const allSubmitted = engineers.every(e => e.submitted)
-  const submittedCount = engineers.filter(e => e.submitted).length
+  useEffect(() => {
+    if (!token) {
+      setInvalidToken(true)
+      return
+    }
+    const q = query(collection(db, 'timesheets'), where('client_sign_token', '==', token))
+    const unsub = onSnapshot(q, snap => {
+      if (!snap.empty) {
+        setTimesheet({ id: snap.docs[0].id, ...snap.docs[0].data() })
+      } else {
+        setInvalidToken(true)
+      }
+    })
+    return () => unsub()
+  }, [token])
 
-  const year = 2026
-  const month = 3
+  useEffect(() => {
+    const unsub1 = onSnapshot(collection(db, 'client_profile'), snap => {
+      if (!snap.empty) setClientProfile(snap.docs[0].data())
+    })
+    return () => unsub1()
+  }, [])
+
+  const activeProject = timesheet ? {
+    name: timesheet.project_name,
+    pos: [{ number: 'PO-' + (timesheet.project_name || '1165') }]
+  } : null
+
+  const engineers = timesheet ? [{
+    id: timesheet.engineer_email,
+    name: timesheet.engineer_name,
+    role: 'Engineer',
+    email: timesheet.engineer_email,
+    submitted: true,
+    submittedDate: timesheet.submitted_at?.toDate ? timesheet.submitted_at.toDate().toLocaleDateString() : 'N/A',
+    hours: timesheet.total_hours,
+    totalDays: Object.keys(timesheet.days || {}).length,
+    days: timesheet.days || {}
+  }] : []
+
+  const allSubmitted = timesheet ? true : false
+  const submittedCount = timesheet ? 1 : 0
+
+  const year = timesheet ? timesheet.period_year : 2026
+  const month = timesheet ? timesheet.period_month - 1 : 3
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
 
@@ -210,29 +231,111 @@ export default function ClientTimesheetApproval() {
     }))
   }, [engineers.length])
 
-  const handleSignWithDraw = (dataUrl) => {
+  const saveSignatureToFirestore = async (signatureData, method) => {
+    if (!timesheet) return;
+    try {
+      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
+      
+      // Generate PDF of the timesheet
+      const pdfBlob = await generatePDFBlob()
+      let signedPdfUrl = null
+      
+      if (pdfBlob) {
+        const storage = getStorage()
+        const pdfRef = ref(storage, `datalake-worm-hr/employee_documents/TS-${timesheet.id}-SIGNED.pdf`)
+        await uploadBytes(pdfRef, pdfBlob)
+        signedPdfUrl = await getDownloadURL(pdfRef)
+      }
+
+      await updateDoc(doc(db, 'timesheets', timesheet.id), {
+        state: 'CLIENT_APPROVED',
+        client_signature_image: signatureData || null,
+        client_signature_text: method === 'type' ? signatureText : null,
+        client_signature_method: method,
+        signed_pdf_url: signedPdfUrl,
+        client_signed_at: serverTimestamp()
+      })
+    } catch (err) {
+      console.error('Failed to save signature:', err)
+    }
+  }
+
+  const generatePDFBlob = async () => {
+    const container = document.getElementById('timesheet-print-container')
+    if (!container) return null
+    const pages = container.querySelectorAll('.timesheet-page')
+    const pdf = new jsPDF('l', 'mm', 'a4')
+    
+    for (let i = 0; i < pages.length; i++) {
+      const canvas = await html2canvas(pages[i], { scale: 2, useCORS: true })
+      const imgData = canvas.toDataURL('image/png')
+      if (i > 0) pdf.addPage()
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
+    }
+    return pdf.output('blob')
+  }
+
+  const handleExportExcel = async () => {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Timesheet')
+
+    // Header
+    ws.addRow([`Timesheet ${activeProject?.name?.toUpperCase()}`])
+    ws.addRow([`${clientProfile.company_ar || clientProfile.company} - ${clientProfile.company}`])
+    ws.addRow([`Month: ${MONTH_NAMES[month]} ${year}`, `PO: #${activeProject?.pos[0]?.number.replace('PO-', '') || '1165'}`])
+    ws.addRow([])
+
+    // Columns
+    const headerRow = ['Engineer', ...days.map(d => d.toString()), 'Total Days']
+    ws.addRow(headerRow)
+
+    // Data
+    attendanceData.forEach(eng => {
+      const row = [eng.role]
+      days.forEach(d => row.push(eng.attendance[d] || ''))
+      row.push(eng.totalDays)
+      ws.addRow(row)
+    })
+
+    // Formatting
+    ws.columns.forEach((col, i) => {
+      if (i === 0) col.width = 20
+      else if (i === days.length + 1) col.width = 12
+      else col.width = 4
+    })
+
+    const buf = await wb.xlsx.writeBuffer()
+    saveAs(new Blob([buf]), `Timesheet_${activeProject?.name}_${MONTH_NAMES[month]}_${year}.xlsx`)
+  }
+
+  const handleSignWithDraw = async (dataUrl) => {
     setSignatureImage(dataUrl)
     setSignedTimestamp(getTimestamp())
     setSigned(true)
     setSigning(false)
+    await saveSignatureToFirestore(dataUrl, 'draw')
   }
 
-  const handleSignWithType = () => {
+  const handleSignWithType = async () => {
     if (!signatureText.trim()) return
     setSignedTimestamp(getTimestamp())
     setSigned(true)
     setSigning(false)
+    await saveSignatureToFirestore(null, 'type')
   }
 
-  const handleUpload = (e) => {
+  const handleUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       setSignatureImage(ev.target.result)
       setSignedTimestamp(getTimestamp())
       setSigned(true)
       setSigning(false)
+      await saveSignatureToFirestore(ev.target.result, 'upload')
     }
     reader.readAsDataURL(file)
   }
@@ -241,7 +344,19 @@ export default function ClientTimesheetApproval() {
     setReminderSent(prev => new Set(prev).add(engId))
   }
 
-  const ceoTimestamp = 'April 20, 2026, 02:15:30 PM (AST)'
+  const ceoTimestamp = timesheet?.cto_action_at?.toDate ? timesheet.cto_action_at.toDate().toLocaleString('en-US') : 'Pending'
+
+  if (invalidToken) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f6f8' }}>
+        <div style={{ textAlign: 'center', background: 'white', padding: 40, borderRadius: 8, border: '1px solid #ddd' }}>
+          <ShieldCheck size={48} color="#C0392B" style={{ margin: '0 auto 16px' }} />
+          <h2 style={{ fontSize: '1.2rem', color: '#333' }}>Invalid or Expired Link</h2>
+          <p style={{ color: '#666', marginTop: 8 }}>This timesheet approval link is no longer valid.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6f8', fontFamily: "'Inter', 'DM Sans', sans-serif" }}>
@@ -344,10 +459,15 @@ export default function ClientTimesheetApproval() {
         {/* ── Timesheet Document (only visible when all submitted) ── */}
         {allSubmitted ? (
           <>
-            <div style={{
+            <div id="timesheet-print-container" style={{
               background: 'white', border: '1px solid #ddd', borderRadius: 8,
               boxShadow: '0 2px 20px rgba(0,0,0,0.08)', color: '#333',
             }}>
+              {Array.from({ length: Math.ceil(attendanceData.length / 8) || 1 }).map((_, pageIdx) => {
+                const chunk = attendanceData.slice(pageIdx * 8, (pageIdx + 1) * 8)
+                const isLastPage = pageIdx === Math.ceil(attendanceData.length / 8) - 1
+                return (
+                  <div key={pageIdx} className="timesheet-page" style={{ pageBreakAfter: isLastPage ? 'auto' : 'always', paddingBottom: 24 }}>
               {/* Document Header */}
               <div style={{ padding: '24px 32px', position: 'relative' }}>
                 <div style={{ position: 'absolute', top: 16, right: 32, fontFamily: 'var(--font-mono, monospace)', fontSize: '0.75rem', color: '#64748b' }}>
@@ -357,14 +477,14 @@ export default function ClientTimesheetApproval() {
                   <div><img src="/images/logo-dark.svg" alt="Datalake" style={{ height: 50 }} /></div>
                   <div style={{ flex: 1, textAlign: 'center' }}>
                     <h1 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1B6B93', letterSpacing: '0.02em' }}>
-                      Timesheet {activeProject?.name.split('—')[0].trim().toUpperCase()} PROJECT
+                      Timesheet {activeProject?.name?.toUpperCase()}
                     </h1>
                   </div>
                   <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#333' }}>{year}</div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1B6B93' }}>إمكان</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1B6B93' }}>{clientProfile.company_ar || clientProfile.company}</div>
                     <div style={{ fontSize: '0.82rem', color: '#64748b' }}>{clientProfile.company}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -426,7 +546,7 @@ export default function ClientTimesheetApproval() {
                     </tr>
                   </thead>
                   <tbody>
-                    {attendanceData.map(eng => (
+                    {chunk.map(eng => (
                       <tr key={eng.id}>
                         <td style={{ padding: '6px 10px', fontWeight: 600, fontSize: '0.78rem', borderBottom: '1px solid #eee', color: '#444', whiteSpace: 'nowrap' }}>
                           {eng.role}
@@ -447,7 +567,9 @@ export default function ClientTimesheetApproval() {
                 </table>
               </div>
 
-              {/* ─── Dual Signature Block ─── */}
+              {/* ─── Dual Signature Block (Only on last page) ─── */}
+              {isLastPage && (
+              <>
               <div style={{ padding: '40px 32px 24px', display: 'flex', justifyContent: 'space-around', gap: 60 }}>
                 {/* Datalake — Pre-signed */}
                 <div style={{ textAlign: 'center', flex: 1 }}>
@@ -471,7 +593,7 @@ export default function ClientTimesheetApproval() {
 
                 {/* Client — Sign Here */}
                 <div style={{ textAlign: 'center', flex: 1 }}>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: 2 }}>{clientProfile.company} Finance Company</div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: 2 }}>{clientProfile.company}</div>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: 4 }}>Approved by</div>
                   <div style={{ fontSize: '0.85rem', color: '#333', marginBottom: 12 }}>{clientProfile.contactName}</div>
                   <div style={{
@@ -582,21 +704,32 @@ export default function ClientTimesheetApproval() {
               }}>
                 Datalake Saudi Arabia, Riyadh 13243 Rajeh Street, CR:109194773 UEN:7048904952
               </div>
+              </>
+              )}
+                  </div>
+                )
+              })}
             </div>
 
-            {/* Action buttons */}
             <div style={{ maxWidth: 1100, margin: '16px auto', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               {signed && (
                 <>
-                  <button style={{ padding: '6px 16px', border: '1px solid #ccc', borderRadius: 6, background: 'white', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Printer size={14} /> Print
+                  <button onClick={() => window.print()} style={{ padding: '6px 16px', border: '1px solid #ccc', borderRadius: 6, background: 'white', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Printer size={14} /> Print / Export PDF
                   </button>
-                  <button style={{
+                  <button onClick={handleExportExcel} style={{
                     padding: '6px 16px', border: 'none', borderRadius: 6,
-                    background: '#1B6B93', color: 'white', cursor: 'pointer',
+                    background: '#27ae60', color: 'white', cursor: 'pointer',
                     fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
                   }}>
-                    <Download size={14} /> Download Signed PDF
+                    <Download size={14} /> Export to Excel
+                  </button>
+                  <button onClick={() => window.open(timesheet.signed_pdf_url, '_blank')} disabled={!timesheet?.signed_pdf_url} style={{
+                    padding: '6px 16px', border: 'none', borderRadius: 6,
+                    background: timesheet?.signed_pdf_url ? '#1B6B93' : '#ccc', color: 'white', cursor: timesheet?.signed_pdf_url ? 'pointer' : 'default',
+                    fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <Download size={14} /> Download Signed Record
                   </button>
                 </>
               )}
@@ -610,7 +743,7 @@ export default function ClientTimesheetApproval() {
               }}>
                 <CheckCircle size={16} />
                 Document signed and archived for both <strong>{clientProfile.company}</strong> and <strong>Datalake SA</strong>.
-                The CEO has been notified and an invoice will be generated against PO #{activeProject?.pos[0]?.number.replace('PO-', '')}.
+                Management has been notified and an invoice will be generated against PO #{activeProject?.pos[0]?.number.replace('PO-', '')}.
               </div>
             )}
           </>

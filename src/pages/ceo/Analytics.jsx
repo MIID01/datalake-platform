@@ -1,4 +1,6 @@
-import { analyticsData } from '../../data/mockCEO'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { useCountUp } from '../../hooks/useUtils'
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell,
@@ -33,6 +35,30 @@ function GaugeKPI({ value, target, label }) {
 }
 
 export default function Analytics() {
+  const [analyticsData, setAnalyticsData] = useState(null)
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'analytics'), snap => {
+      if (snap.empty) {
+        setAnalyticsData(null)
+        return
+      }
+      setAnalyticsData(snap.docs[0].data())
+    }, (err) => {
+      console.warn('analytics listener error:', err.message)
+      setAnalyticsData(null)
+    })
+    return () => unsub()
+  }, [])
+
+  if (!analyticsData) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 24 }}>Analytics</h1>
+        <p>No data available (Collection empty)</p>
+      </div>
+    )
+  }
+
   return (
     <div>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 24 }}>Analytics</h1>

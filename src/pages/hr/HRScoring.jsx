@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ShieldCheck, Send, User, Briefcase, MapPin, Clock, DollarSign, Phone, Star, Loader, LogOut, ChevronDown } from 'lucide-react'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { db, auth, SUBMIT_HR_SCORE_URL } from '../../lib/firebase'
+import { ShieldCheck, Send, User, Briefcase, MapPin, Clock, DollarSign, Phone, Star, Loader, LogOut, Printer, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react'
+import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore'
+import { db, auth, SUBMIT_HR_SCORE_URL, UPDATE_CANDIDATE_STAGE_URL } from '../../lib/firebase'
 import { signIn, signOut, onAuthChange } from '../../lib/auth'
 
 const criteriaConfig = [
@@ -41,15 +41,21 @@ export default function HRScoring() {
   const [submitResult, setSubmitResult] = useState(null)
   const [submitError, setSubmitError] = useState('')
 
+  const [overriding, setOverriding] = useState(false)
+
   useEffect(() => { return onAuthChange(u => { setUser(u); setAuthLoading(false) }) }, [])
 
-  // Load candidates from Firestore
+  // Load candidates — APPLIED and SCREENED states, newest first
   useEffect(() => {
     if (!user) return
     try {
-      const q = query(collection(db, 'talent_pool'), where('state', 'in', ['PENDING_CONSENT', 'ACTIVE_POOL_YEAR_1', 'ACTIVE_POOL_YEAR_2']))
+      const q = query(
+        collection(db, 'talent_pool'),
+        where('state', 'in', ['APPLIED', 'SCREENED']),
+        orderBy('applied_at', 'desc')
+      )
       const unsub = onSnapshot(q, snap => {
-        setCandidates(snap.docs.filter(d => !d.data().hr_score).map(d => ({ id: d.id, ...d.data() })))
+        setCandidates(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       }, err => console.warn('Candidate listener error:', err.message))
       return () => unsub()
     } catch (err) { console.warn('Candidate listener setup skipped:', err.message) }
@@ -59,6 +65,8 @@ export default function HRScoring() {
     setAuthError('')
     try { await signIn() } catch (err) { setAuthError(err.message) }
   }
+
+  const [hrInterviewNotes, setHrInterviewNotes] = useState('')
 
   const updateScore = (key, value) => setScores(prev => ({ ...prev, [key]: value }))
   const updateNotes = (key, value) => setNotes(prev => ({ ...prev, [key]: value }))
@@ -76,7 +84,7 @@ export default function HRScoring() {
   const allScored = criteriaConfig.every(c => scores[c.key])
   const allNoted = criteriaConfig.every(c => notes[c.key]?.trim())
   const hasFailure = criteriaConfig.some(c => c.type === 'passfail' && scores[c.key] === 'FAIL')
-  const canSubmit = allScored && allNoted && !submitted && !submitting && selectedCandidate
+  const canSubmit = allScored && allNoted && hrInterviewNotes.trim() && !submitted && !submitting && selectedCandidate
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -86,6 +94,7 @@ export default function HRScoring() {
       const idToken = await auth.currentUser.getIdToken()
       const payload = {
         candidate_id: selectedCandidate.id,
+        hr_interview_notes: hrInterviewNotes,
         scores: criteriaConfig.map(c => ({
           criterion: c.key,
           raw_score: c.type === 'scale' ? scores[c.key] : undefined,
@@ -105,6 +114,21 @@ export default function HRScoring() {
     } catch (err) {
       setSubmitError(err.message)
     } finally { setSubmitting(false) }
+  }
+
+  const handleOverride = async () => {
+    if (!submitResult || overriding) return
+    setOverriding(true)
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      await fetch(UPDATE_CANDIDATE_STAGE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ candidate_id: selectedCandidate.id, new_state: 'SHORTLISTED', notes: `HR override requested. Score: ${submitResult.hr_score}/100. ${hrInterviewNotes}` }),
+      })
+      setSubmitResult(prev => ({ ...prev, override_requested: true }))
+    } catch (err) { setSubmitError(err.message) }
+    setOverriding(false)
   }
 
   // Auth loading
@@ -199,8 +223,14 @@ export default function HRScoring() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                     <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#333', margin: 0 }}>{cand.full_name || 'Unnamed'}</h2>
                     <span style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: '#64748b', background: '#f0f0f0', padding: '2px 8px', borderRadius: 4 }}>{cand.id}</span>
-                    <button onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setSubmitted(false); setSubmitResult(null) }} style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#1598CC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>← Change candidate</button>
+                    <button onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setHrInterviewNotes(''); setSubmitted(false); setSubmitResult(null) }} style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#1598CC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>← Change candidate</button>
+                    <button onClick={() => window.print()} style={{ fontSize: '0.75rem', color: '#475569', background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={13} /> Print</button>
                   </div>
+                  {cand.consent_granted_at && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: '0.72rem', color: '#27ae60', background: '#e8fbe5', padding: '4px 10px', borderRadius: 6, border: '1px solid #b7e8bc' }}>
+                      <ShieldCheck size={12} /> PDPL Art. 5 consent obtained on {cand.consent_granted_at?.toDate ? cand.consent_granted_at.toDate().toLocaleDateString('en-SA') : new Date(cand.consent_granted_at?.seconds * 1000 || cand.consent_granted_at).toLocaleDateString('en-SA')}
+                    </div>
+                  )}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px 20px', fontSize: '0.82rem', color: '#475569' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Briefcase size={14} color="#888" /> {cand.role_interest || 'No role'}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={14} color="#888" /> {cand.location || 'Unknown'}</div>
@@ -280,22 +310,49 @@ export default function HRScoring() {
               </div>
             </div>
 
+            {/* Overall Interview Notes - required */}
+            <div style={{ background: 'white', border: '2px solid #f0a500', borderRadius: 8, padding: '20px 28px', marginBottom: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#333', marginBottom: 4 }}>Overall Interview Notes <span style={{ color: '#C0392B' }}>*</span> <span style={{ fontWeight: 400, fontSize: '0.72rem', color: '#64748b' }}>Required per DTLK-OPS-PRC-002</span></div>
+              <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 10 }}>Summarise the candidate's overall performance, key observations, and recommendation.</div>
+              <textarea value={hrInterviewNotes} onChange={e => !submitted && setHrInterviewNotes(e.target.value)} placeholder="Required — Provide overall interview assessment and recommendation..." disabled={submitted} rows={4} style={{ width: '100%', padding: '10px 14px', border: hrInterviewNotes.trim() ? '1px solid #27ae60' : '1px solid #f0a500', borderRadius: 6, fontSize: '0.85rem', fontFamily: 'inherit', resize: 'vertical', outline: 'none', color: '#333', background: submitted ? '#f9f9f9' : 'white', boxSizing: 'border-box' }} />
+            </div>
+
             {/* Submit Panel */}
             <div style={{ background: 'white', border: '1px solid #e0e0e0', borderRadius: 8, padding: '20px 28px', marginBottom: 20 }}>
               {submitted && submitResult ? (
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '2rem', marginBottom: 8 }}>{submitResult.passed ? '✅' : '❌'}</div>
-                  <div style={{ fontSize: '1rem', fontWeight: 700, color: submitResult.passed ? '#27ae60' : '#C0392B', marginBottom: 4 }}>
-                    {submitResult.passed ? 'Candidate Advances' : 'Candidate Archived'}
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: 8 }}>{submitResult.message}</div>
-                  <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Score: <strong>{submitResult.hr_score}/100</strong></div>
-                  {submitResult.hard_fail && (
-                    <div style={{ marginTop: 12, padding: '8px 16px', background: '#fde8e8', borderRadius: 6, border: '1px solid #C0392B', fontSize: '0.78rem', color: '#C0392B', fontWeight: 600 }}>
-                      ⚠️ Hard fail: {submitResult.hard_fail_reason?.replace(/_/g, ' ')}
-                    </div>
+                  {submitResult.next_action === 'SHORTLISTED' && (
+                    <>
+                      <div style={{ fontSize: '2rem', marginBottom: 8 }}>✅</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#27ae60', marginBottom: 4 }}>Candidate Shortlisted</div>
+                      <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: 12 }}>{submitResult.message}</div>
+                      <a href="/hr/interview-prep" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#1598CC', color: '#fff', borderRadius: 8, fontWeight: 600, fontSize: '0.85rem', textDecoration: 'none' }}>Go to Interview Prep <ArrowRight size={14} /></a>
+                    </>
                   )}
-                  <button onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setSubmitted(false); setSubmitResult(null) }} style={{ marginTop: 16, padding: '10px 24px', border: 'none', borderRadius: 8, background: '#2C5F7C', color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Score Another Candidate</button>
+                  {submitResult.next_action === 'BELOW_THRESHOLD' && !submitResult.override_requested && (
+                    <>
+                      <div style={{ fontSize: '2rem', marginBottom: 8 }}>⚠️</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#E8913A', marginBottom: 4 }}>Below Threshold — {submitResult.hr_score}/100</div>
+                      <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: 16 }}>Score is below the 70/100 threshold. Request Management override to shortlist anyway?</div>
+                      <button onClick={handleOverride} disabled={overriding} style={{ padding: '10px 20px', background: '#E8913A', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: overriding ? 'default' : 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 8 }}>{overriding ? <><Loader size={14} className="spin" /> Sending...</> : 'Request Management override'}</button>
+                    </>
+                  )}
+                  {submitResult.next_action === 'BELOW_THRESHOLD' && submitResult.override_requested && (
+                    <>
+                      <div style={{ fontSize: '2rem', marginBottom: 8 }}>📨</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#1598CC', marginBottom: 4 }}>Override Request Sent</div>
+                      <div style={{ fontSize: '0.85rem', color: '#475569' }}>Management will review in TaskInbox and approve or reject.</div>
+                    </>
+                  )}
+                  {submitResult.next_action === 'REJECTED' && (
+                    <>
+                      <div style={{ fontSize: '2rem', marginBottom: 8 }}>❌</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#C0392B', marginBottom: 4 }}>Candidate Rejected — Hard Fail</div>
+                      <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: 8 }}>{submitResult.message}</div>
+                      <div style={{ fontSize: '0.78rem', padding: '8px 16px', background: '#fde8e8', border: '1px solid #C0392B', borderRadius: 6, color: '#C0392B', fontWeight: 600 }}>⚠️ Hard fail: {submitResult.hard_fail_reason?.replace(/_/g, ' ')}</div>
+                    </>
+                  )}
+                  <button onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setHrInterviewNotes(''); setSubmitted(false); setSubmitResult(null) }} style={{ marginTop: 20, padding: '10px 24px', border: 'none', borderRadius: 8, background: '#2C5F7C', color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Score Another Candidate</button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -307,7 +364,8 @@ export default function HRScoring() {
                     <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 4 }}>
                       {!allScored && '⚠ All criteria must be scored'}
                       {allScored && !allNoted && ' · ⚠ All criteria require written notes'}
-                      {allScored && allNoted && '✓ Ready to submit'}
+                        {allScored && allNoted && !hrInterviewNotes.trim() && ' · ⚠ Overall interview notes required'}
+                        {allScored && allNoted && hrInterviewNotes.trim() && '✓ Ready to submit'}
                     </div>
                     {submitError && <div style={{ fontSize: '0.78rem', color: '#C0392B', marginTop: 4 }}>{submitError}</div>}
                   </div>

@@ -2,11 +2,12 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   Inbox, AlertTriangle, CheckCircle, Clock, Filter, ChevronDown, Bot,
   ArrowRight, XCircle, Eye, Zap, Shield, FileSignature, Bell,
-  ExternalLink, Plus, ClipboardCheck
+  ExternalLink, Plus, ClipboardCheck, Lock
 } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { unifiedTasks, taskCategories, taskPriorities, taskInboxStats } from '../../data/mockTasks'
+import { db, auth } from '../../lib/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
+import { taskCategories, taskPriorities } from '../../data/constants'
 import TaskCreationModal from '../../components/TaskCreationModal'
 
 const PORTAL_COLORS = {
@@ -88,11 +89,17 @@ function CategoryIcon({ category }) {
 
 // Normalize a Firestore task to the shape used by the UI
 function normalizeTask(task) {
-  const isFirestore = !!task.task_id
-  if (!isFirestore) return task // mock task, already correct shape
+  if (!task.task_id && task.id) return task // already normalized
 
-  const dueDate = task.due_at?.toDate ? task.due_at.toDate() : new Date(task.due_at)
-  const isOverdue = task.state === 'OPEN' && dueDate < new Date()
+  const rawDue = task.due_at?.toDate ? task.due_at.toDate() : task.due_at ? new Date(task.due_at) : null
+  const dueDate = rawDue && !isNaN(rawDue.getTime()) ? rawDue : null
+  const isOverdue = task.state === 'OPEN' && dueDate && dueDate < new Date()
+
+  const safeISO = (val) => {
+    if (!val) return null
+    const d = val?.toDate ? val.toDate() : new Date(val)
+    return d && !isNaN(d.getTime()) ? d.toISOString() : null
+  }
 
   return {
     id: task.task_id,
@@ -104,10 +111,10 @@ function normalizeTask(task) {
     source_agent: task.creation_method === 'MANUAL' ? 'CEO (Manual)' : 'System',
     source_module: task.task_type?.replace(/_/g, ' ') || 'Task',
     assigned_to: task.assigned_to_id || task.assigned_to_role?.replace(/_/g, ' ') || task.assigned_to_type?.replace(/_/g, ' ') || 'Unassigned',
-    created_at: task.created_at?.toDate ? task.created_at.toDate().toISOString() : task.created_at,
-    due_at: dueDate.toISOString(),
+    created_at: safeISO(task.created_at),
+    due_at: dueDate ? dueDate.toISOString() : null,
     status: task.state === 'COMPLETED' ? 'COMPLETED' : isOverdue ? 'OVERDUE' : task.state || 'OPEN',
-    completed_at: task.completed_at?.toDate ? task.completed_at.toDate().toISOString() : task.completed_at,
+    completed_at: safeISO(task.completed_at),
     actions: task.state === 'COMPLETED' ? [] : ['Acknowledge', 'Escalate'],
     reference_id: task.task_id,
     _live: true,
@@ -123,20 +130,56 @@ export default function TaskInbox() {
   const [actionToast, setActionToast] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [liveTasks, setLiveTasks] = useState([])
+  const [authReady, setAuthReady] = useState(false)
+  const [authError, setAuthError] = useState(null)
 
-  // Firestore real-time listener
+  // Gate the Firestore listener on confirmed auth state.
+  // Attaching the snapshot before auth is resolved causes Firestore to
+  // evaluate security rules with no token → silent permission-denied error.
   useEffect(() => {
-    try {
-      const q = query(collection(db, 'tasks'), orderBy('created_at', 'desc'))
-      const unsub = onSnapshot(q, (snapshot) => {
-        const taskList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-        setLiveTasks(taskList)
-      }, (err) => {
-        console.warn('Tasks listener error (expected if not authenticated):', err.message)
-      })
-      return () => unsub()
-    } catch (err) {
-      console.warn('Tasks listener setup skipped:', err.message)
+    let unsubSnapshot = null
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      // Tear down any previous snapshot if user changed
+      if (unsubSnapshot) { unsubSnapshot(); unsubSnapshot = null }
+
+      if (!user) {
+        setAuthReady(true)
+        setLiveTasks([])
+        setAuthError('Not signed in — please refresh and sign in.')
+        return
+      }
+
+      setAuthError(null)
+      setAuthReady(true)
+
+      try {
+        const q = query(collection(db, 'tasks'), orderBy('created_at', 'desc'))
+        unsubSnapshot = onSnapshot(
+          q,
+          (snapshot) => {
+            const taskList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+            setLiveTasks(taskList)
+            setAuthError(null)
+          },
+          (err) => {
+            console.error('Tasks listener error:', err.code, err.message)
+            if (err.code === 'permission-denied') {
+              setAuthError('Permission denied — your account may not have CEO or CTO access.')
+            } else {
+              setAuthError(`Failed to load tasks: ${err.message}`)
+            }
+          }
+        )
+      } catch (err) {
+        console.error('Tasks listener setup error:', err.message)
+        setAuthError(`Failed to start tasks listener: ${err.message}`)
+      }
+    })
+
+    return () => {
+      unsubAuth()
+      if (unsubSnapshot) unsubSnapshot()
     }
   }, [])
 
@@ -157,13 +200,9 @@ export default function TaskInbox() {
   }
 
   const allTasks = useMemo(() => {
-    // Merge: live Firestore tasks first, then mock tasks (excluding any with matching IDs)
+    // Live Firestore tasks only — no mock fallback
     const normalizedLive = liveTasks.map(normalizeTask)
-    const liveIds = new Set(normalizedLive.map(t => t.id))
-    const mockFallback = unifiedTasks.filter(t => !liveIds.has(t.id))
-
-    const merged = [...normalizedLive, ...mockFallback]
-    return merged.map(t => ({
+    return normalizedLive.map(t => ({
       ...t,
       status: completedIds.has(t.id) ? 'COMPLETED' : t.status,
       completed_at: completedIds.has(t.id) ? new Date().toISOString() : t.completed_at,
@@ -227,6 +266,20 @@ export default function TaskInbox() {
         </div>
       )}
 
+      {/* Auth / Permission Error Banner */}
+      {authError && (
+        <div className="animate-fade-in-up" style={{ padding: '12px 20px', background: 'rgba(192,57,43,0.1)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 'var(--radius-md)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: '#C0392B' }}>
+          <Lock size={16} /> {authError}
+        </div>
+      )}
+
+      {/* Auth initialising notice */}
+      {!authReady && !authError && (
+        <div style={{ padding: '10px 16px', background: 'rgba(21,152,204,0.08)', border: '1px solid rgba(21,152,204,0.2)', borderRadius: 'var(--radius-md)', marginBottom: 16, fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
+          Connecting to live task stream…
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         {[
@@ -285,9 +338,17 @@ export default function TaskInbox() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {filteredTasks.length === 0 && (
           <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-tertiary)' }}>
-            <ClipboardCheck size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
-            <div style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>No tasks yet</div>
-            <div style={{ fontSize: '0.82rem' }}>Create your first task using the "New Task" button above</div>
+            {authError
+              ? <><Lock size={40} style={{ marginBottom: 12, opacity: 0.4, color: '#C0392B' }} />
+                  <div style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 6, color: '#C0392B' }}>Access error</div>
+                  <div style={{ fontSize: '0.82rem' }}>{authError}</div></>
+              : !authReady
+                ? <><ClipboardCheck size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                    <div style={{ fontSize: '0.82rem' }}>Connecting…</div></>
+                : <><ClipboardCheck size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                    <div style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>No tasks yet</div>
+                    <div style={{ fontSize: '0.82rem' }}>Create your first task using the "New Task" button above</div></>
+            }
           </div>
         )}
 

@@ -1,16 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Loader, UserPlus, ChevronDown } from 'lucide-react'
-import { auth, ASSIGN_ENGINEER_URL } from '../lib/firebase'
-
-const ENGINEERS = [
-  { id:'ENG-001', name:'Mohammed Al-Fahad', email:'mohammed@datalake.sa' },
-  { id:'ENG-002', name:'Fatimah Al-Harbi', email:'fatimah@datalake.sa' },
-  { id:'ENG-003', name:'Ahmad Al-Otaibi', email:'ahmad@datalake.sa' },
-]
+import { auth, db, ASSIGN_ENGINEER_URL } from '../lib/firebase'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 
 export default function AssignEngineerModal({ project, onClose, onAssigned }) {
   const startDefault = project.start_date?.toDate ? project.start_date.toDate().toISOString().split('T')[0] : ''
   const endDefault = project.end_date?.toDate ? project.end_date.toDate().toISOString().split('T')[0] : ''
+
+  const [engineers, setEngineers] = useState([])
+  const [loadingEngs, setLoadingEngs] = useState(true)
+  
+  useEffect(() => {
+    const fetchEngs = async () => {
+      try {
+        const q = query(collection(db, 'employees'), where('type', '==', 'deployed'))
+        const snap = await getDocs(q)
+        setEngineers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      } catch (err) { console.warn(err) }
+      setLoadingEngs(false)
+    }
+    fetchEngs()
+  }, [])
 
   const [form, setForm] = useState({
     engineer_id:'', role_on_project:'', assignment_start_date:startDefault,
@@ -20,8 +30,9 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
   const [error, setError] = useState('')
   const u = (k,v) => setForm(p=>({...p,[k]:v}))
 
-  const selectedEng = ENGINEERS.find(e=>e.id===form.engineer_id)
+  const selectedEng = engineers.find(e=>e.employee_id===form.engineer_id || e.id === form.engineer_id)
   const canSubmit = form.engineer_id && form.role_on_project && form.assignment_start_date && form.assignment_end_date && !submitting
+
 
   const handleSubmit = async () => {
     if (!canSubmit || !selectedEng) return
@@ -72,8 +83,8 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
             <label style={st.label}>Engineer *</label>
             <div style={{position:'relative'}}>
               <select style={{...st.input,appearance:'none',cursor:'pointer'}} value={form.engineer_id} onChange={e=>u('engineer_id',e.target.value)}>
-                <option value="">Select engineer...</option>
-                {ENGINEERS.map(e=><option key={e.id} value={e.id}>{e.name} ({e.id})</option>)}
+                <option value="">{loadingEngs ? 'Loading employees...' : 'Select engineer...'}</option>
+                {engineers.map(e=><option key={e.id} value={e.id}>{e.full_name} ({e.employee_id})</option>)}
               </select>
               <ChevronDown size={16} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',color:'#8898aa',pointerEvents:'none'}} />
             </div>

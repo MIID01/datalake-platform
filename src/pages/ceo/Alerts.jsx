@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { notifications } from '../../data/mockCEO'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { Bell, AlertTriangle, Info, CheckCircle, Filter, Eye } from 'lucide-react'
 
 const priorityConfig = {
@@ -10,8 +11,15 @@ const priorityConfig = {
 }
 
 export default function Alerts() {
-  const [items, setItems] = useState(notifications)
+  const [items, setItems] = useState([])
   const [filter, setFilter] = useState('All')
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'notifications'), snap => {
+      setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
 
   const filtered = filter === 'All' ? items : items.filter(n => n.priority === filter.toLowerCase())
   const unreadCount = items.filter(n => !n.read).length

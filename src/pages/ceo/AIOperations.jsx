@@ -5,7 +5,42 @@ import {
   ArrowRight, CircleDot, X, DollarSign, RefreshCw
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { agents, TIERS, STATUSES, DOMAINS, registryStats, budgetByDomain } from '../../data/mockAgents'
+import { useState as useStateImport, useEffect as useEffectImport } from 'react'
+import { collection, onSnapshot, query } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
+import { TIERS, STATUSES, DOMAINS } from '../../data/constants'
+
+// Live Firestore data — falls back to empty arrays when collection is empty
+function useAgentData() {
+  const [agents, setAgents] = useStateImport([])
+  const [registryStats, setRegistryStats] = useStateImport({ activeAgents: 0, totalAgents: 0, domainsOccupied: 0, avgUptime: 0, totalSpendMtd: 0, totalBudgetSar: 1 })
+  const [budgetByDomain, setBudgetByDomain] = useStateImport([])
+  useEffectImport(() => {
+    try {
+      const q = query(collection(db, 'ai_agents'))
+      const unsub = onSnapshot(q, (snap) => {
+        const list = snap.docs.map(d => ({ agent_id: d.id, ...d.data() }))
+        setAgents(list)
+        const active = list.filter(a => a.status === 'ACTIVE')
+        const totalSpend = list.reduce((s, a) => s + (a.cost_mtd || 0), 0)
+        const totalBudget = list.reduce((s, a) => s + (a.monthly_budget_sar || 0), 0) || 1
+        const avgUp = list.length ? Math.round(list.reduce((s, a) => s + (a.uptime || 0), 0) / list.length) : 0
+        const occupiedDomains = new Set(list.filter(a => a.tier === 'SENIOR').map(a => a.domain)).size
+        setRegistryStats({ activeAgents: active.length, totalAgents: list.length, domainsOccupied: occupiedDomains, avgUptime: avgUp, totalSpendMtd: totalSpend, totalBudgetSar: totalBudget })
+        const domainMap = {}
+        list.forEach(a => {
+          const d = a.domain || 'UNKNOWN'
+          if (!domainMap[d]) domainMap[d] = { domain: d, spend: 0, budget: 0 }
+          domainMap[d].spend += a.cost_mtd || 0
+          domainMap[d].budget += a.monthly_budget_sar || 0
+        })
+        setBudgetByDomain(Object.values(domainMap))
+      }, (err) => console.warn('ai_agents listener error:', err.message))
+      return () => unsub()
+    } catch (err) { console.warn('ai_agents setup skipped:', err.message) }
+  }, [])
+  return { agents, registryStats, budgetByDomain }
+}
 
 const TABS = ['Grid View', 'Domain Coverage', 'Budget & Cost']
 
@@ -73,6 +108,7 @@ function ResultIcon({ result }) {
 }
 
 export default function AIOperations() {
+  const { agents, registryStats, budgetByDomain } = useAgentData()
   const [activeTab, setActiveTab] = useState(0)
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [commandModal, setCommandModal] = useState(null)

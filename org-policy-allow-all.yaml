@@ -1,0 +1,4 @@
+constraint: constraints/iam.allowedPolicyMemberDomains
+spec:
+  rules:
+  - allowAll: true

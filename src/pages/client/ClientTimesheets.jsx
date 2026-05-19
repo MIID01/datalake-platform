@@ -1,13 +1,21 @@
-import { useState } from 'react'
-import { clientTimesheets } from '../../data/mockClient'
+import { useState, useEffect } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 import { CheckCircle, XCircle, Eye, Calendar } from 'lucide-react'
 
 const statusColors = { 'Pending Approval': 'badge-warning', Approved: 'badge-success', Rejected: 'badge-critical' }
 
 export default function ClientTimesheets() {
-  const [items, setItems] = useState(clientTimesheets)
+  const [items, setItems] = useState([])
   const [filter, setFilter] = useState('All')
   const [detailItem, setDetailItem] = useState(null)
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'client_timesheets'), snap => {
+      setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return () => unsub()
+  }, [])
 
   const filtered = filter === 'All' ? items : items.filter(t => t.status === filter)
   const pendingCount = items.filter(t => t.status === 'Pending Approval').length

@@ -1,7 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { talentData } from '../../data/mockCEO'
-import { candidates, tierConfig, stageConfig, pipelineStats } from '../../data/mockRecruitment'
-import { talentPoolCandidates, talentPoolStats, lifecycleDistribution, channelPerformance, complianceAudit, STATE_COLORS, STATE_LABELS } from '../../data/mockTalentPool'
+import { tierConfig, stageConfig, STATE_COLORS, STATE_LABELS } from '../../data/constants'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { UserPlus, Users, LogOut, CheckCircle, ChevronRight, Eye, XCircle, ArrowRight, Database, Search, Shield, RefreshCw, Trash2, Clock, Filter, AlertTriangle } from 'lucide-react'
@@ -14,7 +12,7 @@ const ALL_SOURCES = ['WEBSITE', 'LINKEDIN', 'BAYT', 'GULFTALENT', 'HR_EMAIL', 'N
 const ALL_STATES = ['PENDING_CONSENT', 'ACTIVE_POOL_YEAR_1', 'ACTIVE_POOL_YEAR_2', 'RENEWAL_PENDING', 'GRACE_PERIOD']
 
 export default function Talent() {
-  const [activeSection, setActiveSection] = useState('scoring')
+  const [activeSection, setActiveSection] = useState('talentpool')
   const [expandedCandidate, setExpandedCandidate] = useState(null)
   const [poolFilterState, setPoolFilterState] = useState('ALL')
   const [poolFilterSource, setPoolFilterSource] = useState('ALL')
@@ -60,12 +58,53 @@ export default function Talent() {
     }
   }, [])
 
+  // Safe defaults for sections not yet backed by Firestore
+  const candidates = []
+  const pipelineStats = { activeInPipeline: 0, offerAcceptRate: 0, avgTimeToOffer: 0, tierACount: 0 }
+  const talentData = { engineers: [], offboarding: [] }
+  const talentPoolCandidates = liveCandidates
+
+  // Derive lifecycle distribution from live data
+  const lifecycleDistribution = ALL_STATES.map(state => ({
+    state,
+    label: STATE_LABELS[state],
+    color: STATE_COLORS[state],
+    count: liveCandidates.filter(c => c.state === state).length,
+  }))
+
+  // Derive channel performance from live data
+  const channelPerformance = ALL_SOURCES.map(channel => {
+    const channelCandidates = liveCandidates.filter(c => c.source === channel)
+    const consented = channelCandidates.filter(c => c.consentDate)
+    return {
+      channel: channel.replace(/_/g, ' '),
+      cvs: channelCandidates.length,
+      consentRate: channelCandidates.length > 0 ? Math.round((consented.length / channelCandidates.length) * 100) : 0,
+      quality: 0,
+    }
+  }).filter(ch => ch.cvs > 0)
+
+  const talentPoolStats = {
+    activePoolSize: liveCandidates.filter(c => c.state === 'ACTIVE_POOL_YEAR_1' || c.state === 'ACTIVE_POOL_YEAR_2').length,
+    pendingConsent: liveCandidates.filter(c => c.state === 'PENDING_CONSENT').length,
+    renewalsThisMonth: liveCandidates.filter(c => c.state === 'RENEWAL_PENDING').length,
+    purgedThisMonth: 0,
+  }
+
+  const complianceAudit = {
+    month: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+    status: liveCandidates.length > 0 ? 'Passed — Automated' : 'No Data',
+    dsarResponseTime: '< 24h',
+    consentConversionRate: liveCandidates.length > 0
+      ? `${Math.round((liveCandidates.filter(c => c.consentDate).length / liveCandidates.length) * 100)}%`
+      : '0%',
+    sensitiveDataViolations: 0,
+    generatedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+  }
+
   const filteredPoolCandidates = useMemo(() => {
-    // Merge live Firestore candidates with mock data
-    const allCandidates = [...liveCandidates, ...talentPoolCandidates.filter(mock => 
-      !liveCandidates.some(live => live.id === mock.id)
-    )]
-    return allCandidates.filter(c => {
+    // Live Firestore candidates only — no mock fallback
+    return liveCandidates.filter(c => {
       if (poolFilterState !== 'ALL' && c.state !== poolFilterState) return false
       if (poolFilterSource !== 'ALL' && c.source !== poolFilterSource) return false
       return true

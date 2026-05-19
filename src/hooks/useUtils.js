@@ -80,3 +80,21 @@ export function useUndoAction(delay = 5000) {
 
   return { pending, execute, undo }
 }
+
+export function formatDate(dateStringOrTimestamp) {
+  if (!dateStringOrTimestamp) return ''
+  const date = dateStringOrTimestamp.toDate ? dateStringOrTimestamp.toDate() : new Date(dateStringOrTimestamp)
+  return date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  })
+}
+
+export function formatCurrency(amount) {
+  if (amount == null) return 'SAR 0.00'
+  return new Intl.NumberFormat('en-SA', {
+    style: 'currency',
+    currency: 'SAR',
+  }).format(amount).replace('SAR', 'SAR ')
+}

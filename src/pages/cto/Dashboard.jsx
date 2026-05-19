@@ -27,7 +27,7 @@ export default function CTODashboard() {
 
   const kpis = [
     { label: 'Pending Review', value: stats.pending, icon: ClipboardCheck, color: '#EF5829', accent: stats.pending > 0 },
-    { label: 'Escalated to CEO', value: stats.escalated, icon: AlertTriangle, color: '#F39C12', accent: stats.escalated > 0 },
+    { label: 'Escalated to Management', value: stats.escalated, icon: AlertTriangle, color: '#F39C12', accent: stats.escalated > 0 },
     { label: 'Approved This Month', value: stats.approved, icon: CheckCircle, color: '#34BF3A' },
     { label: 'Rejected This Month', value: stats.rejected, icon: XCircle, color: '#C0392B' },
   ]
@@ -82,7 +82,7 @@ export default function CTODashboard() {
           <Clock size={18} color="#EF5829" />
           <div>
             <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#EF5829' }}>{stats.pending} timesheet{stats.pending !== 1 ? 's' : ''} awaiting your review</div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 2 }}>48-hour SLA — timesheets auto-escalate to CEO if not acted on</div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 2 }}>48-hour SLA — timesheets auto-escalate to Management if not acted on</div>
           </div>
         </div>
       )}

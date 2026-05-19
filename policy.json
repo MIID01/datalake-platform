@@ -1,0 +1,6 @@
+{
+  "constraint": "constraints/iam.allowedPolicyMemberDomains",
+  "listPolicy": {
+    "allValues": "ALLOW"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "datalake-cv-agent",
+  "version": "1.0.0",
+  "description": "CV reformatting agent — Datalake Skills Portfolio (DTLK-FORM-HR-CV-002-v2). Vertex AI me-central2.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.9.0",
+    "@google/genai": "^1.51.0",
+    "docx": "^9.5.0",
+    "express": "^5.1.0",
+    "multer": "^2.0.1",
+    "pdf-parse": "^1.1.1"
+  }
+}

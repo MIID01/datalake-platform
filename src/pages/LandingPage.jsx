@@ -1,100 +1,57 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { auth } from '../lib/firebase'
+import { signIn } from '../lib/auth'
+import { LogIn } from 'lucide-react'
 import '../styles/ceo.css'
 
 export default function LandingPage() {
   const navigate = useNavigate()
+  const [authError, setAuthError] = useState('')
+  const [user, setUser] = useState(auth.currentUser)
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(setUser)
+    return () => unsub()
+  }, [])
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  const handleSignIn = async () => {
+    setAuthError('')
+    try {
+      await signIn()
+      navigate('/dashboard')
+    } catch (err) {
+      setAuthError(err.message || 'Sign-in failed')
+    }
+  }
 
   return (
-    <div className="landing-page">
-      <div className="landing-logo animate-fade-in-up">
-        <img 
-          src="/images/logo-white.svg" 
-          alt="Datalake — Analytics Data Technology" 
-          style={{ height: 80, marginBottom: 8 }}
-        />
-      </div>
-
-      <div className="portal-cards" style={{ gridTemplateColumns: 'repeat(6, 1fr)', maxWidth: 1700 }}>
-        <div
-          className="portal-card ceo animate-fade-in-up stagger-1"
-          onClick={() => navigate('/ceo')}
-          role="button"
-          tabIndex={0}
-          id="portal-select-ceo"
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'linear-gradient(135deg, #0a1628 0%, #022873 100%)', fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '48px 40px', maxWidth: 420, width: '90%', textAlign: 'center' }}>
+        <img src="/images/logo-white.svg" alt="Datalake" style={{ height: 48, marginBottom: 20 }} />
+        <h1 style={{ color: '#fff', fontSize: '1.5rem', fontWeight: 700, marginBottom: 8 }}>Datalake Platform</h1>
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', marginBottom: 32 }}>Sign in with your Datalake account to continue</p>
+        
+        <button
+          onClick={handleSignIn}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, width: '100%', padding: '14px 24px', border: 'none', borderRadius: 12, background: '#fff', color: '#1A1A2E', fontWeight: 600, fontSize: '0.95rem', fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,0.2)', transition: 'transform 0.15s' }}
         >
-          <div className="portal-icon">⚡</div>
-          <h2>CEO Command Center</h2>
-          <p>Executive cockpit — approvals, pipeline, finance, AI ops, and task inbox.</p>
-          <span className="portal-url">ceo.datalake.sa</span>
-        </div>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          Sign in with Google
+        </button>
+        
+        {authError && (
+          <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(192,57,43,0.15)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 8, color: '#ff6b6b', fontSize: '0.82rem' }}>
+            {authError}
+          </div>
+        )}
 
-        <div
-          className="portal-card engineer animate-fade-in-up stagger-2"
-          onClick={() => navigate('/cto')}
-          role="button"
-          tabIndex={0}
-          id="portal-select-cto"
-          style={{ '--accent': '#34BF3A' }}
-        >
-          <div className="portal-icon">🎯</div>
-          <h2>CTO Portal</h2>
-          <p>Timesheet approvals, project oversight, and operational review.</p>
-          <span className="portal-url">cto.datalake.sa</span>
-        </div>
-
-        <div
-          className="portal-card engineer animate-fade-in-up stagger-3"
-          onClick={() => navigate('/portal')}
-          role="button"
-          tabIndex={0}
-          id="portal-select-engineer"
-        >
-          <div className="portal-icon">👤</div>
-          <h2>Engineer Portal</h2>
-          <p>Timesheets, leave, expenses, documents, training — zero email required.</p>
-          <span className="portal-url">portal.datalake.sa</span>
-        </div>
-
-        <div
-          className="portal-card engineer animate-fade-in-up stagger-3"
-          onClick={() => navigate('/client')}
-          role="button"
-          tabIndex={0}
-          id="portal-select-client"
-          style={{ '--accent': '#E8913A' }}
-        >
-          <div className="portal-icon">🏢</div>
-          <h2>Client Portal</h2>
-          <p>Approve monthly timesheets and sign off on project hours with e-signature.</p>
-          <span className="portal-url">client.datalake.sa</span>
-        </div>
-
-        <div
-          className="portal-card engineer animate-fade-in-up stagger-4"
-          onClick={() => navigate('/hr')}
-          role="button"
-          tabIndex={0}
-          id="portal-select-hr"
-          style={{ '--accent': '#8e44ad' }}
-        >
-          <div className="portal-icon">📋</div>
-          <h2>HR Scoring</h2>
-          <p>7-criterion interview scorecard per DTLK-OPS-PRC-002.</p>
-          <span className="portal-url">hr.datalake.sa</span>
-        </div>
-
-        <div
-          className="portal-card engineer animate-fade-in-up stagger-4"
-          onClick={() => navigate('/careers')}
-          role="button"
-          tabIndex={0}
-          id="portal-select-careers"
-          style={{ '--accent': '#34BF3A' }}
-        >
-          <div className="portal-icon">🚀</div>
-          <h2>Careers</h2>
-          <p>Public job listings with PDPL-compliant consent capture and CV intake.</p>
-          <span className="portal-url">datalake.sa/careers</span>
+        <div style={{ marginTop: 32, fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
+          By signing in, you acknowledge Datalake's Privacy Notice and agree to the processing of your personal data in compliance with PDPL.
         </div>
       </div>
     </div>
