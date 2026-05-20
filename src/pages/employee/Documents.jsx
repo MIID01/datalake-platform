@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth } from '../../lib/firebase'
-import { FileText, Upload, CheckCircle, Clock, AlertTriangle, Download, Eye, Loader, Shield } from 'lucide-react'
+import { FileText, Upload, CheckCircle, Clock, AlertTriangle, Download, Eye, Loader, Shield, Mail, X } from 'lucide-react'
 
 const DOC_CATEGORIES = ['Contract', 'NDA', 'Policy', 'Certificate', 'ID/Passport', 'Medical', 'Payslip', 'Other']
 
@@ -21,6 +21,8 @@ export default function Documents() {
   const [uploadForm, setUploadForm] = useState({ title: '', category: DOC_CATEGORIES[0], notes: '' })
   const [file, setFile] = useState(null)
   const [ackModal, setAckModal] = useState(null)
+  const [showRequest, setShowRequest] = useState(false)
+  const [requestForm, setRequestForm] = useState({ type: 'Salary Certificate', addressee: '', reason: '' })
 
   const [userEmail, setUserEmail] = useState(null)
   const [userName, setUserName] = useState('')
@@ -104,6 +106,28 @@ export default function Documents() {
     setSubmitting(false)
   }
 
+  const handleRequestLetter = async () => {
+    if (!requestForm.addressee || !requestForm.reason) { showToast('Please fill all fields', 'error'); return }
+    setSubmitting(true)
+    try {
+      await addDoc(collection(db, 'document_requests'), {
+        type: requestForm.type,
+        addressee: requestForm.addressee,
+        reason: requestForm.reason,
+        engineer_email: userEmail,
+        engineer_name: userName,
+        status: 'PENDING',
+        created_at: serverTimestamp()
+      })
+      showToast('Letter request submitted successfully')
+      setShowRequest(false)
+      setRequestForm({ type: 'Salary Certificate', addressee: '', reason: '' })
+    } catch(err) {
+      showToast(err.message, 'error')
+    }
+    setSubmitting(false)
+  }
+
   const fmtDate = (ts) => {
     if (!ts) return '—'
     const d = ts.toDate ? ts.toDate() : new Date(ts)
@@ -126,9 +150,14 @@ export default function Documents() {
 
       <div className="flex-between" style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Documents</h1>
-        <button className="btn btn-primary" onClick={() => setShowUpload(!showUpload)}>
-          <Upload size={16} /> Upload Document
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button className="btn btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowRequest(true)}>
+            <Mail size={16} /> Request Letter
+          </button>
+          <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowUpload(!showUpload)}>
+            <Upload size={16} /> Upload Document
+          </button>
+        </div>
       </div>
 
       {/* Action Required Banner */}
@@ -290,6 +319,54 @@ export default function Documents() {
                 {submitting ? <Loader size={16} className="spin" /> : <CheckCircle size={16} />}
                 {submitting ? ' Processing...' : ' I Acknowledge'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request Letter Modal */}
+      {showRequest && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setShowRequest(false)} />
+          <div className="animate-fade-in-up" style={{
+            position: 'relative', background: 'var(--bg-card)', border: '1px solid var(--border-card)',
+            borderRadius: 16, width: '100%', maxWidth: 500, overflow: 'hidden',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>Request Letter</h3>
+              <button className="btn btn-ghost" style={{ padding: 4 }} onClick={() => setShowRequest(false)}><X size={20}/></button>
+            </div>
+            
+            <div style={{ padding: 24 }}>
+              <div className="form-group">
+                <label className="form-label">Letter Type</label>
+                <select className="form-input" value={requestForm.type} onChange={e => setRequestForm({ ...requestForm, type: e.target.value })}>
+                  <option value="Salary Certificate">Salary Certificate</option>
+                  <option value="Employment Proof">Employment Proof</option>
+                  <option value="NOC (No Objection Certificate)">NOC (No Objection Certificate)</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Addressee (To Whom It May Concern / Bank Name, etc.) *</label>
+                <input className="form-input" value={requestForm.addressee} onChange={e => setRequestForm({ ...requestForm, addressee: e.target.value })} placeholder="e.g. Al Rajhi Bank" />
+              </div>
+              <div className="form-group" style={{ marginBottom: 24 }}>
+                <label className="form-label">Reason for Request *</label>
+                <textarea className="form-input" style={{ minHeight: 80, resize: 'vertical' }} value={requestForm.reason} onChange={e => setRequestForm({ ...requestForm, reason: e.target.value })} placeholder="Briefly explain why you need this letter..." />
+              </div>
+              
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-ghost" onClick={() => setShowRequest(false)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleRequestLetter} disabled={submitting}>
+                  {submitting ? <Loader size={16} className="spin" /> : <Mail size={16} />}
+                  {submitting ? ' Submitting...' : ' Submit Request'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
