@@ -19,6 +19,7 @@ export default function Projects() {
   const [projects, setProjects] = useState([])
   const [assignments, setAssignments] = useState([])
   const [showNewModal, setShowNewModal] = useState(false)
+  const [editProject, setEditProject] = useState(null)
   const [assignProject, setAssignProject] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const [toast, setToast] = useState(null)
@@ -151,7 +152,7 @@ export default function Projects() {
                     <button onClick={(e)=>{e.stopPropagation();setAssignProject(p)}} className="btn btn-sm btn-primary" style={{background:'#1598CC',display:'flex',alignItems:'center',gap:6}}>
                       <UserPlus size={14}/> Assign Engineer
                     </button>
-                    <button onClick={(e)=>{e.stopPropagation(); showToast('Edit Project functionality placeholder')}} className="btn btn-sm btn-outline">
+                    <button onClick={(e)=>{e.stopPropagation(); setEditProject(p)}} className="btn btn-sm btn-outline">
                       Edit
                     </button>
                     <button onClick={async (e)=>{
@@ -174,6 +175,7 @@ export default function Projects() {
       </div>
 
       {showNewModal && <NewProjectModal onClose={()=>setShowNewModal(false)} onCreated={d=>showToast(`Project ${d.project_id} created successfully`)} />}
+      {editProject && <NewProjectModal onClose={()=>setEditProject(null)} editProject={editProject} onCreated={d=>showToast(d.message || 'Project updated')} />}
       {assignProject && <AssignEngineerModal project={assignProject} onClose={()=>setAssignProject(null)} onAssigned={d=>showToast(d.message)} />}
     </div>
   )

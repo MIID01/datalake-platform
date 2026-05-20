@@ -20,11 +20,25 @@ const s = {
   field: { marginBottom:14 },
 }
 
-export default function NewProjectModal({ onClose, onCreated }) {
+import { doc, updateDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
+
+export default function NewProjectModal({ onClose, onCreated, editProject }) {
   const [form, setForm] = useState({
-    project_name:'',client_name:'',po_number:'',po_value_sar:'',start_date:'',end_date:'',
-    client_approver_name:'',client_approver_email:'',work_location_type:'CLIENT_OFFICE',
-    work_location_address:'',rate_structure:'MONTHLY',rate_amount_sar:'',timesheet_type:'CONSOLIDATED',notes:'',
+    project_name: editProject?.project_name || '',
+    client_name: editProject?.client_name || '',
+    po_number: editProject?.po_number || '',
+    po_value_sar: editProject?.po_value_sar || '',
+    start_date: editProject?.start_date ? new Date(editProject.start_date.seconds ? editProject.start_date.seconds * 1000 : editProject.start_date).toISOString().split('T')[0] : '',
+    end_date: editProject?.end_date ? new Date(editProject.end_date.seconds ? editProject.end_date.seconds * 1000 : editProject.end_date).toISOString().split('T')[0] : '',
+    client_approver_name: editProject?.client_approver_name || '',
+    client_approver_email: editProject?.client_approver_email || '',
+    work_location_type: editProject?.work_location_type || 'CLIENT_OFFICE',
+    work_location_address: editProject?.work_location_address || '',
+    rate_structure: editProject?.rate_structure || 'MONTHLY',
+    rate_amount_sar: editProject?.rate_amount_sar || '',
+    timesheet_type: editProject?.timesheet_type || 'CONSOLIDATED',
+    notes: editProject?.notes || '',
   })
   const [submitting,setSubmitting] = useState(false)
   const [error,setError] = useState('')
@@ -42,15 +56,24 @@ export default function NewProjectModal({ onClose, onCreated }) {
     try {
       const user = auth.currentUser
       if (!user) { setError('Please sign in'); setSubmitting(false); return }
-      const idToken = await user.getIdToken()
-      const res = await fetch(CREATE_PROJECT_URL, {
-        method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${idToken}`},
-        body: JSON.stringify({...form, po_value_sar:Number(form.po_value_sar), rate_amount_sar:Number(form.rate_amount_sar)||null}),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error||'Failed')
-      onCreated?.(data)
-      onClose()
+      
+      const payload = { ...form, po_value_sar: Number(form.po_value_sar), rate_amount_sar: Number(form.rate_amount_sar) || null }
+      
+      if (editProject) {
+        await updateDoc(doc(db, 'projects', editProject.id), payload)
+        onCreated?.({ message: 'Project updated successfully' })
+        onClose()
+      } else {
+        const idToken = await user.getIdToken()
+        const res = await fetch(CREATE_PROJECT_URL, {
+          method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${idToken}`},
+          body: JSON.stringify(payload),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error||'Failed')
+        onCreated?.(data)
+        onClose()
+      }
     } catch(err) { setError(err.message) } finally { setSubmitting(false) }
   }
 
@@ -68,8 +91,8 @@ export default function NewProjectModal({ onClose, onCreated }) {
       <div style={s.modal} onClick={e=>e.stopPropagation()}>
         <div style={s.header}>
           <div>
-            <h2 style={{fontSize:'1.1rem',fontWeight:700,margin:0,color:'var(--text-primary,#1A1A2E)'}}>New Project</h2>
-            <div style={{fontSize:'0.68rem',color:'var(--text-tertiary,#8898aa)',marginTop:2}}>Create engagement when deal is won</div>
+            <h2 style={{fontSize:'1.1rem',fontWeight:700,margin:0,color:'var(--text-primary,#1A1A2E)'}}>{editProject ? 'Edit Project' : 'New Project'}</h2>
+            <div style={{fontSize:'0.68rem',color:'var(--text-tertiary,#8898aa)',marginTop:2}}>{editProject ? 'Update engagement details' : 'Create engagement when deal is won'}</div>
           </div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-tertiary)',display:'flex'}}><X size={20}/></button>
         </div>
@@ -123,7 +146,7 @@ export default function NewProjectModal({ onClose, onCreated }) {
           <div style={{display:'flex',justifyContent:'flex-end',gap:10,paddingTop:8,borderTop:'1px solid var(--border-primary,#e5e7eb)'}}>
             <button onClick={onClose} style={{padding:'10px 20px',border:'1px solid var(--border-primary,#E5E7EB)',borderRadius:8,background:'transparent',color:'var(--text-secondary)',fontWeight:600,fontSize:'0.85rem',cursor:'pointer',fontFamily:'inherit'}}>Cancel</button>
             <button onClick={handleSubmit} disabled={!canSubmit} style={{padding:'10px 24px',border:'none',borderRadius:8,background:canSubmit?'#EF5829':'#ccc',color:'#fff',fontWeight:700,fontSize:'0.85rem',fontFamily:'inherit',cursor:canSubmit?'pointer':'default',display:'flex',alignItems:'center',gap:8,boxShadow:canSubmit?'0 2px 8px rgba(239,88,41,0.3)':'none'}}>
-              {submitting?<><Loader size={16} className="spin"/>Creating...</>:<><Plus size={16}/>Create Project</>}
+              {submitting?<><Loader size={16} className="spin"/>{editProject ? 'Saving...' : 'Creating...'}</>:<><Plus size={16}/>{editProject ? 'Save Changes' : 'Create Project'}</>}
             </button>
           </div>
         </div>

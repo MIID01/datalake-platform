@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-admin.initializeApp();
+admin.initializeApp({ projectId: 'datalake-production-sa' });
 const db = admin.firestore();
 
 const DEFAULT_MODULES = [
