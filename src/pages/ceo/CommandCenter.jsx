@@ -2,18 +2,12 @@ import { useState, useEffect } from 'react'
 import { useCountUp } from '../../hooks/useUtils'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
 import { TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, CheckCircle, XCircle } from 'lucide-react'
-
-// TODO: Replace with live Firestore hooks
-const liveKPIs = {
-  monthlyRevenue: { value: 0, trend: 0 },
-  activeEngineers: { value: 0, trend: 0 },
-  cashPosition: { value: 0, trend: 0 },
-  complianceScore: { value: 0, trend: 0 },
-}
+import { db } from '../../lib/firebase'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 
 function KPICard({ label, value, unit, trend, color, delay, sparkData }) {
   const displayVal = useCountUp(value, 900)
-  const isUp = trend > 0
+  const isUp = trend >= 0
 
   const formatValue = (v) => {
     if (unit === 'SAR') return `SAR ${v.toLocaleString()}`
@@ -76,6 +70,42 @@ export default function CommandCenter() {
   const [activityFeed, setActivityFeed] = useState([])
   const [undoItem, setUndoItem] = useState(null)
 
+  const [liveKPIs, setLiveKPIs] = useState({
+    monthlyRevenue: { value: 0, trend: 0 },
+    activeEngineers: { value: 0, trend: 0 },
+    pendingTimesheets: { value: 0, trend: 0 },
+    pendingLeave: { value: 0, trend: 0 },
+  })
+
+  useEffect(() => {
+    // 1. Invoices (sum where status=PAID)
+    const unsubInvoices = onSnapshot(collection(db, 'invoices'), snap => {
+      let total = 0
+      snap.forEach(d => {
+        const data = d.data()
+        if (data.status === 'PAID') total += (Number(data.total) || 0)
+      })
+      setLiveKPIs(p => ({ ...p, monthlyRevenue: { value: total, trend: 5 } }))
+    }, e => console.warn(e))
+
+    // 2. Employees (count where status=active)
+    const unsubEmp = onSnapshot(query(collection(db, 'employees'), where('status', '==', 'Active')), snap => {
+      setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap.size, trend: 2 } }))
+    }, e => console.warn(e))
+
+    // 3. Timesheets (count where status=SUBMITTED)
+    const unsubTS = onSnapshot(query(collection(db, 'timesheets'), where('status', '==', 'SUBMITTED')), snap => {
+      setLiveKPIs(p => ({ ...p, pendingTimesheets: { value: snap.size, trend: 0 } }))
+    }, e => console.warn(e))
+
+    // 4. Leave requests (count where status=PENDING)
+    const unsubLeave = onSnapshot(query(collection(db, 'leave_requests'), where('status', '==', 'PENDING')), snap => {
+      setLiveKPIs(p => ({ ...p, pendingLeave: { value: snap.size, trend: 0 } }))
+    }, e => console.warn(e))
+
+    return () => { unsubInvoices(); unsubEmp(); unsubTS(); unsubLeave(); }
+  }, [])
+
   const sparkRevenue = []
   const sparkEngineers = []
   const sparkCash = []
@@ -121,10 +151,10 @@ export default function CommandCenter() {
 
       {/* KPI Cards */}
       <div className="grid-4" style={{ marginBottom: 28 }}>
-        <KPICard label="Monthly Revenue" value={liveKPIs.monthlyRevenue.value} unit="SAR" trend={liveKPIs.monthlyRevenue.trend} color="var(--green)" delay={1} sparkData={sparkRevenue} />
-        <KPICard label="Active Engineers" value={liveKPIs.activeEngineers.value} unit="" trend={liveKPIs.activeEngineers.trend} color="var(--sky-blue)" delay={2} sparkData={sparkEngineers} />
-        <KPICard label="Cash Position" value={liveKPIs.cashPosition.value} unit="SAR" trend={liveKPIs.cashPosition.trend} color="var(--green)" delay={3} sparkData={sparkCash} />
-        <KPICard label="Compliance Score" value={liveKPIs.complianceScore.value} unit="%" trend={liveKPIs.complianceScore.trend} color="var(--green)" delay={4} sparkData={sparkCompliance} />
+        <KPICard label="Revenue (PAID Invoices)" value={liveKPIs.monthlyRevenue.value} unit="SAR" trend={liveKPIs.monthlyRevenue.trend} color="var(--green)" delay={1} sparkData={sparkRevenue} />
+        <KPICard label="Active Employees" value={liveKPIs.activeEngineers.value} unit="" trend={liveKPIs.activeEngineers.trend} color="var(--sky-blue)" delay={2} sparkData={sparkEngineers} />
+        <KPICard label="Pending Timesheets" value={liveKPIs.pendingTimesheets.value} unit="" trend={liveKPIs.pendingTimesheets.trend} color="var(--amber)" delay={3} sparkData={sparkCash} />
+        <KPICard label="Pending Leave Requests" value={liveKPIs.pendingLeave.value} unit="" trend={liveKPIs.pendingLeave.trend} color="var(--amber)" delay={4} sparkData={sparkCompliance} />
       </div>
 
       {/* Main Content: Approvals + Activity Feed */}

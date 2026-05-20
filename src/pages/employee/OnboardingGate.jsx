@@ -1,20 +1,18 @@
 import { useState, useEffect } from 'react'
 import { auth, db } from '../../lib/firebase'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, query, collection, where } from 'firebase/firestore'
 import { CheckCircle, Circle, AlertCircle, FileText, Shield, GraduationCap, User, Briefcase } from 'lucide-react'
 
 export default function OnboardingGate() {
-  const [userData, setUserData] = useState(null)
+  const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(user => {
       if (user) {
-        // Listen to user document
-        const unsubDoc = onSnapshot(doc(db, 'users', user.uid), snap => {
-          if (snap.exists()) {
-            setUserData(snap.data())
-          }
+        const q = query(collection(db, 'onboarding_tasks'), where('email', '==', user.email))
+        const unsubDoc = onSnapshot(q, snap => {
+          setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })))
           setLoading(false)
         })
         return () => unsubDoc()
@@ -26,14 +24,13 @@ export default function OnboardingGate() {
   }, [])
 
   if (loading) return <div style={{ color: '#fff', textAlign: 'center', padding: 40 }}>Loading status...</div>
-  if (!userData) return <div style={{ color: '#fff', textAlign: 'center', padding: 40 }}>User not found.</div>
 
   const checks = [
-    { id: 'pdpl', label: 'PDPL Consent Given', icon: Shield, done: userData.pdpl_consent_state === 'GRANTED' },
-    { id: 'contract', label: 'Contract Signed', icon: FileText, done: userData.contract_signed === true },
-    { id: 'training', label: 'Mandatory Security Training', icon: GraduationCap, done: userData.training_completed === true },
-    { id: 'profile', label: 'Profile Complete', icon: User, done: userData.profile_completed === true },
-    { id: 'project', label: 'Assigned to a Project', icon: Briefcase, done: (userData.assigned_projects?.length || 0) > 0 },
+    { id: 'pdpl', label: 'PDPL Consent Given', icon: Shield, done: tasks.some(t => t.task_type === 'PDPL_CONSENT' && t.status === 'COMPLETED') },
+    { id: 'contract', label: 'Contract Signed', icon: FileText, done: tasks.some(t => t.task_type === 'CONTRACT_SIGNATURE' && t.status === 'COMPLETED') },
+    { id: 'training', label: 'Mandatory Security Training', icon: GraduationCap, done: tasks.some(t => t.task_type === 'MANDATORY_TRAINING' && t.status === 'COMPLETED') },
+    { id: 'profile', label: 'Profile Complete', icon: User, done: tasks.some(t => t.task_type === 'PROFILE_COMPLETION' && t.status === 'COMPLETED') },
+    { id: 'project', label: 'Assigned to a Project', icon: Briefcase, done: tasks.some(t => t.task_type === 'PROJECT_ASSIGNMENT' && t.status === 'COMPLETED') },
   ]
 
   const allDone = checks.every(c => c.done)

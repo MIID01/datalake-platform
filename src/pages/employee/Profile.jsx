@@ -1,16 +1,24 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { db, auth } from '../../lib/firebase'
 import { User, Shield, Download, Trash2, Edit2, Plus } from 'lucide-react'
 
 export default function Profile() {
   const [engineerProfile, setEngineerProfile] = useState({ name: '', employeeId: '', email: '', phone: '', nationality: '', client: '', role: '', contractStart: '', contractEnd: '', contractType: '', baseSalary: '', bankName: '', gosiNumber: '', emergencyContact: { name: '', relationship: '', phone: '' }, skills: [], certifications: [] })
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'engineer_profile'), snap => {
-      if (!snap.empty) setEngineerProfile(snap.docs[0].data())
+    const unsubAuth = auth.onAuthStateChanged(user => {
+      if (user) {
+        const q = query(collection(db, 'employees'), where('email', '==', user.email))
+        const unsubData = onSnapshot(q, snap => {
+          if (!snap.empty) {
+            setEngineerProfile(prev => ({ ...prev, ...snap.docs[0].data() }))
+          }
+        })
+        return () => unsubData()
+      }
     })
-    return () => unsub()
+    return () => unsubAuth()
   }, [])
 
   const p = engineerProfile

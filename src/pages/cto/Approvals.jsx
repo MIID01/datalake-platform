@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore'
+import { collection, onSnapshot, query, where, orderBy, updateDoc, doc } from 'firebase/firestore'
 import { db, CTO_APPROVE_TIMESHEET_URL } from '../../lib/firebase'
 import { auth } from '../../lib/firebase'
 import { ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle, Calendar, ChevronDown, Send, MessageSquare, Bot } from 'lucide-react'
@@ -65,15 +65,15 @@ export default function Approvals() {
     try {
       const user = auth.currentUser
       if (!user) throw new Error('Not signed in')
-      const idToken = await user.getIdToken()
-      const res = await fetch(CTO_APPROVE_TIMESHEET_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ timesheet_id: ts.timesheet_id, decision, notes: notes.trim() || null }),
+      
+      const newState = decision === 'APPROVE' ? 'CTO_APPROVED' : 'REJECTED_BY_CTO'
+      await updateDoc(doc(db, 'timesheets', ts.id), {
+        state: newState,
+        cto_notes: notes.trim() || null,
+        updated_at: new Date()
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed')
-      showToast(data.message)
+      
+      showToast(`Timesheet ${decision === 'APPROVE' ? 'approved' : 'rejected'} successfully`)
       setActionModal(null)
       setNotes('')
     } catch (err) { showToast(err.message, 'error') }

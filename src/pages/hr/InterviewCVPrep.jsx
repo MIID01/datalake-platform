@@ -72,8 +72,7 @@ export default function InterviewCVPrep() {
       try {
         const [projSnap, candSnap] = await Promise.all([
           getDocs(query(collection(db, 'projects'), where('status', '==', 'ACTIVE'))),
-          // Phase 4 fix: only show SHORTLISTED candidates in interview prep
-          getDocs(query(collection(db, 'talent_pool'), where('state', '==', 'SHORTLISTED'))),
+          getDocs(query(collection(db, 'employees'), where('state', '==', 'deployable'))),
         ])
         setProjects(projSnap.docs.map(d => ({ id: d.id, ...d.data() })))
         setCandidates(candSnap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -92,8 +91,8 @@ export default function InterviewCVPrep() {
   // Filter candidates
   const filteredCandidates = useMemo(() => {
     return candidates.filter(c => {
-      // Must have consent + cv_path + not purged + SHORTLISTED state
-      if (!c.consent_granted_at || !c.cv_path || c.state === 'PURGED') return false
+      // Must have cv_path or cv_data
+      if (!c.cv_path && !c.cv_data) return false
       if (!searchQuery.trim()) return true
       const q = searchQuery.toLowerCase()
       return (
@@ -107,7 +106,7 @@ export default function InterviewCVPrep() {
   }, [candidates, searchQuery])
 
   const disabledCandidates = useMemo(() => {
-    return candidates.filter(c => !c.consent_granted_at || !c.cv_path || c.state === 'PURGED')
+    return candidates.filter(c => !c.cv_path && !c.cv_data)
   }, [candidates])
 
   const handlePrepare = async () => {

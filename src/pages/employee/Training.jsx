@@ -9,17 +9,8 @@ const STATUS_CONFIG = {
   COMPLETED: { label: 'Completed', color: '#34BF3A', bg: 'rgba(52,191,58,0.12)', icon: CheckCircle },
 }
 
-// Default mandatory training modules
-const DEFAULT_MODULES = [
-  { module_id: 'PDPL-AWARENESS', title: 'PDPL Data Protection Awareness', description: 'Understanding Saudi Arabia\'s Personal Data Protection Law (PDPL) and your obligations as a Datalake employee handling client data.', category: 'Compliance', mandatory: true },
-  { module_id: 'CODE-OF-CONDUCT', title: 'Code of Conduct', description: 'Professional standards, ethics guidelines, and expected behavior for all Datalake staff augmentation engineers.', category: 'HR Policy', mandatory: true },
-  { module_id: 'INFO-SEC', title: 'Information Security', description: 'Cybersecurity best practices, password policies, data classification, and incident reporting procedures.', category: 'Security', mandatory: true },
-  { module_id: 'ANTI-BRIBERY', title: 'Anti-Bribery & Anti-Corruption', description: 'Understanding anti-bribery laws, gift policies, conflict of interest reporting, and whistleblower protections.', category: 'Compliance', mandatory: true },
-  { module_id: 'WORKPLACE-SAFETY', title: 'Workplace Health & Safety', description: 'Emergency procedures, first aid, ergonomics, and workplace hazard awareness for client site deployments.', category: 'Safety', mandatory: true },
-  { module_id: 'CLIENT-CONDUCT', title: 'Client Site Conduct', description: 'Professional behavior expectations when deployed at client sites, confidentiality protocols, and client communication guidelines.', category: 'Professional', mandatory: true },
-]
-
 export default function Training() {
+  const [modules, setModules] = useState([])
   const [completions, setCompletions] = useState([])
   const [expandedModule, setExpandedModule] = useState(null)
   const [submitting, setSubmitting] = useState(null)
@@ -32,6 +23,14 @@ export default function Training() {
     const unsub = auth.onAuthStateChanged(user => {
       if (user) { setUserEmail(user.email); setUserName(user.displayName || user.email) }
     })
+    return () => unsub()
+  }, [])
+
+  // Load modules
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'training_modules'), snap => {
+      setModules(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    }, err => console.warn('Modules listener:', err.message))
     return () => unsub()
   }, [])
 
@@ -57,10 +56,11 @@ export default function Training() {
   }
 
   const handleAcknowledge = async (module) => {
-    setSubmitting(module.module_id)
+    setSubmitting(module.module_id || module.id)
     try {
+      const moduleId = module.module_id || module.id
       // Check if completion record exists
-      const existing = completions.find(c => c.module_id === module.module_id)
+      const existing = completions.find(c => c.module_id === moduleId)
       if (existing) {
         await updateDoc(doc(db, 'training_completions', existing.id), {
           status: 'COMPLETED',
@@ -69,7 +69,7 @@ export default function Training() {
         })
       } else {
         await addDoc(collection(db, 'training_completions'), {
-          module_id: module.module_id,
+          module_id: moduleId,
           module_title: module.title,
           engineer_email: userEmail,
           engineer_name: userName,
@@ -88,8 +88,8 @@ export default function Training() {
     setSubmitting(null)
   }
 
-  const completedCount = DEFAULT_MODULES.filter(m => getModuleStatus(m.module_id) === 'COMPLETED').length
-  const totalCount = DEFAULT_MODULES.length
+  const completedCount = modules.filter(m => getModuleStatus(m.module_id || m.id) === 'COMPLETED').length
+  const totalCount = modules.length
   const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
 
   return (
@@ -148,14 +148,15 @@ export default function Training() {
 
       {/* Module List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {DEFAULT_MODULES.map((module, i) => {
-          const status = getModuleStatus(module.module_id)
-          const sc = STATUS_CONFIG[status]
-          const isExpanded = expandedModule === module.module_id
+        {modules.map((module, i) => {
+          const moduleId = module.module_id || module.id
+          const status = getModuleStatus(moduleId)
+          const sc = STATUS_CONFIG[status] || STATUS_CONFIG['NOT_STARTED']
+          const isExpanded = expandedModule === moduleId
           const StatusIcon = sc.icon
 
           return (
-            <div key={module.module_id}
+            <div key={moduleId}
               className={`card animate-fade-in-up stagger-${i + 1}`}
               style={{
                 borderLeft: `4px solid ${sc.color}`,

@@ -58,10 +58,18 @@ export default function Talent() {
     }
   }, [])
 
-  // Safe defaults for sections not yet backed by Firestore
-  const candidates = []
-  const pipelineStats = { activeInPipeline: 0, offerAcceptRate: 0, avgTimeToOffer: 0, tierACount: 0 }
-  const talentData = { engineers: [], offboarding: [] }
+  // Derived from live Firestore candidates
+  const candidates = liveCandidates
+  const pipelineStats = {
+    activeInPipeline: liveCandidates.filter(c => !['ACTIVE_POOL_YEAR_1', 'ACTIVE_POOL_YEAR_2'].includes(c.state)).length,
+    offerAcceptRate: 0, // Placeholder as no offer data is tracked yet
+    avgTimeToOffer: 0,
+    tierACount: liveCandidates.filter(c => (c.score || 0) >= 80).length
+  }
+  const talentData = {
+    engineers: liveCandidates.filter(c => c.state === 'ACTIVE_POOL_YEAR_1' || c.state === 'ACTIVE_POOL_YEAR_2'),
+    offboarding: liveCandidates.filter(c => c.state === 'GRACE_PERIOD')
+  }
   const talentPoolCandidates = liveCandidates
 
   // Derive lifecycle distribution from live data

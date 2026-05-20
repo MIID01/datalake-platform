@@ -22,10 +22,10 @@ export default function FinanceExpenses({ expenses }) {
     })
 
     const chartData = [
-      { category: 'Software & Cloud', budget: 50000, actual: categoryMap['Software'] || 45000 },
-      { category: 'Travel', budget: 30000, actual: categoryMap['Travel'] || 12000 },
-      { category: 'Office', budget: 15000, actual: categoryMap['Office'] || 16500 },
-      { category: 'Marketing', budget: 40000, actual: categoryMap['Marketing'] || 20000 },
+      { category: 'Software & Cloud', budget: 50000, actual: categoryMap['Software'] || 0 },
+      { category: 'Travel', budget: 30000, actual: categoryMap['Travel'] || 0 },
+      { category: 'Office', budget: 15000, actual: categoryMap['Office'] || 0 },
+      { category: 'Marketing', budget: 40000, actual: categoryMap['Marketing'] || 0 },
     ]
 
     // List Filtering
