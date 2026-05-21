@@ -788,6 +788,6 @@ h4 { font-size: 1.1rem; }
 }
 
 select, option {
-  color: #333333;
-  background-color: #ffffff;
+  color: #333333 !important;
+  background-color: #ffffff !important;
 }
