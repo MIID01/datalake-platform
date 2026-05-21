@@ -66,12 +66,22 @@ export default function Approvals() {
       const user = auth.currentUser
       if (!user) throw new Error('Not signed in')
       
-      const newState = decision === 'APPROVE' ? 'CTO_APPROVED' : 'REJECTED_BY_CTO'
-      await updateDoc(doc(db, 'timesheets', ts.id), {
-        state: newState,
-        cto_notes: notes.trim() || null,
-        updated_at: new Date()
+      const token = await user.getIdToken()
+      const res = await fetch(CTO_APPROVE_TIMESHEET_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          timesheet_id: ts.id,
+          decision: decision,
+          notes: notes.trim()
+        })
       })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to process timesheet')
       
       showToast(`Timesheet ${decision === 'APPROVE' ? 'approved' : 'rejected'} successfully`)
       setActionModal(null)

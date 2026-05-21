@@ -2098,7 +2098,8 @@ exports.addUser = onRequest(
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
-      const { email, role_id, display_name, client_id } = req.body;
+      const { role_id, display_name, client_id } = req.body;
+      const email = req.body.email ? req.body.email.toLowerCase() : null;
       if (!email || !role_id || !display_name) {
         return res.status(400).json({ error: "email, role_id, and display_name are required" });
       }

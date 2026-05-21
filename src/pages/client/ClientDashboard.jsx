@@ -184,7 +184,15 @@ export default function ClientTimesheetApproval() {
     const q = query(collection(db, 'timesheets'), where('client_sign_token', '==', token))
     const unsub = onSnapshot(q, snap => {
       if (!snap.empty) {
-        setTimesheet({ id: snap.docs[0].id, ...snap.docs[0].data() })
+        const data = snap.docs[0].data()
+        if (data.state === 'CLIENT_SIGNED') {
+          setTimesheet({ id: snap.docs[0].id, ...data })
+          setSigned(true)
+        } else if (data.state === 'CTO_APPROVED') {
+          setTimesheet({ id: snap.docs[0].id, ...data })
+        } else {
+          setInvalidToken(true)
+        }
       } else {
         setInvalidToken(true)
       }
