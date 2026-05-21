@@ -57,6 +57,9 @@ export default function EmployeeLayout() {
   const currentPath = location.pathname
   const isRestricted = navItems.find(i => i.locked && (i.end ? currentPath === i.path : currentPath.startsWith(i.path)))
   if (isRestricted && !isFullyOnboarded) {
+    if (!userData?.training_completed) {
+      return <Navigate to="/employee/training" replace />
+    }
     return <Navigate to="/employee/onboarding" replace />
   }
 
@@ -88,7 +91,7 @@ export default function EmployeeLayout() {
             return (
               <NavLink
                 key={item.path}
-                to={isLocked ? '/employee/onboarding' : item.path}
+                to={isLocked ? (!userData?.training_completed ? '/employee/training' : '/employee/onboarding') : item.path}
                 end={item.end}
                 className={`nav-item ${isActive ? 'active' : ''} ${isLocked ? 'locked' : ''}`}
                 style={isLocked ? { opacity: 0.5 } : {}}

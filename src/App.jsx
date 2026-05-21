@@ -101,7 +101,6 @@ export default function App() {
           <Route path="projects" element={<CTOProjects />} />
         </Route>
 
-        {/* Employee Portal */}
         <Route path="/employee" element={<EmployeeLayout />}>
           <Route index element={<EmpDashboard />} />
           <Route path="onboarding" element={<OnboardingGate />} />
@@ -113,6 +112,7 @@ export default function App() {
           <Route path="training" element={<EmpTraining />} />
           <Route path="support" element={<EmpSupport />} />
           <Route path="profile" element={<EmpProfile />} />
+          <Route path="*" element={<Navigate to="/employee" replace />} />
         </Route>
 
         {/* Legacy /portal and /engineer redirect to /employee */}
