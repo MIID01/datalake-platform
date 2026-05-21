@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper: CEO or CTO (legacy email-based — will be replaced in Phase 3)
     function isCeoOrCto() {
       return request.auth != null && 
         (request.auth.token.email == "m.alqumri@datalake.sa" ||
@@ -13,13 +12,10 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email == "m.alqumri@datalake.sa";
     }
 
-    // RBAC helper: check role from users collection
     function getUserRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role_id;
-    }
-
-    function isCeoByRole() {
-      return request.auth != null && getUserRole() == "ceo";
+      return isCeo() ? "ceo" :
+             (request.auth != null && (request.auth.token.email == "hr@datalake.sa" || request.auth.token.email == "HR@datalake.sa")) ? "hr" :
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role_id;
     }
 
     function isAssignedClient(clientId) {
@@ -27,89 +23,134 @@ service cloud.firestore {
     }
     
     // ── RBAC Collections ──
-
-    // Users — readable by self and CEO; writable by CEO
     match /users/{uid} {
-      allow read: if request.auth != null && (request.auth.uid == uid || isCeo());
+      allow read: if request.auth != null;
       allow write: if isCeo();
     }
-
-    // Roles — readable by all authenticated; writable by CEO
     match /roles/{roleId} {
       allow read: if request.auth != null;
       allow write: if isCeo();
     }
-
-    // Access matrix — readable by all authenticated; writable by CEO
     match /access_matrix/{roleId} {
       allow read: if request.auth != null;
       allow write: if isCeo();
     }
-
-    // Clients — readable by CEO and assigned client; writable by CEO
     match /clients/{clientId} {
       allow read: if request.auth != null && (isCeo() || isAssignedClient(clientId));
       allow write: if isCeo();
     }
 
-    // Task audit log — CEO and CTO can read; CEO can write (for RBAC audit entries)
+    // ── Employees & HR ──
+    match /employees/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && (getUserRole() == "ceo" || getUserRole() == "hr");
+      allow update: if request.auth != null && (getUserRole() == "ceo" || getUserRole() == "hr" || request.auth.token.email == resource.data.email);
+      allow delete: if request.auth != null && (getUserRole() == "ceo" || (getUserRole() == "hr" && resource.data.employment_status == "PENDING_APPROVAL"));
+    }
+    match /talent_pool/{candidateId} {
+      allow read, write: if isCeo() || (request.auth != null && getUserRole() == "hr");
+    }
+    match /job_listings/{jobId} {
+      allow read: if true;
+      allow write: if isCeo() || (request.auth != null && getUserRole() == "hr");
+    }
+    match /employee_documents/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /document_requests/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (getUserRole() == "ceo" || getUserRole() == "hr");
+    }
+    match /training_modules/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && (getUserRole() == "ceo" || getUserRole() == "hr");
+    }
+    match /training_completions/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /leave_requests/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /expenses/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /travel_requests/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── Projects & Timesheets ──
+    match /projects/{projectId} {
+      allow read: if request.auth != null;
+      allow write: if isCeoOrCto();
+    }
+    match /client_projects/{projectId} {
+      allow read: if request.auth != null;
+      allow write: if isCeoOrCto();
+    }
+    match /engineer_project_assignments/{assignmentId} {
+      allow read: if request.auth != null;
+      allow write: if isCeoOrCto();
+    }
+    match /timesheets/{timesheetId} {
+      allow read, update: if request.auth != null;
+      allow create, delete: if isCeoOrCto() || request.auth != null;
+    }
+
+    // ── Finance & Operations ──
+    match /invoices/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /client_invoices/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /finance_notifications/{notifId} {
+      allow read, write: if request.auth != null;
+    }
+    match /contracts/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── Operations & Support ──
+    match /tasks/{taskId} {
+      allow read, write: if request.auth != null;
+    }
     match /task_audit_log/{logId} {
-      allow read: if isCeoOrCto();
+      allow read, write: if request.auth != null;
+    }
+    match /support_tickets/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /pending_approvals/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /evaluations/{evalId} {
+      allow read, write: if request.auth != null;
+    }
+    match /audit_log/{logId} {
+      allow read, write: if request.auth != null;
+    }
+    match /client_profile/{docId} {
+      allow read: if true;
       allow write: if isCeo();
     }
 
-    // ── Existing Collections (unchanged) ──
+    // ── Engineer specific collections ──
+    match /engineer_dashboard/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /engineer_actions/{docId} {
+      allow read, write: if request.auth != null;
+    }
 
-    // talent_pool: CEO only read
-    match /talent_pool/{candidateId} {
-      allow read: if isCeo();
-      allow write: if false;
-    }
-    
-    // tasks: CEO and CTO can read
-    match /tasks/{taskId} {
-      allow read: if isCeoOrCto();
-      allow write: if false;
-    }
-    
-    // evaluations: CEO only read
-    match /evaluations/{evalId} {
-      allow read: if isCeo();
-      allow write: if false;
-    }
-    
-    // audit_log: CEO only read
-    match /audit_log/{logId} {
-      allow read: if isCeo();
-      allow write: if false;
-    }
-    
-    // projects: CEO and CTO can read
-    match /projects/{projectId} {
-      allow read: if isCeoOrCto();
-      allow write: if false;
-    }
-    
-    // engineer_project_assignments: CEO and CTO can read
-    match /engineer_project_assignments/{assignmentId} {
-      allow read: if isCeoOrCto();
-      allow write: if false;
-    }
-    
-    // timesheets: CEO and CTO can read all
-    match /timesheets/{timesheetId} {
-      allow read: if isCeoOrCto();
-      allow write: if false;
-    }
-    
-    // finance_notifications: CEO and finance can read
-    match /finance_notifications/{notifId} {
-      allow read: if request.auth != null && 
-        (request.auth.token.email == "m.alqumri@datalake.sa" ||
-         request.auth.token.email == "finance@datalake.sa");
-      allow write: if false;
-    }
-    
+    // ── CEO Dashboards ──
+    match /ai_agents/{docId} { allow read, write: if isCeo(); }
+    match /notifications/{docId} { allow read, write: if request.auth != null; }
+    match /analytics/{docId} { allow read, write: if request.auth != null; }
+    match /compliance/{docId} { allow read, write: if request.auth != null; }
+    match /pipeline/{docId} { allow read, write: if request.auth != null; }
+    match /system_health/{docId} { allow read, write: if request.auth != null; }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;

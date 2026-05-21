@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db, auth, UPDATE_CANDIDATE_STAGE_URL } from '../../lib/firebase'
-import { Search, Filter, User, ChevronDown, ChevronUp, Star, Clock, Briefcase, MapPin, FileText, ArrowRight } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Search, Filter, User, ChevronDown, ChevronUp, Star, Clock, Briefcase, MapPin, FileText, ArrowRight, UserPlus } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 
 const LIFECYCLE_STATES = ['APPLIED','SCREENED','SHORTLISTED','INTERVIEW_SCHEDULED','INTERVIEWED','SCORED','SELECTED','INTERVIEW_PREP','CLIENT_SUBMITTED','HIRED','ONBOARDING','ACTIVE_EMPLOYEE','REJECTED']
 
@@ -34,6 +34,7 @@ export default function HRTalentPool() {
   const [expandedId, setExpandedId] = useState(null)
   const [stageUpdating, setStageUpdating] = useState(null)
   const [stageError, setStageError] = useState('')
+  const navigate = useNavigate()
 
   useEffect(() => {
     const q = query(collection(db, 'talent_pool'), orderBy('applied_at', 'desc'))
@@ -200,6 +201,14 @@ export default function HRTalentPool() {
                           style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #1e3050', background: 'transparent', color: '#94a3b8', cursor: stageUpdating === c.id ? 'default' : 'pointer', fontSize: '0.78rem', fontFamily: 'inherit' }}
                         >
                           {stageUpdating === c.id ? 'Updating…' : 'Mark Screened'}
+                        </button>
+                      )}
+                      {c.state === 'HIRED' && (
+                        <button
+                          onClick={() => navigate('/hr/employees', { state: { candidate: c } })}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#27ae60', color: '#fff', borderRadius: 7, border: 'none', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          <UserPlus size={12} /> Convert to Employee
                         </button>
                       )}
                       {c.cv_path && <span style={{ fontSize: '0.72rem', color: '#475569' }}>CV: {c.cv_path.split('/').pop()}</span>}

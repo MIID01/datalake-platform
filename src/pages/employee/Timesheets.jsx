@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Upload, Calendar, Clock, CheckCircle, XCircle, Plus, FileText, ChevronLeft, ChevronRight, User, Mail, ArrowRight, Briefcase, MapPin, Send, AlertTriangle } from 'lucide-react'
-import { auth, GET_ENGINEER_PROJECT_VIEW_URL, SUBMIT_TIMESHEET_URL, GET_MY_TIMESHEETS_URL } from '../../lib/firebase'
+import { Upload, Calendar, Clock, CheckCircle, XCircle, Plus, FileText, ChevronLeft, ChevronRight, User, Mail, ArrowRight, Briefcase, MapPin, Send, AlertTriangle, Loader, Shield } from 'lucide-react'
+import { auth, GET_ENGINEER_PROJECT_VIEW_URL, SUBMIT_TIMESHEET_URL, GET_MY_TIMESHEETS_URL, EXTRACT_TIMESHEET_URL } from '../../lib/firebase'
 import { onAuthChange } from '../../lib/auth'
 
 const stateColors = {
@@ -65,6 +65,7 @@ export default function Timesheets() {
   const [dayHours, setDayHours] = useState({})
   const [myTimesheets, setMyTimesheets] = useState([])
   const [submitLoading, setSubmitLoading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
   const [submitResult, setSubmitResult] = useState(null)
   const totalHours = myTimesheets.filter(t => t.state === 'CLIENT_SIGNED' || t.state === 'CTO_APPROVED').reduce((s, t) => s + (t.total_hours || 0), 0)
 
@@ -357,7 +358,11 @@ export default function Timesheets() {
                       </div>
                       <ArrowRight size={16} style={{ color: 'var(--text-tertiary)' }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: 'var(--warning-dim)', border: '1px solid var(--amber)', fontSize: '0.78rem', fontWeight: 600, color: 'var(--amber)' }}>
-                        <Mail size={14} /> Client Review
+                        <Shield size={14} /> CTO Review
+                      </div>
+                      <ArrowRight size={16} style={{ color: 'var(--text-tertiary)' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: 'var(--warning-dim)', border: '1px solid var(--amber)', fontSize: '0.78rem', fontWeight: 600, color: 'var(--amber)' }}>
+                        <Mail size={14} /> Client Sign
                       </div>
                       <ArrowRight size={16} style={{ color: 'var(--text-tertiary)' }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: 'var(--green-dim)', border: '1px solid var(--green)', fontSize: '0.78rem', fontWeight: 600, color: 'var(--green)' }}>
@@ -560,9 +565,46 @@ export default function Timesheets() {
               <div style={{ width: 80, height: 80, borderRadius: 16, background: 'var(--bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '2rem' }}>
                 📄
               </div>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>Drag & drop your client timesheet PDF here</p>
-              <p style={{ color: 'var(--text-tertiary)', fontSize: '0.78rem', marginBottom: 20 }}>PDF only, max 10MB. Document AI will auto-extract hours.</p>
-              <button className="btn btn-primary"><Upload size={16} /> Choose File</button>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>Drag & drop your client timesheet PDF/DOC here</p>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: '0.78rem', marginBottom: 20 }}>PDF, DOC, DOCX, JPG, PNG allowed. Max 10MB.</p>
+              
+              <label className="btn btn-primary" style={{ cursor: extracting ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: extracting ? 0.7 : 1 }}>
+                {extracting ? <Loader size={16} className="spin" /> : <Upload size={16} />}
+                {extracting ? 'Extracting via AI...' : 'Choose File'}
+                <input 
+                  type="file" 
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  style={{ display: 'none' }}
+                  disabled={extracting}
+                  onChange={async (e) => {
+                    const file = e.target.files[0]
+                    if (!file) return
+                    setExtracting(true)
+                    try {
+                      const user = auth.currentUser
+                      const idToken = await user.getIdToken()
+                      const formData = new FormData()
+                      formData.append('file', file)
+                      const res = await fetch(EXTRACT_TIMESHEET_URL, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${idToken}` },
+                        body: formData
+                      })
+                      const data = await res.json()
+                      if (!res.ok) throw new Error(data.error || 'AI Extraction failed')
+                      
+                      // Merge extracted hours into state
+                      setDayHours(prev => ({ ...prev, ...data.dayHours }))
+                      setMethod('manual')
+                    } catch (err) {
+                      alert(`Extraction failed: ${err.message}. Proceeding manually.`)
+                      setMethod('manual')
+                    } finally {
+                      setExtracting(false)
+                    }
+                  }}
+                />
+              </label>
             </div>
           )}
         </div>

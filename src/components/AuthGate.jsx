@@ -74,9 +74,14 @@ export default function AuthGate({ children }) {
           return
         }
 
-        // CEO always gets access even without a user doc
         if (isCeo) {
           setUserRole({ role_id: 'ceo', status: 'active', display_name: 'CEO', email })
+          setLoading(false)
+          return
+        }
+
+        if (email.toLowerCase() === 'hr@datalake.sa') {
+          setUserRole({ role_id: 'hr', status: 'active', display_name: 'HR Admin', email })
           setLoading(false)
           return
         }

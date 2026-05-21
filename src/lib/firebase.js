@@ -40,6 +40,9 @@ export const GET_ENGINEER_PROJECT_VIEW_URL =
 export const SUBMIT_TIMESHEET_URL =
   "https://submittimesheet-ifzodp5svq-wx.a.run.app";
 
+export const EXTRACT_TIMESHEET_URL =
+  "https://extracttimesheetai-ifzodp5svq-wx.a.run.app";
+
 export const CTO_APPROVE_TIMESHEET_URL =
   "https://ctoapprovetimesheet-ifzodp5svq-wx.a.run.app";
 

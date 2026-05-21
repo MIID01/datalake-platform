@@ -248,7 +248,7 @@ export default function ClientTimesheetApproval() {
       }
 
       await updateDoc(doc(db, 'timesheets', timesheet.id), {
-        state: 'CLIENT_APPROVED',
+        state: 'CLIENT_SIGNED',
         client_signature_image: signatureData || null,
         client_signature_text: method === 'type' ? signatureText : null,
         client_signature_method: method,

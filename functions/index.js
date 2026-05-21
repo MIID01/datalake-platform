@@ -235,6 +235,100 @@ Return valid JSON only, no markdown.`,
   }
 );
 
+// HTTP endpoint: extractTimesheetAI
+// Parses a timesheet PDF/image using OCR and LLM to extract daily hours
+exports.extractTimesheetAI = onRequest(
+  {
+    region: "me-central2",
+    memory: "1GiB",
+    timeoutSeconds: 120,
+    cors: ALLOWED_ORIGINS,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      res.set("Access-Control-Max-Age", "3600");
+      return res.status(204).send("");
+    }
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing authorization" });
+
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]);
+    } catch (err) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
+    const busboy = Busboy({ headers: req.headers });
+    let fileBuffer = null;
+
+    busboy.on("file", (fieldname, file) => {
+      if (fieldname === "file") {
+        const chunks = [];
+        file.on("data", (chunk) => chunks.push(chunk));
+        file.on("end", () => { fileBuffer = Buffer.concat(chunks); });
+      } else {
+        file.resume();
+      }
+    });
+
+    busboy.on("finish", async () => {
+      try {
+        if (!fileBuffer) return res.status(400).json({ error: "File required" });
+
+        console.log(`[AI Extraction] Starting OCR for ${decodedToken.email}`);
+        const fileBase64 = fileBuffer.toString("base64");
+        
+        const ocrResult = await callOCR({
+          fileBase64, lang: "en", agent: "auditor", type: "timesheet_ocr", triggeredBy: decodedToken.uid
+        });
+        if (!ocrResult.success) throw new Error("OCR extraction failed");
+
+        const fullText = ocrResult.lines.map(l => l.text).join("\n");
+        if (!fullText.trim()) throw new Error("No text found in document");
+
+        console.log(`[AI Extraction] OCR complete. Starting LLM extraction for ${decodedToken.email}`);
+        const llmResult = await callLLM({
+          agent: "auditor", type: "timesheet_extract", triggeredBy: decodedToken.uid,
+          promptTemplateId: "AUDITOR_TIMESHEET_EXTRACT_V1",
+          systemPrompt: `You are the Datalake AI Auditor. Extract daily hours from this timesheet text.
+Return ONLY a valid JSON object matching this schema:
+{
+  "dayHours": {
+    "2026-05-01": "8",
+    "2026-05-02": "8"
+  }
+}
+The keys must be YYYY-MM-DD format. The values must be strings representing the hours worked that day (e.g. "8", "8.5"). Only include days with hours > 0.
+Return valid JSON only, no markdown.`,
+          userPrompt: fullText
+        });
+
+        if (!llmResult.success) throw new Error("LLM extraction failed");
+
+        const parsed = parseJsonOutput(llmResult.output);
+        if (!parsed.success) throw new Error("Failed to parse LLM output");
+
+        res.status(200).json({
+          success: true,
+          dayHours: parsed.data.dayHours || {}
+        });
+      } catch (err) {
+        console.error("extractTimesheetAI error:", err);
+        res.status(500).json({ error: "AI Extraction failed", detail: err.message });
+      }
+    });
+
+    busboy.end(req.rawBody);
+  }
+);
+
 // HTTP endpoint: createTask
 // Creates a new task in Firestore tasks collection
 // Requires Google SSO auth (CEO only in v1)
