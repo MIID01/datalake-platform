@@ -15,7 +15,16 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
       try {
         const q = query(collection(db, 'employees'), where('type', '==', 'deployed'))
         const snap = await getDocs(q)
-        setEngineers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        let emps = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        
+        try {
+          const aq = query(collection(db, 'engineer_project_assignments'), where('project_id', '==', project.project_id), where('status', '==', 'ACTIVE'))
+          const asnap = await getDocs(aq)
+          const assignedIds = asnap.docs.map(d => d.data().engineer_id)
+          emps = emps.filter(e => !assignedIds.includes(e.id))
+        } catch (e) { console.warn("Could not filter assignments", e) }
+
+        setEngineers(emps)
       } catch (err) { console.warn(err) }
       setLoadingEngs(false)
     }
@@ -82,9 +91,9 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
           <div style={st.field}>
             <label style={st.label}>Engineer *</label>
             <div style={{position:'relative'}}>
-              <select style={{...st.input,appearance:'none',cursor:'pointer'}} value={form.engineer_id} onChange={e=>u('engineer_id',e.target.value)}>
-                <option value="">{loadingEngs ? 'Loading employees...' : 'Select engineer...'}</option>
-                {engineers.map(e=><option key={e.id} value={e.id}>{e.full_name} ({e.employee_id})</option>)}
+              <select style={{...st.input,appearance:'none',cursor:'pointer',color:'#333333'}} value={form.engineer_id} onChange={e=>u('engineer_id',e.target.value)}>
+                <option value="" style={{color:'#333333'}}>{loadingEngs ? 'Loading employees...' : 'Select engineer...'}</option>
+                {engineers.map(e=><option key={e.id} value={e.id} style={{color:'#333333'}}>{e.full_name} ({e.employee_id})</option>)}
               </select>
               <ChevronDown size={16} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',color:'#8898aa',pointerEvents:'none'}} />
             </div>
