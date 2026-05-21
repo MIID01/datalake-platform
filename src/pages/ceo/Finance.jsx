@@ -88,7 +88,7 @@ export default function Finance() {
 
       <div>
         {activeTab === 'dashboard' && <FinanceDashboard invoices={invoices} timesheets={timesheets} projects={projects} expenses={expenses} />}
-        {activeTab === 'invoices' && <FinanceInvoices invoices={invoices} />}
+        {activeTab === 'invoices' && <FinanceInvoices invoices={invoices} timesheets={timesheets} projects={projects} />}
         {activeTab === 'cashflow' && <FinanceCashFlow invoices={invoices} timesheets={timesheets} projects={projects} expenses={expenses} />}
         {activeTab === 'expenses' && <FinanceExpenses expenses={expenses} />}
       </div>

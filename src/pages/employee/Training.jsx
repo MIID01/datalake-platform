@@ -148,7 +148,11 @@ export default function Training() {
 
       {/* Module List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {modules.map((module, i) => {
+        {[...modules].sort((a, b) => {
+          const statusA = getModuleStatus(a.module_id || a.id) === 'COMPLETED' ? 1 : 0
+          const statusB = getModuleStatus(b.module_id || b.id) === 'COMPLETED' ? 1 : 0
+          return statusA - statusB
+        }).map((module, i) => {
           const moduleId = module.module_id || module.id
           const status = getModuleStatus(moduleId)
           const sc = STATUS_CONFIG[status] || STATUS_CONFIG['NOT_STARTED']

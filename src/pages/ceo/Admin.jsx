@@ -202,7 +202,10 @@ export default function Admin() {
             <td style={s.td}><span style={s.badge('system')}>{u.role_id}</span></td>
             <td style={s.td}><span style={s.badge(u.status)}>{u.status}</span></td>
             <td style={s.td}><div style={{ display: 'flex', gap: 6 }}>
-              <button style={{...s.btn('sm'), background: 'rgba(21,152,204,0.2)', color: '#38bdf8'}} onClick={() => { setModal('changeRole'); setModalData({ uid: u.id, new_role_id: u.role_id, email: u.email }) }}>Role</button>
+              <button style={{...s.btn('sm'), background: 'rgba(21,152,204,0.2)', color: '#38bdf8'}} onClick={() => { 
+                const availableRoles = state.roles.filter(r => r.id !== u.role_id)
+                setModal('changeRole'); setModalData({ uid: u.id, new_role_id: availableRoles[0]?.id || '', current_role: u.role_id, email: u.email }) 
+              }}>Role</button>
               <button style={{...s.btn('sm'), background: u.status === 'active' ? 'rgba(239,88,41,0.15)' : 'rgba(52,191,58,0.15)', color: u.status === 'active' ? '#fb923c' : '#4ade80'}} onClick={() => handleToggleDisable(u.id, u.status)}>{u.status === 'active' ? 'Disable' : 'Enable'}</button>
               <button style={{...s.btn('sm'), background: 'rgba(239,88,41,0.15)', color: '#fb923c'}} onClick={async () => {
                 if(window.confirm('Delete user from database? This cannot be undone.')) {
@@ -277,7 +280,7 @@ export default function Admin() {
       {modal === 'changeRole' && <div style={s.modal} onClick={() => setModal(null)}><div style={s.modalCard} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}><h3 style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 700 }}>Change Role — {modalData.email}</h3><button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}><X size={20} /></button></div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div><label style={s.label}>New Role</label><select style={s.select} value={modalData.new_role_id || ''} onChange={e => setModalData(p => ({...p, new_role_id: e.target.value}))}>{state.roles.map(r => <option key={r.id} value={r.id} style={{background:'#1a2744',color:'#fff'}}>{r.role_name}</option>)}</select></div>
+          <div><label style={s.label}>New Role</label><select style={s.select} value={modalData.new_role_id || ''} onChange={e => setModalData(p => ({...p, new_role_id: e.target.value}))}>{state.roles.filter(r => r.id !== modalData.current_role).map(r => <option key={r.id} value={r.id} style={{background:'#1a2744',color:'#fff'}}>{r.role_name}</option>)}</select></div>
           <button style={{...s.btn(), width: '100%', justifyContent: 'center', marginTop: 8}} onClick={handleChangeRole} disabled={saving}>{saving ? 'Updating...' : 'Update Role'}</button>
         </div>
       </div></div>}

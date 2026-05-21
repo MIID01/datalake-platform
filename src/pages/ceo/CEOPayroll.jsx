@@ -6,11 +6,12 @@ import { DollarSign, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
 export default function CEOPayroll() {
   const [timesheets, setTimesheets] = useState([])
   const [projects, setProjects] = useState([])
+  const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let loadedCount = 0
-    const checkLoaded = () => { loadedCount++; if (loadedCount === 2) setLoading(false) }
+    const checkLoaded = () => { loadedCount++; if (loadedCount === 3) setLoading(false) }
 
     const unsubTs = onSnapshot(collection(db, 'timesheets'), snap => {
       setTimesheets(snap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -22,7 +23,12 @@ export default function CEOPayroll() {
       checkLoaded()
     }, err => console.warn(err))
 
-    return () => { unsubTs(); unsubProj(); }
+    const unsubEmp = onSnapshot(collection(db, 'employees'), snap => {
+      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      checkLoaded()
+    }, err => console.warn(err))
+
+    return () => { unsubTs(); unsubProj(); unsubEmp(); }
   }, [])
 
   const { payrollData, summary } = useMemo(() => {
@@ -30,19 +36,21 @@ export default function CEOPayroll() {
     const currentMonth = now.getMonth() + 1
     const currentYear = now.getFullYear()
 
-    // Assuming a standard 20,000 SAR salary for full-time engineers for mock display
-    // Gross = 20,000. GOSI = 9% of Basic (assume basic is 10k -> 900 SAR). Net = Gross - GOSI.
-    const engineers = new Map()
+    const roster = new Map()
 
     timesheets.forEach(ts => {
       if (ts.period_month === currentMonth && ts.period_year === currentYear) {
-        if (!engineers.has(ts.engineer_id)) {
-          engineers.set(ts.engineer_id, {
+        if (!roster.has(ts.engineer_id)) {
+          const empRecord = employees.find(e => e.id === ts.engineer_id || e.employee_id === ts.engineer_id)
+          const gross = empRecord && empRecord.salary ? Number(empRecord.salary) : 20000
+          const gosi = gross * 0.09
+          
+          roster.set(ts.engineer_id, {
             id: ts.engineer_id,
             name: ts.engineer_name || ts.engineer_id,
-            gross: 20000,
-            gosi: 1800, // 9% employee + 9% employer roughly mapped for simplicity
-            net: 20000 - 900, // Employee deduction only for Net Pay
+            gross: gross,
+            gosi: gosi,
+            net: gross - gosi,
             wps_status: ts.state === 'CLIENT_SIGNED' || ts.state === 'CTO_APPROVED' ? 'CLEARED' : 'PENDING_TIMESHEET',
             hold_alert: ts.state === 'REJECTED' ? 'Timesheet Disputed' : null
           })
@@ -50,7 +58,7 @@ export default function CEOPayroll() {
       }
     })
 
-    const list = Array.from(engineers.values())
+    const list = Array.from(roster.values())
     const sumGross = list.reduce((acc, emp) => acc + emp.gross, 0)
     const sumNet = list.reduce((acc, emp) => acc + emp.net, 0)
     const sumGosi = list.reduce((acc, emp) => acc + emp.gosi, 0)
@@ -59,7 +67,7 @@ export default function CEOPayroll() {
       payrollData: list,
       summary: { sumGross, sumNet, sumGosi, count: list.length }
     }
-  }, [timesheets, projects])
+  }, [timesheets, projects, employees])
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center' }}>Loading payroll data...</div>

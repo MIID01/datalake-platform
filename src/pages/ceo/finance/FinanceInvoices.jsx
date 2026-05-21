@@ -3,12 +3,14 @@ import { Eye, CheckCircle, Plus, Search, FileText } from 'lucide-react'
 
 const statusColors = { DRAFT: 'badge-info', SENT: 'badge-warning', PAID: 'badge-success', OVERDUE: 'badge-critical' }
 
-export default function FinanceInvoices({ invoices }) {
+export default function FinanceInvoices({ invoices, timesheets = [], projects = [] }) {
   const [filterStatus, setFilterStatus] = useState('All')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [approving, setApproving] = useState(null)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [generateModalOpen, setGenerateModalOpen] = useState(false)
+  const [selectedTimesheetId, setSelectedTimesheetId] = useState('')
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
@@ -20,6 +22,10 @@ export default function FinanceInvoices({ invoices }) {
       return matchStatus && matchSearch
     })
   }, [invoices, filterStatus, searchTerm])
+
+  const billableTimesheets = useMemo(() => {
+    return timesheets.filter(t => t.state === 'CLIENT_SIGNED' && !t.invoice_id)
+  }, [timesheets])
 
   const handleApprove = async (id, e) => {
     e.stopPropagation()
@@ -34,6 +40,13 @@ export default function FinanceInvoices({ invoices }) {
   const handleRecordPayment = (e) => {
     e.stopPropagation()
     setPaymentModalOpen(true)
+  }
+
+  const handleGenerateInvoice = () => {
+    if (!selectedTimesheetId) return
+    alert(`Generated Draft Invoice for timesheet ${selectedTimesheetId}!`)
+    setGenerateModalOpen(false)
+    setSelectedTimesheetId('')
   }
 
   return (
@@ -55,7 +68,9 @@ export default function FinanceInvoices({ invoices }) {
             {['All', 'Draft', 'Sent', 'Overdue', 'Paid'].map(f => (
               <button key={f} className={`btn btn-sm ${filterStatus === f ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilterStatus(f)}>{f}</button>
             ))}
-            <button className="btn btn-primary btn-sm" style={{ marginLeft: 12 }}><Plus size={16} /> New Invoice</button>
+            <button className="btn btn-primary btn-sm" style={{ marginLeft: 12 }} onClick={() => setGenerateModalOpen(true)}>
+              <Plus size={16} /> New Invoice
+            </button>
           </div>
         </div>
 
@@ -190,6 +205,37 @@ export default function FinanceInvoices({ invoices }) {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
               <button className="btn btn-ghost" onClick={() => setPaymentModalOpen(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={() => { alert('Payment recorded!'); setPaymentModalOpen(false); setSelectedInvoice(null); }}>Record Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Invoice Modal */}
+      {generateModalOpen && (
+        <div className="modal-overlay" onClick={() => setGenerateModalOpen(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="modal-content card animate-fade-in-up" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 500 }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: 16 }}>Generate Invoice</h2>
+            <div style={{ marginBottom: 24 }}>
+              <label className="form-label">Select Timesheet to Bill</label>
+              <select className="form-input" value={selectedTimesheetId} onChange={e => setSelectedTimesheetId(e.target.value)}>
+                <option value="">-- Select CLIENT_SIGNED Timesheet --</option>
+                {billableTimesheets.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.client_name || 'Unknown Client'} — {t.period_month}/{t.period_year} ({t.total_hours} hrs)
+                  </option>
+                ))}
+              </select>
+              {billableTimesheets.length === 0 && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--amber)', marginTop: 8 }}>
+                  No billable (CLIENT_SIGNED without an invoice) timesheets found.
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button className="btn btn-ghost" onClick={() => setGenerateModalOpen(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleGenerateInvoice} disabled={!selectedTimesheetId}>
+                Generate Invoice Draft
+              </button>
             </div>
           </div>
         </div>

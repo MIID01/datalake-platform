@@ -229,9 +229,16 @@ export default function Leave() {
             <div className="form-group">
               <label className="form-label">Leave Type *</label>
               <select className="form-input" value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}>
-                {LEAVE_TYPES.map(lt => (
-                  <option key={lt.id} value={lt.id}>{lt.label} ({lt.days === 999 ? 'Unlimited' : lt.days + ' days'})</option>
-                ))}
+                {LEAVE_TYPES.map(lt => {
+                  const bal = balances.find(b => b.id === lt.id)
+                  const remaining = bal ? bal.remaining : (lt.days === 999 ? 'Unlimited' : lt.days)
+                  const disabled = remaining === 0 && lt.id !== 'unpaid'
+                  return (
+                    <option key={lt.id} value={lt.id} disabled={disabled}>
+                      {lt.label} — {remaining} {remaining === 'Unlimited' ? '' : 'days remaining'}
+                    </option>
+                  )
+                })}
               </select>
               {LEAVE_TYPES.find(t => t.id === form.type)?.note && (
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 4, fontStyle: 'italic' }}>
