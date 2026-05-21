@@ -10,7 +10,7 @@ export default function OnboardingGate() {
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(user => {
       if (user) {
-        const q = query(collection(db, 'onboarding_tasks'), where('email', '==', user.email))
+        const q = query(collection(db, 'onboarding_tasks'), where('email', '==', user.email.toLowerCase()))
         const unsubDoc = onSnapshot(q, snap => {
           setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })))
           setLoading(false)

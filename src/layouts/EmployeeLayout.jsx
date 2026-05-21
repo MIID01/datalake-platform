@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useRiyadhTime } from '../hooks/useUtils'
 import { auth, db } from '../lib/firebase'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore'
 import {
   LayoutDashboard, Clock, Palmtree, CreditCard, FileText,
   Plane, GraduationCap, LifeBuoy, User, Settings,
@@ -31,18 +31,37 @@ export default function EmployeeLayout() {
   const location = useLocation()
 
   useEffect(() => {
+    let unsubUid = () => {}
+    let unsubEmail = () => {}
+
     const unsubAuth = auth.onAuthStateChanged(user => {
       if (user) {
-        const unsubDoc = onSnapshot(doc(db, 'users', user.uid), snap => {
-          if (snap.exists()) setUserData(snap.data())
-          setLoading(false)
-        })
-        return () => unsubDoc()
+        // Try getting by UID first
+        unsubUid = onSnapshot(doc(db, 'users', user.uid), snap => {
+          if (snap.exists()) {
+            setUserData(snap.data())
+            setLoading(false)
+          } else {
+            // fallback to query by email
+            const q = query(collection(db, 'users'), where('email', '==', user.email.toLowerCase()))
+            getDocs(q).then(qSnap => {
+              if (!qSnap.empty) {
+                unsubEmail = onSnapshot(doc(db, 'users', qSnap.docs[0].id), docSnap => {
+                  setUserData(docSnap.data())
+                  setLoading(false)
+                })
+              } else {
+                // Not found at all (should be blocked by AuthGate anyway)
+                setLoading(false)
+              }
+            }).catch(() => setLoading(false))
+          }
+        }, () => setLoading(false))
       } else {
         setLoading(false)
       }
     })
-    return () => unsubAuth()
+    return () => { unsubAuth(); unsubUid(); unsubEmail(); }
   }, [])
 
   if (loading) return <div style={{ height: '100vh', background: '#0a1628' }}></div>
