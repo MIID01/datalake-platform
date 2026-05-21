@@ -23,7 +23,7 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
   }, [])
 
   const [form, setForm] = useState({
-    engineer_id:'', role_on_project:'', assignment_start_date:startDefault,
+    engineer_id:'', assignment_start_date:startDefault,
     assignment_end_date:endDefault, allocation_percentage:'100', notes:'',
   })
   const [submitting, setSubmitting] = useState(false)
@@ -31,7 +31,7 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
   const u = (k,v) => setForm(p=>({...p,[k]:v}))
 
   const selectedEng = engineers.find(e=>e.employee_id===form.engineer_id || e.id === form.engineer_id)
-  const canSubmit = form.engineer_id && form.role_on_project && form.assignment_start_date && form.assignment_end_date && !submitting
+  const canSubmit = form.engineer_id && form.assignment_start_date && form.assignment_end_date && !submitting
 
 
   const handleSubmit = async () => {
@@ -45,8 +45,8 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
         method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${idToken}`},
         body: JSON.stringify({
           project_id: project.project_id, engineer_id: selectedEng.id,
-          engineer_name: selectedEng.name, engineer_email: selectedEng.email,
-          role_on_project: form.role_on_project,
+          engineer_name: selectedEng.full_name, engineer_email: selectedEng.email,
+          role_on_project: selectedEng.job_title || 'Engineer',
           assignment_start_date: new Date(form.assignment_start_date).toISOString(),
           assignment_end_date: new Date(form.assignment_end_date).toISOString(),
           allocation_percentage: Number(form.allocation_percentage)||100,
@@ -89,7 +89,7 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
               <ChevronDown size={16} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',color:'#8898aa',pointerEvents:'none'}} />
             </div>
           </div>
-          <div style={st.field}><label style={st.label}>Role on Project *</label><input style={st.input} value={form.role_on_project} onChange={e=>u('role_on_project',e.target.value)} placeholder="Senior Data Engineer" /></div>
+          <div style={st.field}><label style={st.label}>Role on Project</label><input style={{...st.input, background: 'rgba(255,255,255,0.05)', color: 'var(--text-tertiary)', cursor: 'not-allowed'}} value={selectedEng ? selectedEng.job_title || 'Engineer' : ''} disabled placeholder="Auto-filled from employee profile" /></div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,...st.field}}>
             <div><label style={st.label}>Start Date *</label><input type="date" style={st.input} value={form.assignment_start_date} onChange={e=>u('assignment_start_date',e.target.value)} /></div>
             <div><label style={st.label}>End Date *</label><input type="date" style={st.input} value={form.assignment_end_date} onChange={e=>u('assignment_end_date',e.target.value)} /></div>
