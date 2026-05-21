@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X, Loader } from 'lucide-react'
-import { doc, setDoc, updateDoc } from 'firebase/firestore'
+import { doc, setDoc, updateDoc, runTransaction } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
 const s = {
@@ -52,11 +52,25 @@ export default function AddEmployeeModal({ onClose, initialData, isEdit }) {
       if (isEdit && initialData?.id) {
         await updateDoc(doc(db, 'employees', initialData.id), dataToSave)
       } else {
-        const empId = `DLSA${Math.floor(1000 + Math.random() * 9000)}`
-        dataToSave.employee_id = empId
-        dataToSave.employment_status = 'PENDING_APPROVAL'
-        dataToSave.created_at = new Date()
-        await setDoc(doc(db, 'employees', empId), dataToSave)
+        await runTransaction(db, async (transaction) => {
+          const counterRef = doc(db, 'counters', 'employee_id')
+          const counterDoc = await transaction.get(counterRef)
+          
+          let nextId = 1013 // Fallback starting point matching Zoho import script
+          if (counterDoc.exists()) {
+            nextId = (counterDoc.data().last_id || 1012) + 1
+          }
+          
+          const empId = `DLSA${nextId}`
+          
+          dataToSave.employee_id = empId
+          dataToSave.employment_status = 'PENDING_APPROVAL'
+          dataToSave.created_at = new Date()
+          
+          const empRef = doc(db, 'employees', empId)
+          transaction.set(empRef, dataToSave)
+          transaction.set(counterRef, { last_id: nextId }, { merge: true })
+        })
       }
       onClose(true)
     } catch(err) {
