@@ -786,3 +786,8 @@ h4 { font-size: 1.1rem; }
   font-size: 0.78rem;
   color: rgba(255, 255, 255, 0.6);
 }
+
+select, option {
+  color: #333333;
+  background-color: #ffffff;
+}
