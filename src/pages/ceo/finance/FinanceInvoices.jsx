@@ -24,7 +24,7 @@ export default function FinanceInvoices({ invoices, timesheets = [], projects = 
   }, [invoices, filterStatus, searchTerm])
 
   const billableTimesheets = useMemo(() => {
-    return timesheets.filter(t => t.state === 'CLIENT_SIGNED' && !t.invoice_id)
+    return timesheets.filter(t => (t.state === 'CLIENT_SIGNED' || t.status === 'CLIENT_SIGNED') && !t.invoice_id)
   }, [timesheets])
 
   const handleApprove = async (id, e) => {

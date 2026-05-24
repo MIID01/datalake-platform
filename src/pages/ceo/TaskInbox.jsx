@@ -4,7 +4,7 @@ import {
   ArrowRight, XCircle, Eye, Zap, Shield, FileSignature, Bell,
   ExternalLink, Plus, ClipboardCheck, Lock
 } from 'lucide-react'
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../../lib/firebase'
 import { onAuthStateChanged } from 'firebase/auth'
 import { taskCategories, taskPriorities } from '../../data/constants'
@@ -183,14 +183,23 @@ export default function TaskInbox() {
     }
   }, [])
 
-  const handleAction = (taskId, action) => {
+  const handleAction = async (taskId, action) => {
     setFadingId(taskId)
     setActionToast({ id: taskId, action })
-    setTimeout(() => {
-      setCompletedIds(prev => new Set([...prev, taskId]))
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), {
+        state: 'COMPLETED',
+        completed_at: serverTimestamp(),
+      });
+      setTimeout(() => {
+        setCompletedIds(prev => new Set([...prev, taskId]))
+        setFadingId(null)
+        setExpandedTask(null)
+      }, 600)
+    } catch (err) {
+      console.error('Failed to update task:', err)
       setFadingId(null)
-      setExpandedTask(null)
-    }, 600)
+    }
     setTimeout(() => setActionToast(null), 3000)
   }
 

@@ -17,6 +17,8 @@ export default function Documents() {
   const [documents, setDocuments] = useState([])
   const [showUpload, setShowUpload] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [toast, setToast] = useState(null)
   const [uploadForm, setUploadForm] = useState({ title: '', category: DOC_CATEGORIES[0], notes: '' })
   const [file, setFile] = useState(null)
@@ -41,7 +43,12 @@ export default function Documents() {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       data.sort((a, b) => (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0))
       setDocuments(data)
-    }, err => console.warn('Documents listener:', err.message))
+      setLoading(false)
+    }, err => {
+      console.warn('Documents listener:', err.message)
+      setError(err)
+      setLoading(false)
+    })
     return () => unsub()
   }, [userEmail])
 
@@ -134,8 +141,23 @@ export default function Documents() {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
+  if (error) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <h3 style={{ fontSize: '1.2rem', marginBottom: 8, color: 'var(--red)' }}>Unable to load page</h3>
+        <p style={{ color: 'var(--text-secondary)' }}>{error.message || 'A network error occurred.'}</p>
+        <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    )
+  }
+
   return (
-    <div>
+    <div style={{ position: 'relative', minHeight: '100%' }}>
+      {loading && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', zIndex: 10 }}>
+          <Loader size={32} className="spin" style={{ color: 'var(--accent-primary)' }} />
+        </div>
+      )}
       {toast && (
         <div className="animate-fade-in-up" style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9999,

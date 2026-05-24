@@ -17,6 +17,8 @@ export default function Expenses() {
   const [expenses, setExpenses] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [toast, setToast] = useState(null)
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -45,7 +47,12 @@ export default function Expenses() {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       data.sort((a, b) => (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0))
       setExpenses(data)
-    }, err => console.warn('Expenses listener:', err.message))
+      setLoading(false)
+    }, err => {
+      console.warn('Expenses listener:', err.message)
+      setError(err)
+      setLoading(false)
+    })
     return () => unsub()
   }, [userEmail])
 
@@ -115,8 +122,23 @@ export default function Expenses() {
     return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
+  if (error) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <h3 style={{ fontSize: '1.2rem', marginBottom: 8, color: 'var(--red)' }}>Unable to load page</h3>
+        <p style={{ color: 'var(--text-secondary)' }}>{error.message || 'A network error occurred.'}</p>
+        <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    )
+  }
+
   return (
     <div>
+      {loading && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', zIndex: 10 }}>
+          <Loader size={32} className="spin" style={{ color: 'var(--accent-primary)' }} />
+        </div>
+      )}
       {toast && (
         <div className="animate-fade-in-up" style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9999,

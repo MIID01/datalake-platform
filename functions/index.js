@@ -27,13 +27,14 @@ const ALLOWED_ORIGINS = [
 // HTTP endpoint: submitCareerApplication
 // Accepts multipart/form-data: candidate fields + cv file
 // Writes to Firestore talent_pool collection with state=PENDING_CONSENT
-exports.submitCareerApplication = onRequest(
-  {
+exports.submitCareerApplication = onRequest({
+    invoker: 'public',
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 60,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
     // CORS headers
@@ -44,6 +45,10 @@ exports.submitCareerApplication = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -243,9 +248,11 @@ exports.extractTimesheetAI = onRequest(
     memory: "1GiB",
     timeoutSeconds: 120,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
+    // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -253,6 +260,9 @@ exports.extractTimesheetAI = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
     const authHeader = req.headers.authorization;
@@ -338,7 +348,8 @@ exports.createTask = onRequest(
     memory: "512MiB",
     timeoutSeconds: 30,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
     // CORS headers
@@ -349,6 +360,10 @@ exports.createTask = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -475,7 +490,8 @@ exports.submitHRScore = onRequest(
     memory: "512MiB",
     timeoutSeconds: 30,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
     // CORS headers
@@ -486,6 +502,10 @@ exports.submitHRScore = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -835,6 +855,10 @@ exports.updateCandidateStage = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -932,6 +956,10 @@ exports.downloadCandidateCV = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -1013,7 +1041,8 @@ exports.createProject = onRequest(
     memory: "512MiB",
     timeoutSeconds: 30,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
     // CORS headers
@@ -1024,6 +1053,10 @@ exports.createProject = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1094,7 +1127,8 @@ exports.assignEngineerToProject = onRequest(
     memory: "512MiB",
     timeoutSeconds: 30,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
     // CORS headers
@@ -1105,6 +1139,10 @@ exports.assignEngineerToProject = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1173,7 +1211,8 @@ exports.getEngineerProjectView = onRequest(
     memory: "512MiB",
     timeoutSeconds: 30,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
     // CORS headers
@@ -1184,6 +1223,10 @@ exports.getEngineerProjectView = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST" && req.method !== "GET") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -1297,6 +1340,10 @@ exports.submitTimesheet = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1485,6 +1532,10 @@ exports.ctoApproveTimesheet = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1510,7 +1561,7 @@ exports.ctoApproveTimesheet = onRequest(
       if (ts.engineer_email === decodedToken.email && decodedToken.email !== "m.alqumri@datalake.sa") { res.status(403).json({ error: "Cannot approve your own timesheet" }); return; }
 
       const nowTS = admin.firestore.FieldValue.serverTimestamp();
-      const newState = decision === "APPROVE" ? "CTO_APPROVED" : "REJECTED_BY_CTO";
+      const newState = decision === "APPROVE" ? "CTO_APPROVED" : "DRAFT";
 
       await tsRef.update({
         state: newState, cto_action_at: nowTS, cto_action_by: decodedToken.email, cto_decision: decision,
@@ -1584,6 +1635,10 @@ exports.clientSignTimesheet = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
 
     // Verify Firebase Auth
@@ -1619,7 +1674,7 @@ exports.clientSignTimesheet = onRequest(
       if (ts.state !== "CTO_APPROVED") { res.status(400).json({ error: `Cannot sign timesheet in state: ${ts.state}` }); return; }
 
       const nowTS = admin.firestore.FieldValue.serverTimestamp();
-      const newState = decision === "SIGN" ? "CLIENT_SIGNED" : "REJECTED_BY_CLIENT";
+      const newState = decision === "SIGN" ? "CLIENT_SIGNED" : "DRAFT";
 
       let signatureHash = null;
       if (decision === "SIGN") {
@@ -1632,6 +1687,7 @@ exports.clientSignTimesheet = onRequest(
         client_signature_method: decision === "SIGN" ? signature_method : null,
         client_action_ip: req.ip || req.headers["x-forwarded-for"] || "unknown",
         rejection_reason: decision === "REJECT" ? rejection_reason : ts.rejection_reason,
+        client_sign_token: decision === "REJECT" ? admin.firestore.FieldValue.delete() : ts.client_sign_token,
         updated_at: nowTS,
         audit_trail: admin.firestore.FieldValue.arrayUnion({
           timestamp: new Date().toISOString(), event: newState, actor: client_email,
@@ -1726,6 +1782,10 @@ exports.getMyTimesheets = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) { res.status(401).json({ error: "Missing auth" }); return; }
     let decodedToken;
@@ -1764,6 +1824,10 @@ exports.getClientTimesheets = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     // Verify Firebase Auth token
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -1833,7 +1897,8 @@ exports.extractCVData = onRequest(
     memory: "512MiB",
     timeoutSeconds: 300, // 5 minutes: Accounts for AI cold-start + OCR + LLM inference
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   async (req, res) => {
     // CORS headers
@@ -1844,6 +1909,10 @@ exports.extractCVData = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -2062,6 +2131,10 @@ exports.getRBACState = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     try {
       const profile = await requireCeo(req);
       const [usersSnap, rolesSnap, matrixSnap, clientsSnap] = await Promise.all([
@@ -2095,6 +2168,10 @@ exports.addUser = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2155,6 +2232,10 @@ exports.updateUserRole = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2193,6 +2274,10 @@ exports.disableUser = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2227,6 +2312,10 @@ exports.createCustomRole = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2275,6 +2364,10 @@ exports.deleteCustomRole = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2313,6 +2406,10 @@ exports.updateAccessMatrix = onRequest(
       res.set("Access-Control-Max-Age", "3600");
       return res.status(204).send("");
     }
+    // CORS headers
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2369,7 +2466,8 @@ exports.prepareInterviewCV = onRequest(
     memory: "1GiB",
     timeoutSeconds: 300,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   (req, res) => prepareInterviewCVHandler(req, res, interviewCVHelpers)
 );
@@ -2380,7 +2478,8 @@ exports.sendInterviewCV = onRequest(
     memory: "512MiB",
     timeoutSeconds: 120,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   (req, res) => sendInterviewCVHandler(req, res, interviewCVHelpers)
 );
@@ -2399,8 +2498,8 @@ const {
 
 const scorecardHelpers = { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS };
 
-exports.getClientScorecardForm = onRequest(
-  {
+exports.getClientScorecardForm = onRequest({
+    invoker: 'public',
     region: "me-central2",
     memory: "256MiB",
     timeoutSeconds: 30,
@@ -2409,8 +2508,8 @@ exports.getClientScorecardForm = onRequest(
   (req, res) => getClientScorecardFormHandler(req, res, scorecardHelpers)
 );
 
-exports.submitClientScorecard = onRequest(
-  {
+exports.submitClientScorecard = onRequest({
+    invoker: 'public',
     region: "me-central2",
     memory: "256MiB",
     timeoutSeconds: 30,
@@ -2425,7 +2524,8 @@ exports.getCandidateInterviewSummary = onRequest(
     memory: "256MiB",
     timeoutSeconds: 30,
     cors: ALLOWED_ORIGINS,
-    invoker: 'public',
+    
+    
   },
   (req, res) => getCandidateInterviewSummaryHandler(req, res, scorecardHelpers)
 );
@@ -2585,7 +2685,8 @@ exports.generateInvoice = onRequest(
 
 exports.syncToZohoBooks = onRequest(
   { region: "me-central2", memory: "512MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS,
-    invoker: 'public', secrets: ["zoho_api_credentials"] },
+    
+     secrets: ["zoho_api_credentials"] },
   (req, res) => syncToZohoBooksHandler(req, res, hireHelpers)
 );
 
@@ -2600,8 +2701,8 @@ exports.getInvoiceDashboard = onRequest(
 );
 
 // Webhook is public (cors: true) so Zoho can call it
-exports.zohoPaymentWebhook = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
+exports.zohoPaymentWebhook = onRequest({
+    invoker: 'public', region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
   (req, res) => zohoPaymentWebhookHandler(req, res)
 );
 
@@ -2647,13 +2748,13 @@ exports.recordLeaver = onRequest(
   (req, res) => recordLeaverHandler(req, res, { verifyAuth, getUserAccessProfile })
 );
 
-exports.getBackfillConsentForm = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
+exports.getBackfillConsentForm = onRequest({
+    invoker: 'public', region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
   (req, res) => getBackfillConsentFormHandler(req, res)
 );
 
-exports.submitBackfillConsent = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
+exports.submitBackfillConsent = onRequest({
+    invoker: 'public', region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
   (req, res) => submitBackfillConsentHandler(req, res)
 );
 

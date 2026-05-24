@@ -26,3 +26,15 @@ functions/node_modules
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets & one-off credential/admin scripts (do not commit)
+cypress.env.json
+hamdi_audit_trail.json
+check-test-user.js
+seed-test-users.js
+functions/cleanup-auth-firestore.js
+functions/e2e_chain_evidence.js
+functions/fix_users.js
+functions/fix_users.cjs
+functions/reset_passwords.cjs
+functions/set-passwords.js

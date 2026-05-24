@@ -67,6 +67,7 @@ export default function Timesheets() {
   const [submitLoading, setSubmitLoading] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [submitResult, setSubmitResult] = useState(null)
+  const [error, setError] = useState(null)
   const totalHours = myTimesheets.filter(t => t.state === 'CLIENT_SIGNED' || t.state === 'CTO_APPROVED').reduce((s, t) => s + (t.total_hours || 0), 0)
 
   // Fetch submission history from Cloud Function (no direct Firestore access)
@@ -81,7 +82,10 @@ export default function Timesheets() {
       })
       const data = await res.json()
       setMyTimesheets(data.timesheets || [])
-    } catch (err) { console.warn('Failed to fetch history:', err.message) }
+    } catch (err) {
+      console.warn('Failed to fetch history:', err.message)
+      setError(err)
+    }
   }
 
   useEffect(() => {
@@ -139,8 +143,11 @@ export default function Timesheets() {
         const data = await res.json()
         const projs = (data.projects || []).filter(p => p.status === 'ACTIVE')
         setLiveProjects(projs)
-        if (projs.length > 0 && !selectedProjectId) setSelectedProjectId(projs[0].project_id)
-      } catch (err) { console.warn('Failed to fetch projects:', err.message) }
+        if (projs.length > 0) setSelectedProjectId(projs[0].project_id)
+      } catch (err) {
+        console.warn('Failed to fetch projects:', err.message)
+        setError(err)
+      }
       setProjectsLoading(false)
     })
     return () => unsub()
@@ -229,8 +236,19 @@ export default function Timesheets() {
 
   const periodLabel = `${MONTH_NAMES[periodStart.getMonth()]} ${periodStart.getDate()} — ${MONTH_NAMES[periodEnd.getMonth()]} ${periodEnd.getDate()}, ${periodEnd.getFullYear()}`
 
+  if (error) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <AlertTriangle size={48} style={{ color: 'var(--red)', margin: '0 auto 16px' }} />
+        <h3 style={{ fontSize: '1.2rem', marginBottom: 8 }}>Unable to load timesheets</h3>
+        <p style={{ color: 'var(--text-secondary)' }}>{error.message || 'A network error occurred.'}</p>
+        <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    )
+  }
+
   return (
-    <div>
+    <div style={{ paddingBottom: 60, position: 'relative', minHeight: '100%' }}>
       <div className="flex-between" style={{ marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Timesheets</h1>

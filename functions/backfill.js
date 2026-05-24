@@ -25,7 +25,8 @@ async function backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProf
     const profile = await getUserAccessProfile(decoded.uid);
     if (profile.role_id !== "ceo") return res.status(403).json({ error: "Forbidden: CEO access required." });
 
-    const { emp_id, full_name, arabic_name, email, role_id, job_title, nationality, start_date, contract_type, salary_sar, emkan_assignment } = req.body;
+    let { emp_id, full_name, arabic_name, email, role_id, job_title, nationality, start_date, contract_type, salary_sar, emkan_assignment } = req.body;
+    email = (email || "").trim().toLowerCase();
     console.log("[backfill] Step 3: processing", emp_id, email);
 
     if (!/^DLSA\d{4}$/.test(emp_id)) return res.status(400).json({ error: "Invalid emp_id format." });

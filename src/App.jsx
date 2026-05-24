@@ -102,7 +102,8 @@ export default function App() {
         </Route>
 
         <Route path="/employee" element={<EmployeeLayout />}>
-          <Route index element={<EmpDashboard />} />
+          <Route index element={<Navigate to="/employee/dashboard" replace />} />
+          <Route path="dashboard" element={<EmpDashboard />} />
           <Route path="onboarding" element={<OnboardingGate />} />
           <Route path="timesheets" element={<EmpTimesheets />} />
           <Route path="leave" element={<EmpLeave />} />
@@ -112,7 +113,7 @@ export default function App() {
           <Route path="training" element={<EmpTraining />} />
           <Route path="support" element={<EmpSupport />} />
           <Route path="profile" element={<EmpProfile />} />
-          <Route path="*" element={<Navigate to="/employee" replace />} />
+          <Route path="*" element={<Navigate to="/employee/dashboard" replace />} />
         </Route>
 
         {/* Legacy /portal and /engineer redirect to /employee */}

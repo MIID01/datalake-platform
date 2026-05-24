@@ -105,48 +105,38 @@ table { border-collapse: collapse; width: 100%; }
 }
 
 /* ============================================================
-   ENGINEER PORTAL — LIGHT THEME TOKENS
+   EMPLOYEE PORTAL — LIGHT THEME TOKENS
    ============================================================ */
-[data-portal="engineer"] {
-  --navy: #1B2A4A;
-  --navy-deep: #0f1d35;
-  --navy-light: #2c3e5f;
-  --steel-blue: #2C5F7C;
-  --steel-blue-light: #3d7a9e;
-  --steel-blue-dim: rgba(44, 95, 124, 0.12);
-  --amber: #E8913A;
-  --amber-light: #f0a956;
-  --amber-dim: rgba(232, 145, 58, 0.12);
-  --green: #27AE60;
-  --green-dim: rgba(39, 174, 96, 0.08);
-  --red: #C0392B;
-  --red-dim: rgba(192, 57, 43, 0.08);
-  --warning: #F39C12;
-  --warning-dim: rgba(243, 156, 18, 0.08);
+[data-portal="employee"] {
+  --navy: #022873;
+  --sky-blue: #1598CC;
+  --orange: #EF5829;
+  --green: #34BF3A;
 
-  --bg-primary: #F8F9FB;
+  --bg-primary: #F4F6F9;
   --bg-secondary: #FFFFFF;
   --bg-card: #FFFFFF;
   --bg-card-hover: #f0f4f8;
   --bg-surface: #f0f4f8;
   --bg-elevated: #FFFFFF;
-  --bg-input: #f0f4f8;
+  --bg-input: #FFFFFF;
 
-  --text-primary: #1B2A4A;
-  --text-secondary: #4a5568;
-  --text-tertiary: #64748b;
+  --text-primary: #1A1A2E;
+  --text-secondary: #5A5A72;
+  --text-tertiary: #6B7280;
   --text-inverse: #FFFFFF;
 
-  --border-primary: #e2e8f0;
-  --border-active: #2C5F7C;
-  --border-card: #e2e8f0;
+  --border-primary: #D1D5DB;
+  --border-light: #E5E7EB;
+  --border-active: #1598CC;
+  --border-card: #E5E7EB;
 
-  --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-card: 0 1px 3px rgba(2, 40, 115, 0.06), 0 4px 12px rgba(2, 40, 115, 0.03);
   --shadow-elevated: 0 4px 24px rgba(0,0,0,0.12);
-  --shadow-glow-blue: 0 0 16px rgba(44, 95, 124, 0.15);
+  --shadow-glow-blue: none;
   --shadow-glow-orange: none;
 
-  --sidebar-bg: #1B2A4A;
+  --sidebar-bg: #022873;
   --sidebar-width: 260px;
   --sidebar-collapsed: 72px;
   --topbar-height: 64px;

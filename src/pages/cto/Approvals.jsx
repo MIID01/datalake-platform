@@ -46,13 +46,13 @@ export default function Approvals() {
 
   const tabCounts = useMemo(() => {
     const counts = {}
-    TABS.forEach(t => { counts[t.key] = timesheets.filter(ts => t.states.includes(ts.state)).length })
+    TABS.forEach(t => { counts[t.key] = timesheets.filter(ts => t.states.includes(ts.state || ts.status)).length })
     return counts
   }, [timesheets])
 
   const filtered = useMemo(() => {
     const tab = TABS.find(t => t.key === activeTab)
-    return timesheets.filter(ts => tab.states.includes(ts.state))
+    return timesheets.filter(ts => tab.states.includes(ts.state || ts.status))
   }, [timesheets, activeTab])
 
   const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000) }

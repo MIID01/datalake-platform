@@ -19,6 +19,51 @@ export default function Talent() {
   const [renewalToast, setRenewalToast] = useState(null)
   const [purgeToast, setPurgeToast] = useState(null)
   const [liveCandidates, setLiveCandidates] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [usersMap, setUsersMap] = useState({})
+  const [projMap, setProjMap] = useState({})
+
+  useEffect(() => {
+    try {
+      const unsubEmp = onSnapshot(collection(db, 'employees'), snap => {
+        setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status === 'active'))
+      })
+      const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+        const m = {}; snap.docs.forEach(d => m[d.id] = d.data()); setUsersMap(m)
+      })
+      const unsubProj = onSnapshot(collection(db, 'engineer_project_assignments'), snap => {
+        const m = {}; snap.docs.forEach(d => {
+          if (!m[d.data().employee_id]) m[d.data().employee_id] = []
+          m[d.data().employee_id].push(d.data())
+        }); setProjMap(m)
+      })
+      return () => { unsubEmp(); unsubUsers(); unsubProj(); }
+    } catch(err) {}
+  }, [])
+
+  const currentEmployees = useMemo(() => {
+    return employees.map(emp => {
+      const u = usersMap[emp.id] || {}
+      const p = projMap[emp.id] || []
+      
+      let daysLeft = 0;
+      let contractEndStr = '';
+      if (emp.contract_end) {
+        const d = emp.contract_end?.toDate ? emp.contract_end.toDate() : new Date(emp.contract_end)
+        daysLeft = Math.max(0, Math.floor((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+        contractEndStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      }
+      
+      return {
+        ...emp,
+        onboardingComplete: u.onboarding_complete === true,
+        pdplConsent: u.pdpl_consent_state || 'Unknown',
+        projects: p.map(x => x.project_id).join(', ') || 'Unassigned',
+        contractEndStr,
+        daysLeft
+      }
+    })
+  }, [employees, usersMap, projMap])
 
   // Firestore real-time listener for live candidates from /careers form
   useEffect(() => {
@@ -134,7 +179,67 @@ export default function Talent() {
     <div>
       <div className="flex-between" style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Talent & HR</h1>
-        <div style={{ display: 'flex', gap: 6 }}>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* SECTION A: CURRENT EMPLOYEES */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 40 }}>
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-primary)', paddingBottom: 8 }}>Section A: Current Employees</h2>
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Title</th>
+                  <th>Email</th>
+                  <th>Onboarding</th>
+                  <th>PDPL Consent</th>
+                  <th>Contract End</th>
+                  <th>Project</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {currentEmployees.length === 0 && (
+                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)' }}>No active employees found</td></tr>
+                )}
+                {currentEmployees.map(e => (
+                  <tr key={e.id}>
+                    <td style={{ fontWeight: 600 }}>{e.full_name || e.name}</td>
+                    <td style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{e.job_title || 'Engineer'}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>{e.email || e.id}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {e.onboardingComplete ? <CheckCircle size={16} color="var(--green)" /> : <XCircle size={16} color="var(--red)" />}
+                    </td>
+                    <td>
+                      <span className={`badge ${e.pdplConsent === 'Consented' ? 'badge-success' : e.pdplConsent === 'Pending' ? 'badge-warning' : 'badge-neutral'}`}>
+                        {e.pdplConsent}
+                      </span>
+                    </td>
+                    <td>
+                      <div>{e.contractEndStr}</div>
+                      <div style={{ fontSize: '0.7rem', color: e.daysLeft < 60 ? 'var(--amber)' : 'var(--text-tertiary)' }}>
+                        {e.daysLeft} days left
+                      </div>
+                    </td>
+                    <td><span style={{ fontSize: '0.78rem', background: 'var(--bg-surface)', padding: '2px 8px', borderRadius: 4 }}>{e.projects}</span></td>
+                    <td><span className="badge badge-success">ACTIVE</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* SECTION B: CANDIDATE PIPELINE (Legacy Sections) */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <div>
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-primary)', paddingBottom: 8 }}>Section B: Candidate Pipeline</h2>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
           {[
             { id: 'scoring', icon: UserPlus, label: 'Scoring Pipeline' },
             { id: 'talentpool', icon: Database, label: 'Talent Pool' },
@@ -155,7 +260,7 @@ export default function Talent() {
             </button>
           ))}
         </div>
-      </div>
+
 
       {/* ═══════════════════════════════════════════════════ */}
       {/* SCORING PIPELINE — 5-Stage Evaluation */}
@@ -703,6 +808,7 @@ export default function Talent() {
           ))}
         </div>
       )}
+      </div>
     </div>
   )
 }

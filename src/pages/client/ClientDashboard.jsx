@@ -167,6 +167,7 @@ export default function ClientTimesheetApproval() {
   const [timesheet, setTimesheet] = useState(null)
   const [invalidToken, setInvalidToken] = useState(false)
   const [clientProfile, setClientProfile] = useState({ company: '', contactName: '' })
+  const [timesheets, setTimesheets] = useState([])
   const [clientProjects, setClientProjects] = useState([])
   const [signing, setSigning] = useState(false)
   const [sigMethod, setSigMethod] = useState('draw')
@@ -184,12 +185,16 @@ export default function ClientTimesheetApproval() {
     const q = query(collection(db, 'timesheets'), where('client_sign_token', '==', token))
     const unsub = onSnapshot(q, snap => {
       if (!snap.empty) {
-        const data = snap.docs[0].data()
-        if (data.state === 'CLIENT_SIGNED') {
-          setTimesheet({ id: snap.docs[0].id, ...data })
-          setSigned(true)
-        } else if (data.state === 'CTO_APPROVED') {
-          setTimesheet({ id: snap.docs[0].id, ...data })
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        // Filter to only those in CLIENT_SIGNED or CTO_APPROVED state
+        const validDocs = docs.filter(d => ['CLIENT_SIGNED', 'CTO_APPROVED'].includes(d.state) || ['CLIENT_SIGNED', 'CTO_APPROVED'].includes(d.status))
+        
+        if (validDocs.length > 0) {
+          setTimesheets(validDocs)
+          // If all valid timesheets are already signed, mark as signed
+          if (validDocs.every(d => d.state === 'CLIENT_SIGNED' || d.status === 'CLIENT_SIGNED')) {
+            setSigned(true)
+          }
         } else {
           setInvalidToken(true)
         }
@@ -207,28 +212,29 @@ export default function ClientTimesheetApproval() {
     return () => unsub1()
   }, [])
 
-  const activeProject = timesheet ? {
-    name: timesheet.project_name,
-    pos: [{ number: 'PO-' + (timesheet.project_name || '1165') }]
+  const activeProject = timesheets.length > 0 ? {
+    name: timesheets[0].project_name, // Assuming all timesheets in a token are for the same project/client
+    pos: [{ number: 'PO-' + (timesheets[0].project_name || '1165') }]
   } : null
 
-  const engineers = timesheet ? [{
-    id: timesheet.engineer_email,
-    name: timesheet.engineer_name,
+  const engineers = timesheets.map(ts => ({
+    id: ts.engineer_email,
+    timesheet_id: ts.id,
+    name: ts.engineer_name,
     role: 'Engineer',
-    email: timesheet.engineer_email,
+    email: ts.engineer_email,
     submitted: true,
-    submittedDate: timesheet.submitted_at?.toDate ? timesheet.submitted_at.toDate().toLocaleDateString() : 'N/A',
-    hours: timesheet.total_hours,
-    totalDays: Object.keys(timesheet.days || {}).length,
-    days: timesheet.days || {}
-  }] : []
+    submittedDate: ts.submitted_at?.toDate ? ts.submitted_at.toDate().toLocaleDateString() : 'N/A',
+    hours: ts.total_hours,
+    totalDays: Object.keys(ts.days || {}).length,
+    days: ts.days || {}
+  }))
 
-  const allSubmitted = timesheet ? true : false
-  const submittedCount = timesheet ? 1 : 0
+  const allSubmitted = timesheets.length > 0
+  const submittedCount = timesheets.length
 
-  const year = timesheet ? timesheet.period_year : 2026
-  const month = timesheet ? timesheet.period_month - 1 : 3
+  const year = timesheets.length > 0 ? timesheets[0].period_year : 2026
+  const month = timesheets.length > 0 ? timesheets[0].period_month - 1 : 3
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
 
@@ -240,7 +246,7 @@ export default function ClientTimesheetApproval() {
   }, [engineers.length])
 
   const saveSignatureToFirestore = async (signatureData, method) => {
-    if (!timesheet) return;
+    if (timesheets.length === 0) return;
     try {
       const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
       
@@ -250,19 +256,22 @@ export default function ClientTimesheetApproval() {
       
       if (pdfBlob) {
         const storage = getStorage()
-        const pdfRef = ref(storage, `datalake-worm-hr/employee_documents/TS-${timesheet.id}-SIGNED.pdf`)
+        const pdfRef = ref(storage, `datalake-worm-hr/employee_documents/TS-CLIENT-${token}-SIGNED.pdf`)
         await uploadBytes(pdfRef, pdfBlob)
         signedPdfUrl = await getDownloadURL(pdfRef)
       }
 
-      await updateDoc(doc(db, 'timesheets', timesheet.id), {
-        state: 'CLIENT_SIGNED',
-        client_signature_image: signatureData || null,
-        client_signature_text: method === 'type' ? signatureText : null,
-        client_signature_method: method,
-        signed_pdf_url: signedPdfUrl,
-        client_signed_at: serverTimestamp()
-      })
+      await Promise.all(timesheets.map(ts => 
+        updateDoc(doc(db, 'timesheets', ts.id), {
+          state: 'CLIENT_SIGNED',
+          status: 'CLIENT_SIGNED',
+          client_signature_image: signatureData || null,
+          client_signature_text: method === 'type' ? signatureText : null,
+          client_signature_method: method,
+          signed_pdf_url: signedPdfUrl,
+          client_signed_at: serverTimestamp()
+        })
+      ))
     } catch (err) {
       console.error('Failed to save signature:', err)
     }

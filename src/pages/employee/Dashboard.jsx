@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useCountUp } from '../../hooks/useUtils'
-import { collection, onSnapshot } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
+import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
+import { db, auth } from '../../lib/firebase'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
-import { Calendar, Clock, Ticket, Palmtree, FileText, CreditCard, LifeBuoy, AlertTriangle, ChevronRight } from 'lucide-react'
+import { Calendar, Clock, Ticket, Palmtree, FileText, CreditCard, LifeBuoy, AlertTriangle, ChevronRight, Loader } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 const statConfig = [
@@ -14,7 +14,7 @@ const statConfig = [
 ]
 
 function StatCard({ config, data, delay }) {
-  const val = data.value
+  const val = data.value || 0
   const displayVal = useCountUp(val, 600)
   const color = config.getColor(val)
   const Icon = config.icon
@@ -30,6 +30,9 @@ function StatCard({ config, data, delay }) {
 }
 
 export default function Dashboard() {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [userName, setUserName] = useState('')
   const [dashboardStats, setDashboardStats] = useState({
     contractDaysRemaining: { value: 0, endDate: '—' },
     leaveBalance: { value: 0, total: 0 },
@@ -39,19 +42,63 @@ export default function Dashboard() {
   const [upcomingActions, setUpcomingActions] = useState([])
 
   useEffect(() => {
-    const unsub1 = onSnapshot(collection(db, 'engineer_dashboard'), snap => {
-      if (!snap.empty) setDashboardStats(snap.docs[0].data())
+    let unsubs = []
+    const unsubAuth = auth.onAuthStateChanged(async user => {
+      if (user) {
+        setUserName(user.displayName || user.email.split('@')[0])
+        
+        // Fetch real stats
+        try {
+          const timesheetsQ = query(collection(db, 'timesheets'), where('engineer_email', '==', user.email), where('status', '==', 'SUBMITTED'))
+          unsubs.push(onSnapshot(timesheetsQ, snap => {
+            setDashboardStats(prev => ({ ...prev, pendingTimesheets: { value: snap.size, period: 'Pending Approval' } }))
+          }))
+          
+          const ticketsQ = query(collection(db, 'support_tickets'), where('created_by', '==', user.email), where('status', 'in', ['OPEN', 'IN_PROGRESS']))
+          unsubs.push(onSnapshot(ticketsQ, snap => {
+            setDashboardStats(prev => ({ ...prev, openTickets: { value: snap.size } }))
+          }))
+
+          // For leave balances, ideally read from leave_balances collection
+          const leaveQ = query(collection(db, 'leave_balances'), where('email', '==', user.email))
+          unsubs.push(onSnapshot(leaveQ, snap => {
+            if (!snap.empty) {
+              const data = snap.docs[0].data()
+              setDashboardStats(prev => ({ ...prev, leaveBalance: { value: data.annual_remaining || 0, total: data.annual_total || 21 } }))
+            }
+          }))
+
+          setLoading(false)
+        } catch (e) {
+          console.error(e)
+          setError(e)
+          setLoading(false)
+        }
+      } else {
+        setLoading(false)
+      }
     })
-    const unsub2 = onSnapshot(collection(db, 'engineer_actions'), snap => {
-      setUpcomingActions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    })
-    return () => { unsub1(); unsub2() }
+    return () => {
+      unsubAuth()
+      unsubs.forEach(u => u())
+    }
   }, [])
+
+  if (loading) return <div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:'400px'}}><Loader className="spin" size={32} style={{color:'var(--accent-primary)'}} /></div>
+  if (error) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <h3 style={{ fontSize: '1.2rem', marginBottom: 8, color: 'var(--red)' }}>Unable to load page</h3>
+        <p style={{ color: 'var(--text-secondary)' }}>{error.message || 'A network error occurred.'}</p>
+        <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    )
+  }
 
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Good morning, Mohammed 👋</h1>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Good morning, {userName} 👋</h1>
         <p style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem', marginTop: 4 }}>
           {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </p>
@@ -72,7 +119,13 @@ export default function Dashboard() {
             <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Upcoming Actions</h3>
           </div>
           <div className="action-list">
-            {upcomingActions.map(action => (
+            {upcomingActions.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-tertiary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Ticket size={32} style={{ marginBottom: 12, opacity: 0.5 }} />
+                <div style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>You're all caught up!</div>
+                <div style={{ fontSize: '0.85rem' }}>No pending actions required.</div>
+              </div>
+            ) : upcomingActions.map(action => (
               <div key={action.id} className="action-item">
                 <div className={`action-icon ${action.urgency}`}>{action.icon}</div>
                 <div className="action-info">
@@ -95,12 +148,11 @@ export default function Dashboard() {
             <div className="card-header"><h3>Quick Links</h3></div>
             <div className="quick-links">
               {[
-                { icon: '⏱️', label: 'Submit Timesheet', to: '/portal/timesheets' },
-                { icon: '🏖️', label: 'Request Leave', to: '/portal/leave' },
-                { icon: '💳', label: 'Submit Expense', to: '/portal/expenses' },
-                { icon: '📄', label: 'View Payslips', to: '/portal/documents' },
-                { icon: '🎟️', label: 'Contact HR', to: '/portal/support' },
-                { icon: '⚠️', label: 'Report Issue', to: '/portal/support' },
+                { icon: '⏱️', label: 'Submit Timesheet', to: '/employee/timesheets' },
+                { icon: '🏖️', label: 'Request Leave', to: '/employee/leave' },
+                { icon: '💳', label: 'Submit Expense', to: '/employee/expenses' },
+                { icon: '📄', label: 'View Documents', to: '/employee/documents' },
+                { icon: '🎟️', label: 'Contact HR', to: '/employee/support' },
               ].map((link, i) => (
                 <Link key={i} to={link.to} className="quick-link-btn">
                   <span className="ql-icon">{link.icon}</span>

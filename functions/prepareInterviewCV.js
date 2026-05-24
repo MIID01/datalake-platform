@@ -12,8 +12,8 @@
  * DTLK-FORM-HR-CV-002-v2
  */
 
-// [TODO: deploy cv-agent to Cloud Run in me-central2, set CV_AGENT_URL env var]
-// [TODO: create BigQuery dataset datalake_audit and table system_events with schema:
+// [CV_AGENT integration enabled]
+const fetch = require("node-fetch");
 //   event_type STRING, actor STRING, candidate_id STRING, project_id STRING,
 //   pdpl_consent_verified BOOL, regulatory_basis STRING, timestamp TIMESTAMP,
 //   details JSON]
@@ -107,156 +107,31 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       ? jd_text.trim()
       : buildDefaultJD(project, candidate);
 
-    // ── 7. Extract text via OCR ──
-    const { callOCR, callLLM } = require("./lib/ai-client");
-    const cvBase64 = cvBuffer.toString("base64");
-    const ocrResult = await callOCR({
-      fileBase64: cvBase64,
-      agent: "gatekeeper",
-      type: "cv_extraction",
-      triggeredBy: profile.email,
+    // ── 7. Call cv-agent microservice ──
+    const cvAgentUrl = process.env.CV_AGENT_URL || "https://datalake-cv-agent-808056940626.me-central2.run.app";
+    
+    const form = new FormData();
+    form.append("cv_file", cvBuffer, { filename: originalFilename || "cv.pdf", contentType: "application/pdf" });
+    if (jdContent) {
+      form.append("jd_file", Buffer.from(jdContent, "utf-8"), { filename: "jd.txt", contentType: "text/plain" });
+    }
+
+    const agentRes = await fetch(`${cvAgentUrl}/reformat`, {
+      method: "POST",
+      body: form,
+      headers: form.getHeaders(),
     });
 
-    if (!ocrResult.success) {
-      return res.status(502).json({
-        error: `OCR extraction failed: ${ocrResult.error}`,
-      });
+    if (!agentRes.ok) {
+      const errText = await agentRes.text();
+      throw new Error(`cv-agent failed with status ${agentRes.status}: ${errText}`);
     }
 
-    const cvText = ocrResult.lines.map(l => l.text || l).join("\n");
-    
-    if (!cvText.trim()) {
-      return res.status(502).json({
-        error: "OCR extracted no readable text from the candidate's CV file.",
-      });
-    }
-
-    // ── 8. Reformat via LLM ──
-    const systemPrompt = `You are a senior technical recruiter at Datalake Information Technology, a Saudi staff augmentation company deploying data engineers to enterprise financial clients (banks, fintech, government).
-
-You are reading a candidate's raw CV text extracted via OCR. Your job is to extract their real data and present it in a way that sells them to a client hiring manager.
-
-CRITICAL RULES:
-1. Use ONLY information present in the CV text. NEVER invent, assume, or embellish any skill, role, company, or achievement. If something is not in the CV, do not include it.
-2. PDPL COMPLIANCE: Remove all personal contact information — phone numbers, email addresses, home addresses, dates of birth, nationality, marital status, religion, Iqama/ID numbers, photos. Only professional qualifications and experience.
-3. This is a SALES document. Present the candidate positively. Highlight strengths. Do not mention weaknesses, gaps, or concerns — those stay in internal HR notes only.
-4. If a skill or certification is mentioned in the CV, include it. If the CV text is unclear or garbled from OCR, do your best to interpret it accurately.
-5. Quantify wherever the CV provides numbers — years, percentages, volumes, team sizes.
-
-Return ONLY a JSON object with these exact fields. No markdown wrapping. No explanation. Pure JSON:
-
-{
-  "candidate_name": "Full name exactly as it appears in the CV",
-  "professional_summary": "2-3 sentences selling this candidate to a client. What makes them valuable? What's their strongest expertise? Write as if recommending them to a banking CTO.",
-  "best_fit_role": "The job title that best matches their experience.",
-  "seniority": "One of: Junior, Mid, Senior, Lead, Principal — based on years of experience and role progression",
-  "years_experience": "Total years of relevant professional experience as a number",
-  "skills_cloud": "Comma-separated cloud platform skills found in CV. Only include what is actually in the CV text. Write 'Not specified' if none found.",
-  "skills_data_eng": "Comma-separated data engineering tools found in CV. Only what is in the CV. Write 'Not specified' if none found.",
-  "skills_programming": "Comma-separated languages found in CV. Only what is in the CV. Write 'Not specified' if none found.",
-  "skills_databases": "Comma-separated database technologies found in CV. Only what is in the CV. Write 'Not specified' if none found.",
-  "skills_bi": "Comma-separated BI and Visualization tools found in CV. Only what is in the CV. Write 'Not specified' if none found.",
-  "skills_devops": "Comma-separated DevOps tools found in CV. Only what is in the CV. Write 'Not specified' if none found.",
-  "skills_regulatory": "Any compliance, regulatory, or domain expertise mentioned in the CV. Write 'Not specified' if none found.",
-  "experience_content": "Full work history formatted as plain text. For each role write on separate lines:\\n\\nROLE TITLE — Company Name\\nMonth Year – Month Year (X years Y months)\\n• Achievement or responsibility with quantified impact\\n• Achievement or responsibility\\n• Achievement or responsibility\\n\\nMost recent role first. 3-5 bullets per role. Start each bullet with a strong verb. Preserve all numbers and metrics exactly as stated in the CV.",
-  "certifications_content": "List each certification on a new line:\\n• Certification Name — Issuing Body — Year\\nMost recent first. Write 'No certifications listed' if none found.",
-  "education_content": "List each degree on a new line:\\n• Degree — Institution — Year\\nMost recent first. Write 'Not specified' if not found.",
-  "key_achievements": "3-5 bullet points highlighting the candidate's most impressive accomplishments from across their career. These should be the achievements that would make a client say 'I want this person on my team'. Quantify everything possible. Format as:\\n• Achievement one\\n• Achievement two\\n• Achievement three",
-  "fit_score": "Score out of 10 for fit based on JD",
-  "red_flags": ["Any gaps or concerns"],
-  "interview_questions": ["Suggested question 1"]
-}`;
-
-    const llmResult = await callLLM({
-      agent: "gatekeeper",
-      type: "cv_reformat",
-      triggeredBy: profile.email,
-      promptTemplateId: "GATEKEEPER_CV_REFORMAT_V2",
-      systemPrompt: systemPrompt,
-      userPrompt: cvText
-    });
-
-    if (!llmResult.success) {
-      return res.status(502).json({
-        error: `LLM formatting failed: ${llmResult.error}`,
-      });
-    }
-
-    // ── 9. Parse JSON from LLM ──
-    let cvData;
-    try {
-      const cleaned = llmResult.output.replace(/```json|```/g, "").trim();
-      cvData = JSON.parse(cleaned);
-    } catch (err) {
-      console.error("Failed to parse JSON:", llmResult.output);
-      return res.status(502).json({
-        error: `AI returned invalid JSON: ${err.message}`,
-      });
-    }
-
-    // ── 10. Load Template & Render ──
-    const PizZip = require("pizzip");
-    const Docxtemplater = require("docxtemplater");
-    
-    let templateBuffer;
-    try {
-      const templateFile = admin.storage().bucket("datalake-grc-library").file("templates/DTLK-FORM-HR-CV-002_v1.1.docx");
-      const [buffer] = await templateFile.download();
-      templateBuffer = buffer;
-    } catch (err) {
-      console.error("Failed to load template from GCS", err);
-      return res.status(500).json({ error: "Failed to load master template from GCS. Make sure DTLK-FORM-HR-CV-002_v1.1.docx is uploaded." });
-    }
-
-    let outputBuffer;
-    try {
-      const zip = new PizZip(templateBuffer);
-      const docx = new Docxtemplater(zip, {
-        paragraphLoop: true,
-        linebreaks: true,
-        delimiters: { start: "{", end: "}" }
-      });
-
-      const formatMultiline = (val) => {
-        if (!val) return "";
-        let str = Array.isArray(val) ? val.join("\n\n") : String(val);
-        // Force inline bullets to start on a new line
-        str = str.replace(/([^\n])\s*•\s*/g, "$1\n• ");
-        return str.trim();
-      };
-
-      docx.render({
-        prepared_date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
-        candidate_name: cvData.candidate_name || "Unknown",
-        professional_summary: cvData.professional_summary || "",
-        best_fit_role: cvData.best_fit_role || "",
-        seniority: cvData.seniority || "",
-        years_experience: cvData.years_experience || "",
-        skills_cloud: cvData.skills_cloud || "Not specified",
-        skills_data_eng: cvData.skills_data_eng || "Not specified",
-        skills_programming: cvData.skills_programming || "Not specified",
-        skills_databases: cvData.skills_databases || "Not specified",
-        skills_bi: cvData.skills_bi || "Not specified",
-        skills_devops: cvData.skills_devops || "Not specified",
-        skills_regulatory: cvData.skills_regulatory || "Not specified",
-        experience_content: formatMultiline(cvData.experience_content),
-        certifications_content: formatMultiline(cvData.certifications_content || "No certifications listed"),
-        education_content: formatMultiline(cvData.education_content || "Not specified"),
-        key_achievements: formatMultiline(cvData.key_achievements)
-      });
-
-      outputBuffer = docx.getZip().generate({ type: "nodebuffer" });
-    } catch (err) {
-      console.error("Docxtemplater error:", err);
-      if (err.properties && err.properties.errors) {
-         err.properties.errors.forEach(e => console.error("Docxtemplater issue:", e));
-      }
-      return res.status(500).json({ error: "Failed to render DOCX template. Check the template tags." });
-    }
+    const outputBuffer = await agentRes.buffer();
 
     // ── 11. Store output in WORM bucket ──
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const safeName = (cvData.candidate_name || candidate.full_name).replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
+    const safeName = (candidate.full_name).replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
     const wormPath = `interview-cvs/${project_id}/${candidate_id}/${timestamp}_DTLK-FORM-HR-CV-002_${safeName}.docx`;
 
     const wormFile = wormBucket.file(wormPath);
@@ -279,9 +154,9 @@ Return ONLY a JSON object with these exact fields. No markdown wrapping. No expl
       portfolio_path: wormPath,
       portfolio_generated_at: now,
       internal_assessment: {
-        fit_score: cvData.fit_score || null,
-        red_flags: cvData.red_flags || [],
-        interview_questions: cvData.interview_questions || []
+        fit_score: null,
+        red_flags: [],
+        interview_questions: []
       },
       // Keep old fields for backward compatibility
       interview_cv_path: wormPath,
@@ -315,7 +190,7 @@ Return ONLY a JSON object with these exact fields. No markdown wrapping. No expl
       action_at: now,
       details: {
         candidate_id,
-        candidate_name: cvData.candidate_name || candidate.full_name,
+        candidate_name: candidate.full_name,
         project_id,
         project_name: project.project_name,
         client_name: project.client_name,
@@ -330,7 +205,7 @@ Return ONLY a JSON object with these exact fields. No markdown wrapping. No expl
       signed_url: signedUrl,
       worm_path: wormPath,
       format: "docx",
-      candidate_name: cvData.candidate_name || candidate.full_name,
+      candidate_name: candidate.full_name,
       client_approver_email: project.client_approver_email || null,
       client_approver_name: project.client_approver_name || null,
     });

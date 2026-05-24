@@ -42,15 +42,17 @@ export default function CEOPayroll() {
       if (ts.period_month === currentMonth && ts.period_year === currentYear) {
         if (!roster.has(ts.engineer_id)) {
           const empRecord = employees.find(e => e.id === ts.engineer_id || e.employee_id === ts.engineer_id)
-          const gross = empRecord && empRecord.salary ? Number(empRecord.salary) : 20000
-          const gosi = gross * 0.09
+          const gross = empRecord && empRecord.salary ? Number(empRecord.salary) : 0
+          const employee_gosi = gross * 0.0975
+          const employer_gosi = gross * 0.1175
           
           roster.set(ts.engineer_id, {
             id: ts.engineer_id,
             name: ts.engineer_name || ts.engineer_id,
             gross: gross,
-            gosi: gosi,
-            net: gross - gosi,
+            gosi: employee_gosi,
+            employer_gosi: employer_gosi,
+            net: gross - employee_gosi,
             wps_status: ts.state === 'CLIENT_SIGNED' || ts.state === 'CTO_APPROVED' ? 'CLEARED' : 'PENDING_TIMESHEET',
             hold_alert: ts.state === 'REJECTED' ? 'Timesheet Disputed' : null
           })

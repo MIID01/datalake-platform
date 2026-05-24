@@ -1,29 +1,32 @@
-import { useNavigate, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { auth } from '../lib/firebase'
-import { signIn } from '../lib/auth'
+import { signIn, resolveUserRole, CEO_EMAIL } from '../lib/auth'
+import { homePathForRole } from '../lib/routes'
 import { LogIn } from 'lucide-react'
 import '../styles/ceo.css'
 
 export default function LandingPage() {
   const navigate = useNavigate()
   const [authError, setAuthError] = useState('')
-  const [user, setUser] = useState(auth.currentUser)
 
+  // Once signed in (here or already), resolve the role and send the user to
+  // their portal home via the shared homePathForRole map.
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(setUser)
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return
+      const record = await resolveUserRole(user.uid, user.email)
+      const role = user.email === CEO_EMAIL ? 'ceo' : record?.role_id
+      if (role) navigate(homePathForRole(role), { replace: true })
+    })
     return () => unsub()
-  }, [])
-
-  if (user) {
-    return <Navigate to="/dashboard" replace />
-  }
+  }, [navigate])
 
   const handleSignIn = async () => {
     setAuthError('')
     try {
       await signIn()
-      navigate('/dashboard')
+      // Navigation is handled by the onAuthStateChanged listener above.
     } catch (err) {
       setAuthError(err.message || 'Sign-in failed')
     }

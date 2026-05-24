@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom'
+import ErrorBoundary from '../components/ErrorBoundary'
 import { useRiyadhTime } from '../hooks/useUtils'
 import { auth, db } from '../lib/firebase'
 import { doc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore'
@@ -159,7 +160,9 @@ export default function EmployeeLayout() {
       {/* Main Content */}
       <main className={`main-area ${collapsed ? 'collapsed' : ''}`}>
         <div className="page-content page-enter">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </main>
     </div>

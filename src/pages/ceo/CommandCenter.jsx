@@ -73,38 +73,67 @@ export default function CommandCenter() {
   const [liveKPIs, setLiveKPIs] = useState({
     monthlyRevenue: { value: 0, trend: 0 },
     activeEngineers: { value: 0, trend: 0 },
+    activeProjects: { value: 0, trend: 0 },
     pendingTimesheets: { value: 0, trend: 0 },
-    pendingLeave: { value: 0, trend: 0 },
+    pendingInvoices: { value: 0, trend: 0 },
+    pendingApprovals: { value: 0, trend: 0 }
   })
 
   useEffect(() => {
-    // 1. Invoices (sum where status=PAID)
-    const unsubInvoices = onSnapshot(collection(db, 'invoices'), snap => {
-      let total = 0
+    let unsubs = []
+
+    // 1. Invoices (sum where status=PAID, count DRAFT)
+    unsubs.push(onSnapshot(collection(db, 'invoices'), snap => {
+      let revenue = 0
+      let drafts = 0
+      const currentMonthStr = new Date().toISOString().substring(0, 7) // "YYYY-MM"
       snap.forEach(d => {
         const data = d.data()
-        if (data.status === 'PAID') total += (Number(data.total) || 0)
+        if (data.status === 'PAID' && data.date && data.date.startsWith(currentMonthStr)) {
+          revenue += (Number(data.total) || 0)
+        }
+        if (data.status === 'DRAFT') {
+          drafts++
+        }
       })
-      setLiveKPIs(p => ({ ...p, monthlyRevenue: { value: total, trend: 5 } }))
-    }, e => console.warn(e))
+      setLiveKPIs(p => ({ ...p, monthlyRevenue: { value: revenue, trend: 0 }, pendingInvoices: { value: drafts, trend: 0 } }))
+    }, e => console.warn(e)))
 
     // 2. Employees (count where status=active)
-    const unsubEmp = onSnapshot(query(collection(db, 'employees'), where('status', '==', 'Active')), snap => {
-      setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap.size, trend: 2 } }))
-    }, e => console.warn(e))
+    unsubs.push(onSnapshot(query(collection(db, 'employees'), where('status', '==', 'active')), snap => {
+      setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap.size, trend: 0 } }))
+    }, e => {
+      // Fallback capitalized
+      onSnapshot(query(collection(db, 'employees'), where('status', '==', 'Active')), snap2 => {
+        setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap2.size, trend: 0 } }))
+      })
+    }))
 
-    // 3. Timesheets (count where status=SUBMITTED)
-    const unsubTS = onSnapshot(query(collection(db, 'timesheets'), where('status', '==', 'SUBMITTED')), snap => {
+    // 3. Projects (count where status=active)
+    unsubs.push(onSnapshot(query(collection(db, 'projects'), where('status', '==', 'active')), snap => {
+      setLiveKPIs(p => ({ ...p, activeProjects: { value: snap.size, trend: 0 } }))
+    }, e => {
+      // Fallback capitalized
+      onSnapshot(query(collection(db, 'projects'), where('status', '==', 'Active')), snap2 => {
+        setLiveKPIs(p => ({ ...p, activeProjects: { value: snap2.size, trend: 0 } }))
+      })
+    }))
+
+    // 4. Timesheets (count where status=SUBMITTED)
+    unsubs.push(onSnapshot(query(collection(db, 'timesheets'), where('status', '==', 'SUBMITTED')), snap => {
       setLiveKPIs(p => ({ ...p, pendingTimesheets: { value: snap.size, trend: 0 } }))
-    }, e => console.warn(e))
+    }, e => console.warn(e)))
 
-    // 4. Leave requests (count where status=PENDING)
-    const unsubLeave = onSnapshot(query(collection(db, 'leave_requests'), where('status', '==', 'PENDING')), snap => {
-      setLiveKPIs(p => ({ ...p, pendingLeave: { value: snap.size, trend: 0 } }))
-    }, e => console.warn(e))
-
-    return () => { unsubInvoices(); unsubEmp(); unsubTS(); unsubLeave(); }
+    return () => unsubs.forEach(u => u && u())
   }, [])
+
+  // Calculate pending approvals (for CEO, this might be draft invoices + leave requests, or just a sum)
+  useEffect(() => {
+    setLiveKPIs(p => ({
+      ...p,
+      pendingApprovals: { value: p.pendingInvoices.value + p.pendingTimesheets.value, trend: 0 }
+    }))
+  }, [liveKPIs.pendingInvoices.value, liveKPIs.pendingTimesheets.value])
 
   const sparkRevenue = []
   const sparkEngineers = []
@@ -150,11 +179,13 @@ export default function CommandCenter() {
       ))}
 
       {/* KPI Cards */}
-      <div className="grid-4" style={{ marginBottom: 28 }}>
-        <KPICard label="Revenue (PAID Invoices)" value={liveKPIs.monthlyRevenue.value} unit="SAR" trend={liveKPIs.monthlyRevenue.trend} color="var(--green)" delay={1} sparkData={sparkRevenue} />
-        <KPICard label="Active Employees" value={liveKPIs.activeEngineers.value} unit="" trend={liveKPIs.activeEngineers.trend} color="var(--sky-blue)" delay={2} sparkData={sparkEngineers} />
-        <KPICard label="Pending Timesheets" value={liveKPIs.pendingTimesheets.value} unit="" trend={liveKPIs.pendingTimesheets.trend} color="var(--amber)" delay={3} sparkData={sparkCash} />
-        <KPICard label="Pending Leave Requests" value={liveKPIs.pendingLeave.value} unit="" trend={liveKPIs.pendingLeave.trend} color="var(--amber)" delay={4} sparkData={sparkCompliance} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20, marginBottom: 28 }}>
+        <KPICard label="Revenue (MTD)" value={liveKPIs.monthlyRevenue.value} unit="SAR" trend={0} color="var(--green)" delay={1} />
+        <KPICard label="Active Employees" value={liveKPIs.activeEngineers.value} unit="" trend={0} color="var(--sky-blue)" delay={2} />
+        <KPICard label="Active Projects" value={liveKPIs.activeProjects.value} unit="" trend={0} color="var(--amber)" delay={3} />
+        <KPICard label="Pending Timesheets" value={liveKPIs.pendingTimesheets.value} unit="" trend={0} color="var(--orange)" delay={4} />
+        <KPICard label="Pending Invoices" value={liveKPIs.pendingInvoices.value} unit="" trend={0} color="var(--amber)" delay={5} />
+        <KPICard label="Pending Approvals" value={liveKPIs.pendingApprovals.value} unit="" trend={0} color="var(--red)" delay={6} />
       </div>
 
       {/* Main Content: Approvals + Activity Feed */}

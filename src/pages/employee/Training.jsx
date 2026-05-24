@@ -12,6 +12,8 @@ const STATUS_CONFIG = {
 export default function Training() {
   const [modules, setModules] = useState([])
   const [completions, setCompletions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [expandedModule, setExpandedModule] = useState(null)
   const [submitting, setSubmitting] = useState(null)
   const [toast, setToast] = useState(null)
@@ -30,7 +32,12 @@ export default function Training() {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'training_modules'), snap => {
       setModules(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    }, err => console.warn('Modules listener:', err.message))
+      setLoading(false)
+    }, err => {
+      console.warn('Modules listener:', err.message)
+      setError(err)
+      setLoading(false)
+    })
     return () => unsub()
   }, [])
 
@@ -40,7 +47,12 @@ export default function Training() {
     const q = query(collection(db, 'training_completions'), where('engineer_email', '==', userEmail))
     const unsub = onSnapshot(q, snap => {
       setCompletions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    }, err => console.warn('Training listener:', err.message))
+      setLoading(false)
+    }, err => {
+      console.warn('Training listener:', err.message)
+      setError(err)
+      setLoading(false)
+    })
     return () => unsub()
   }, [userEmail])
 
@@ -92,8 +104,23 @@ export default function Training() {
   const totalCount = modules.length
   const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
 
+  if (error) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <h3 style={{ fontSize: '1.2rem', marginBottom: 8, color: 'var(--red)' }}>Unable to load page</h3>
+        <p style={{ color: 'var(--text-secondary)' }}>{error.message || 'A network error occurred.'}</p>
+        <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    )
+  }
+
   return (
-    <div>
+    <div style={{ position: 'relative', minHeight: '100%' }}>
+      {loading && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', zIndex: 10 }}>
+          <Loader size={32} className="spin" style={{ color: 'var(--accent-primary)' }} />
+        </div>
+      )}
       {toast && (
         <div className="animate-fade-in-up" style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9999,

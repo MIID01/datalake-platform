@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
+import { Navigate } from 'react-router-dom'
 import { auth, db } from '../lib/firebase'
+import { CEO_EMAIL } from '../lib/auth'
+import { homePathForRole, portalPrefixForRole } from '../lib/routes'
 import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/firestore'
 import { ShieldAlert, Loader, LogOut } from 'lucide-react'
 
@@ -114,15 +117,16 @@ export default function AuthGate({ children }) {
   }
 
   const currentPath = window.location.pathname
+  const isCeo = email === CEO_EMAIL
 
-  // Not logged in → render children (public routes)
-  if (!uid) return children
-
-  // Always allow public/token-gated routes
+  // Always allow public/token-gated routes. Post-login routing from the landing
+  // page ("/") is owned by LandingPage, which navigates via homePathForRole.
   if (isPublicPath(currentPath)) return children
 
+  // Not logged in -> redirect to public landing page
+  if (!uid) return <Navigate to="/" replace />
+
   // CEO bypass — full access to everything
-  const isCeo = email === 'm.alqumri@datalake.sa'
   if (isCeo) return children
 
   // User not found in system
@@ -170,12 +174,16 @@ export default function AuthGate({ children }) {
     )
   }
 
-  // User has consent pending — show action required page
-  // But allow access if they have an active user record with a role
   if (userRole?.role_id) {
-    // Active user with role — allow access
-    // Optionally could enforce route matching (e.g., engineer can only access /engineer/*)
-    // For now, allow access to let the platform work during initial setup
+    const role = userRole.role_id;
+
+    // Route protection: if the user has wandered outside their portal, send
+    // them back to their role's home. Unknown roles (no prefix) fall through.
+    const prefix = portalPrefixForRole(role)
+    if (prefix && !currentPath.startsWith(prefix)) {
+      return <Navigate to={homePathForRole(role)} replace />
+    }
+
     return children
   }
 

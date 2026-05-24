@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db, auth } from '../../lib/firebase'
-import { User, Shield, Download, Trash2, Edit2, Plus } from 'lucide-react'
+import { User, Shield, Download, Trash2, Edit2, Plus, Loader } from 'lucide-react'
 
 export default function Profile() {
   const [engineerProfile, setEngineerProfile] = useState({ name: '', employeeId: '', email: '', phone: '', nationality: '', client: '', role: '', contractStart: '', contractEnd: '', contractType: '', baseSalary: '', bankName: '', gosiNumber: '', emergencyContact: { name: '', relationship: '', phone: '' }, skills: [], certifications: [] })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(user => {
@@ -14,6 +16,11 @@ export default function Profile() {
           if (!snap.empty) {
             setEngineerProfile(prev => ({ ...prev, ...snap.docs[0].data() }))
           }
+          setLoading(false)
+        }, err => {
+          console.warn('Profile listener:', err.message)
+          setError(err)
+          setLoading(false)
         })
         return () => unsubData()
       }
@@ -64,8 +71,23 @@ export default function Profile() {
     },
   ]
 
+  if (error) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <h3 style={{ fontSize: '1.2rem', marginBottom: 8, color: 'var(--red)' }}>Unable to load page</h3>
+        <p style={{ color: 'var(--text-secondary)' }}>{error.message || 'A network error occurred.'}</p>
+        <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    )
+  }
+
   return (
-    <div>
+    <div style={{ position: 'relative', minHeight: '100%' }}>
+      {loading && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', zIndex: 10 }}>
+          <Loader size={32} className="spin" style={{ color: 'var(--accent-primary)' }} />
+        </div>
+      )}
       <div className="flex-between" style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>My Profile</h1>
       </div>
@@ -78,7 +100,7 @@ export default function Profile() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'white', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'var(--font-heading)',
         }}>
-          MA
+          {p.name ? p.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'ME'}
         </div>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: '1.3rem', fontWeight: 700 }}>{p.name}</h2>

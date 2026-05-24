@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, where, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { CheckCircle, XCircle, X, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useKeyboardShortcuts } from '../../hooks/useUtils'
@@ -16,20 +16,69 @@ export default function Approvals() {
   const [focusIndex, setFocusIndex] = useState(0)
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'pending_approvals'), snap => {
-      setApprovals(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const unsubApprovals = onSnapshot(collection(db, 'pending_approvals'), snap => {
+      const standardApprovals = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setApprovals(prev => {
+        const timesheets = prev.filter(a => a.type === 'timesheet')
+        return [...timesheets, ...standardApprovals]
+      })
     })
-    return () => unsub()
+
+    const timesheetQuery = query(collection(db, 'timesheets'), where('state', '==', 'SUBMITTED'))
+    const unsubTimesheets = onSnapshot(timesheetQuery, snap => {
+      const timesheets = snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id: d.id,
+          type: 'timesheet',
+          title: `Timesheet: ${data.engineer_name}`,
+          requester: data.engineer_name,
+          submitted: data.submitted_at?.toMillis?.() || Date.now(),
+          sla: 48,
+          slaRemaining: 48, // Simplify logic
+          actions: ['Approve', 'Reject'],
+          icon: '⏳'
+        }
+      })
+      setApprovals(prev => {
+        const standardApprovals = prev.filter(a => a.type !== 'timesheet')
+        return [...standardApprovals, ...timesheets]
+      })
+    })
+
+    return () => {
+      unsubApprovals()
+      unsubTimesheets()
+    }
   }, [])
 
   const filtered = useMemo(() => {
     if (activeTab === 'All') return approvals
-    const types = typeMap[activeTab]
+    const types = typeMap[activeTab] || []
     if (Array.isArray(types)) return approvals.filter(a => types.includes(a.type))
     return approvals.filter(a => a.type === types)
   }, [activeTab, approvals])
 
-  const handleApprove = (id) => {
+  const handleApprove = async (id, decision = 'APPROVE') => {
+    const item = approvals.find(a => a.id === id)
+    if (item && item.type === 'timesheet') {
+      try {
+        const { getAuth } = await import('firebase/auth')
+        const auth = getAuth()
+        const token = await auth.currentUser.getIdToken()
+        const res = await fetch('https://me-central2-datalake-production-sa.cloudfunctions.net/ctoApproveTimesheet', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ timesheet_id: id, decision, notes: 'Approved by CEO' })
+        })
+        if (!res.ok) throw new Error('API failed')
+      } catch (err) {
+        console.error('Approval failed', err)
+      }
+    }
     setApprovals(prev => prev.filter(a => a.id !== id))
     setDetailItem(null)
   }
