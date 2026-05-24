@@ -28,6 +28,7 @@ functions/node_modules
 *.sw?
 
 # Secrets & one-off credential/admin scripts (do not commit)
+functions/sa-key.json
 cypress.env.json
 hamdi_audit_trail.json
 check-test-user.js
