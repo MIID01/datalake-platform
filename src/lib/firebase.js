@@ -93,5 +93,11 @@ export const GET_BACKFILL_CONSENT_URL =
   "https://getbackfillconsent-ifzodp5svq-wx.a.run.app";
 export const SUBMIT_BACKFILL_CONSENT_URL = 
   "https://submitbackfillconsent-ifzodp5svq-wx.a.run.app";
-export const UPLOAD_GRC_DOC_URL = 
-  "https://uploadgrcdoc-ifzodp5svq-wx.a.run.app";
+export const UPLOAD_GRC_DOC_URL =
+  "https://uploadgrcdocument-ifzodp5svq-wx.a.run.app";
+export const LIST_GRC_DOCUMENTS_URL =
+  "https://listgrcdocuments-ifzodp5svq-wx.a.run.app";
+export const GET_GRC_CHANGELOG_URL =
+  "https://getgrcchangelog-ifzodp5svq-wx.a.run.app";
+export const DOWNLOAD_GRC_DOCUMENT_URL =
+  "https://downloadgrcdocument-ifzodp5svq-wx.a.run.app";

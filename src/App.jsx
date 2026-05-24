@@ -82,7 +82,7 @@ export default function App() {
           <Route path="payroll" element={<CEOPayroll />} />
           <Route path="tickets" element={<CEOTickets />} />
           <Route path="training" element={<CEOTraining />} />
-          <Route path="grc" element={<GrcLibrary />} />
+          <Route path="policies" element={<GrcLibrary />} />
           <Route path="contracts" element={<CEOContracts />} />
           <Route path="approvals" element={<CEOApprovals />} />
           <Route path="compliance" element={<CEOCompliance />} />

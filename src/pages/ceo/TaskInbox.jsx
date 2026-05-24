@@ -89,7 +89,7 @@ function CategoryIcon({ category }) {
 
 // Normalize a Firestore task to the shape used by the UI
 function normalizeTask(task) {
-  if (!task.task_id && task.id) return task // already normalized
+  if (!task.task_id && task.id) return { ...task, fsId: task.fsId || task.id } // already normalized
 
   const rawDue = task.due_at?.toDate ? task.due_at.toDate() : task.due_at ? new Date(task.due_at) : null
   const dueDate = rawDue && !isNaN(rawDue.getTime()) ? rawDue : null
@@ -103,6 +103,7 @@ function normalizeTask(task) {
 
   return {
     id: task.task_id,
+    fsId: task.id, // Firestore document id — differs from task_id for .add()-created tasks
     title: task.title,
     description: task.description,
     category: TYPE_TO_CATEGORY[task.task_type] || 'NOTIFICATION',
@@ -183,24 +184,26 @@ export default function TaskInbox() {
     }
   }, [])
 
-  const handleAction = async (taskId, action) => {
-    setFadingId(taskId)
-    setActionToast({ id: taskId, action })
+  const handleAction = async (task, action) => {
+    const fsId = task.fsId || task.id
+    setFadingId(fsId)
+    setActionToast({ id: task.id, action })
     try {
-      await updateDoc(doc(db, 'tasks', taskId), {
+      await updateDoc(doc(db, 'tasks', fsId), {
         state: 'COMPLETED',
         completed_at: serverTimestamp(),
       });
       setTimeout(() => {
-        setCompletedIds(prev => new Set([...prev, taskId]))
+        setCompletedIds(prev => new Set([...prev, fsId]))
         setFadingId(null)
         setExpandedTask(null)
       }, 600)
     } catch (err) {
       console.error('Failed to update task:', err)
       setFadingId(null)
+      setActionToast({ id: task.id, action, error: err.message || 'Write failed' })
     }
-    setTimeout(() => setActionToast(null), 3000)
+    setTimeout(() => setActionToast(null), 4000)
   }
 
   const handleCreated = (data) => {
@@ -213,8 +216,8 @@ export default function TaskInbox() {
     const normalizedLive = liveTasks.map(normalizeTask)
     return normalizedLive.map(t => ({
       ...t,
-      status: completedIds.has(t.id) ? 'COMPLETED' : t.status,
-      completed_at: completedIds.has(t.id) ? new Date().toISOString() : t.completed_at,
+      status: completedIds.has(t.fsId) ? 'COMPLETED' : t.status,
+      completed_at: completedIds.has(t.fsId) ? new Date().toISOString() : t.completed_at,
     }))
   }, [completedIds, liveTasks])
 
@@ -270,9 +273,15 @@ export default function TaskInbox() {
 
       {/* Action Toast */}
       {actionToast && (
-        <div className="animate-fade-in-up" style={{ padding: '12px 20px', background: 'rgba(52,191,58,0.12)', border: '1px solid rgba(52,191,58,0.3)', borderRadius: 'var(--radius-md)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: '#34BF3A' }}>
-          <CheckCircle size={16} /> Task {actionToast.id} — "{actionToast.action}" executed successfully
-        </div>
+        actionToast.error ? (
+          <div className="animate-fade-in-up" style={{ padding: '12px 20px', background: 'rgba(192,57,43,0.12)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 'var(--radius-md)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: '#C0392B' }}>
+            <XCircle size={16} /> Task {actionToast.id} — "{actionToast.action}" failed to save: {actionToast.error}
+          </div>
+        ) : (
+          <div className="animate-fade-in-up" style={{ padding: '12px 20px', background: 'rgba(52,191,58,0.12)', border: '1px solid rgba(52,191,58,0.3)', borderRadius: 'var(--radius-md)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: '#34BF3A' }}>
+            <CheckCircle size={16} /> Task {actionToast.id} — "{actionToast.action}" executed successfully
+          </div>
+        )
       )}
 
       {/* Auth / Permission Error Banner */}
@@ -362,14 +371,14 @@ export default function TaskInbox() {
         )}
 
         {filteredTasks.map((task, i) => {
-          const isExpanded = expandedTask === task.id
+          const isExpanded = expandedTask === task.fsId
           const statusStyle = STATUS_DISPLAY[task.status] || STATUS_DISPLAY.OPEN
           const priorityStyle = PRIORITY_DISPLAY[task.priority] || PRIORITY_DISPLAY.NORMAL
           const catInfo = taskCategories[task.category] || { color: '#8898aa' }
 
           return (
             <div
-              key={task.id}
+              key={task.fsId}
               className="animate-fade-in-up"
               style={{
                 animationDelay: `${i * 0.03}s`,
@@ -378,14 +387,14 @@ export default function TaskInbox() {
                 borderLeft: `4px solid ${task.status === 'OVERDUE' ? '#C0392B' : task.status === 'COMPLETED' ? '#34BF3A' : priorityStyle.color}`,
                 boxShadow: 'var(--shadow-card)',
                 transition: 'all 0.5s ease',
-                opacity: fadingId === task.id ? 0.3 : 1,
-                transform: fadingId === task.id ? 'translateX(40px)' : 'none',
+                opacity: fadingId === task.fsId ? 0.3 : 1,
+                transform: fadingId === task.fsId ? 'translateX(40px)' : 'none',
               }}
             >
               {/* Task Row */}
               <div
                 style={{ padding: '16px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14 }}
-                onClick={() => setExpandedTask(isExpanded ? null : task.id)}
+                onClick={() => setExpandedTask(isExpanded ? null : task.fsId)}
               >
                 {/* Category Icon */}
                 <div style={{
@@ -459,7 +468,7 @@ export default function TaskInbox() {
                           key={action}
                           className={`btn btn-sm ${ai === 0 ? 'btn-primary' : 'btn-ghost'}`}
                           style={ai === 0 ? { background: catInfo.color } : {}}
-                          onClick={(e) => { e.stopPropagation(); handleAction(task.id, action) }}
+                          onClick={(e) => { e.stopPropagation(); handleAction(task, action) }}
                         >
                           {action}
                         </button>

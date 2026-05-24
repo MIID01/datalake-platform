@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileText, Download, Upload, Shield, Filter, History, Search, CheckCircle, X } from 'lucide-react'
-import { auth, UPLOAD_GRC_DOC_URL } from '../../lib/firebase'
+import { FileText, Download, Upload, Shield, Filter, History, Search, CheckCircle, X, AlertTriangle } from 'lucide-react'
+import {
+  auth,
+  UPLOAD_GRC_DOC_URL,
+  LIST_GRC_DOCUMENTS_URL,
+  GET_GRC_CHANGELOG_URL,
+  DOWNLOAD_GRC_DOCUMENT_URL,
+} from '../../lib/firebase'
 
 export default function GrcLibrary() {
   const [activeTab, setActiveTab] = useState('library') // 'library', 'upload', 'changelog'
@@ -62,49 +68,127 @@ export default function GrcLibrary() {
 function LibraryTab() {
   const [docs, setDocs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [domainFilter, setDomainFilter] = useState('all')
+  const [downloadingId, setDownloadingId] = useState(null)
 
   useEffect(() => {
-    // Simulated fetch from new backend
-    setTimeout(() => {
-      setDocs([]) // Starts empty per instructions
-      setLoading(false)
-    }, 500)
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError('')
+      try {
+        const user = auth.currentUser
+        if (!user) throw new Error('Not authenticated')
+        const idToken = await user.getIdToken()
+        const res = await fetch(LIST_GRC_DOCUMENTS_URL, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${idToken}` },
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Failed to load the document library')
+        if (!cancelled) setDocs(Array.isArray(data.documents) ? data.documents : [])
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Failed to load the document library')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
   }, [])
+
+  const handleDownload = async (doc) => {
+    setDownloadingId(doc.id)
+    setError('')
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(DOWNLOAD_GRC_DOCUMENT_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc_id: doc.doc_id, version: doc.version }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Download failed')
+      if (data.signed_url) window.open(data.signed_url, '_blank', 'noopener')
+    } catch (err) {
+      setError(err.message || 'Download failed')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  const filtered = docs.filter((d) => {
+    const q = search.trim().toLowerCase()
+    const matchesSearch = !q || (d.doc_id || '').toLowerCase().includes(q) || (d.doc_title || '').toLowerCase().includes(q)
+    const matchesType = typeFilter === 'all' || (d.doc_id || '').toUpperCase().includes(typeFilter)
+    const matchesDomain = domainFilter === 'all' || (d.domain || '').toUpperCase() === domainFilter
+    return matchesSearch && matchesType && matchesDomain
+  })
 
   return (
     <div>
       <div className="card" style={{ marginBottom: 24, padding: '16px 20px', display: 'flex', gap: 16, alignItems: 'center', background: 'rgba(21, 152, 204, 0.05)' }}>
         <div style={{ flex: 1, position: 'relative' }}>
           <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
-          <input 
-            type="text" placeholder="Search by Document ID or Title..." 
+          <input
+            type="text" placeholder="Search by Document ID or Title..."
+            value={search} onChange={(e) => setSearch(e.target.value)}
             style={{ width: '100%', padding: '10px 14px 10px 40px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}
           />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <select style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}>
-            <option>All Types</option><option>Policies (POL)</option><option>Procedures (PROC)</option><option>Forms (FORM)</option>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}>
+            <option value="all">All Types</option><option value="POL">Policies (POL)</option><option value="PROC">Procedures (PROC)</option><option value="FORM">Forms (FORM)</option>
           </select>
-          <select style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}>
-            <option>All Domains</option><option>SEC</option><option>HRM</option><option>GRC</option>
+          <select value={domainFilter} onChange={(e) => setDomainFilter(e.target.value)} style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}>
+            <option value="all">All Domains</option><option value="SEC">SEC</option><option value="HRM">HRM</option><option value="GRC">GRC</option>
           </select>
         </div>
       </div>
 
       <div className="card" style={{ padding: 0, minHeight: 300, display: 'flex', flexDirection: 'column' }}>
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading library...</div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading library…</div>
+        ) : error ? (
+          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
+            <AlertTriangle size={48} style={{ margin: '0 auto 16px', opacity: 0.4, color: '#EF5829' }} />
+            <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Could not load the library</h3>
+            <p style={{ fontSize: '0.85rem', maxWidth: 360, margin: '0 auto 16px', color: '#ff6b6b' }}>{error}</p>
+            <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>Retry</button>
+          </div>
         ) : docs.length === 0 ? (
           <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
             <FileText size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
             <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Library Empty</h3>
             <p style={{ fontSize: '0.85rem', maxWidth: 300, margin: '0 auto' }}>No documents have been uploaded to the GRC Library yet. Use the Upload tab to populate the repository.</p>
           </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
+            <Search size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
+            <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>No matches</h3>
+            <p style={{ fontSize: '0.85rem', maxWidth: 300, margin: '0 auto' }}>No documents match your current search or filters.</p>
+          </div>
         ) : (
           <table className="data-table">
             <thead><tr><th>Document ID</th><th>Title</th><th>Domain</th><th>Version</th><th>Classification</th><th>Actions</th></tr></thead>
             <tbody>
-              {/* Rows will go here */}
+              {filtered.map((d) => (
+                <tr key={d.id}>
+                  <td style={{ fontFamily: 'monospace' }}>{d.doc_id}</td>
+                  <td>{d.doc_title}</td>
+                  <td>{d.domain || '—'}</td>
+                  <td>v{d.version}</td>
+                  <td>{d.classification || '—'}</td>
+                  <td>
+                    <button className="btn btn-ghost btn-sm" disabled={downloadingId === d.id} onClick={() => handleDownload(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Download size={14} /> {downloadingId === d.id ? 'Preparing…' : 'Download'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
@@ -297,6 +381,43 @@ function UploadTab() {
 }
 
 function ChangeLogTab() {
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError('')
+      try {
+        const user = auth.currentUser
+        if (!user) throw new Error('Not authenticated')
+        const idToken = await user.getIdToken()
+        const res = await fetch(GET_GRC_CHANGELOG_URL, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Failed to load the change log')
+        if (!cancelled) setLogs(Array.isArray(data.logs) ? data.logs : [])
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Failed to load the change log')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const fmtTime = (ts) => {
+    if (!ts) return '—'
+    const ms = ts._seconds ? ts._seconds * 1000 : ts.seconds ? ts.seconds * 1000 : Date.parse(ts)
+    return Number.isFinite(ms) ? new Date(ms).toLocaleString() : '—'
+  }
+
   return (
     <div className="card" style={{ padding: 0, minHeight: 400, display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -306,11 +427,37 @@ function ChangeLogTab() {
           <button className="btn btn-ghost btn-sm" style={{ color: 'var(--green)' }}><FileText size={14} /> Export XLSX</button>
         </div>
       </div>
-      <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
-        <History size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>No Audit Logs</h3>
-        <p style={{ fontSize: '0.85rem', maxWidth: 300, margin: '0 auto' }}>Change log will populate automatically when documents are uploaded or downloaded.</p>
-      </div>
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading change log…</div>
+      ) : error ? (
+        <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
+          <AlertTriangle size={48} style={{ margin: '0 auto 16px', opacity: 0.4, color: '#EF5829' }} />
+          <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Could not load the change log</h3>
+          <p style={{ fontSize: '0.85rem', maxWidth: 360, margin: '0 auto', color: '#ff6b6b' }}>{error}</p>
+        </div>
+      ) : logs.length === 0 ? (
+        <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
+          <History size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
+          <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>No Audit Logs</h3>
+          <p style={{ fontSize: '0.85rem', maxWidth: 300, margin: '0 auto' }}>Change log will populate automatically when documents are uploaded or downloaded.</p>
+        </div>
+      ) : (
+        <table className="data-table">
+          <thead><tr><th>Timestamp</th><th>Document</th><th>Action</th><th>Actor</th><th>Version</th><th>Summary</th></tr></thead>
+          <tbody>
+            {logs.map((l) => (
+              <tr key={l.id}>
+                <td>{fmtTime(l.timestamp)}</td>
+                <td>{l.doc_id}</td>
+                <td>{l.action_type}</td>
+                <td>{l.actor_email || '—'}</td>
+                <td>v{l.new_version}</td>
+                <td>{l.change_summary || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

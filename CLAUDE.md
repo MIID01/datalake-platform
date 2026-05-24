@@ -67,3 +67,24 @@ External services: **BigQuery** (`datalake_audit`, `datalake_finance` — immuta
 - Styling: CSS custom-property design tokens in `src/index.css`, per-portal stylesheets in `src/styles/` (`ceo.css` dark navy `#010e2b`/accent `#1598CC`; `engineer.css` light). Inline styles only for dynamic values.
 - Hosting is a SPA: `firebase.json` rewrites all paths to `/index.html`. New top-level routes must be registered in `src/App.jsx`; client-side navigation must target paths that exist there (a missing route renders a blank page).
 - Lifecycle data uses explicit state machines (e.g. candidate `APPLIED → … → ACTIVE_EMPLOYEE`, timesheet `SUBMITTED → CTO_APPROVED → CLIENT_SIGNED`); transitions are validated server-side — follow the existing allowed-transition maps rather than setting states ad hoc.
+
+## Business Context & Rules
+
+### Active Employees (12)
+Mohammed Alqumri (CEO, m.alqumri@datalake.sa), Khalid Mohammed (Finance, finance@datalake.sa), Mahmoud Abdelghany (mah.abdelghany@datalake.sa), Mohamed Dahas (moh.dahas@datalake.sa), Marwen Benalayat (mar.benalayat@datalake.sa), Salaheddine Gragba (saleh.gragba@datalake.sa), Marwan Ayoub (mar.ayoub@datalake.sa), Alaa Alkattan (alaa.alkattan@datalake.sa), Bassam Soliman (Technical Director NOT CTO, bassam.soliman@datalake.sa), Mohamed Ashraf (moh.ashraf@datalake.sa), Mahmoud Metawea (mah.metawea@datalake.sa), Marwan Mohsen (mohamed.mohsen@datalake.sa)
+
+### CTO Role
+VACANT. CEO acts as CTO for timesheet approval. CTO portal stays built but unused.
+
+### Design System
+Navy #022873, Sky Blue #1598CC, Orange #EF5829, Green #34BF3A. Background #F4F6F9, Cards #FFFFFF, Border #E5E7EB. Sidebar 260px fixed left navy. Font DM Sans fallback Arial. Icons Lucide React.
+
+### Hard Rules
+- Every page: loading, error, empty states. Never blank.
+- No mock data. No hardcoded values. Read from Firestore.
+- No allUsers IAM. Use domain:datalake.sa + service account only.
+- No min-instances on Cloud Run.
+- Timesheet chain: SUBMITTED > CTO_APPROVED > CLIENT_SIGNED > INVOICED
+- All data in me-central2.
+- Test with npm run build not just dev.
+- Do not add features not in the master tracker.
