@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { auth } from '../lib/firebase'
-import { signIn, signInWithEmail, resolveUserRole, CEO_EMAIL } from '../lib/auth'
+import { signIn, signInWithEmail, sendPasswordReset, resolveUserRole, CEO_EMAIL } from '../lib/auth'
 import { homePathForRole } from '../lib/routes'
 import { LogIn, Mail, Lock } from 'lucide-react'
 import '../styles/ceo.css'
@@ -18,6 +18,7 @@ function friendlyAuthError(err) {
 export default function LandingPage() {
   const navigate = useNavigate()
   const [authError, setAuthError] = useState('')
+  const [notice, setNotice] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -58,6 +59,18 @@ export default function LandingPage() {
     }
   }
 
+  const handleForgotPassword = async () => {
+    setAuthError('')
+    setNotice('')
+    if (!email) { setAuthError('Enter your email above first, then click "Forgot password?".'); return }
+    try {
+      await sendPasswordReset(email)
+      setNotice(`If an account exists for ${email}, a password reset link has been sent. Check your inbox (and spam).`)
+    } catch (err) {
+      setAuthError(friendlyAuthError(err))
+    }
+  }
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'linear-gradient(135deg, #0a1628 0%, #022873 100%)', fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '48px 40px', maxWidth: 420, width: '90%', textAlign: 'center' }}>
@@ -88,6 +101,12 @@ export default function LandingPage() {
           >
             <LogIn size={18} /> {submitting ? 'Signing in…' : 'Sign in'}
           </button>
+          <button
+            type="button" onClick={handleForgotPassword}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.55)', fontSize: '0.78rem', cursor: 'pointer', alignSelf: 'flex-end', padding: 0, fontFamily: 'inherit', textDecoration: 'underline' }}
+          >
+            Forgot password?
+          </button>
         </form>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 18px', color: 'rgba(255,255,255,0.35)', fontSize: '0.75rem' }}>
@@ -105,6 +124,11 @@ export default function LandingPage() {
         {authError && (
           <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(192,57,43,0.15)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 8, color: '#ff6b6b', fontSize: '0.82rem' }}>
             {authError}
+          </div>
+        )}
+        {notice && (
+          <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(52,191,58,0.12)', border: '1px solid rgba(52,191,58,0.3)', borderRadius: 8, color: '#86efac', fontSize: '0.82rem' }}>
+            {notice}
           </div>
         )}
 

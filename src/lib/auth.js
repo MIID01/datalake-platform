@@ -1,4 +1,4 @@
-import { signInWithPopup, signInWithEmailAndPassword, signOut as firebaseSignOut, onAuthStateChanged } from "firebase/auth";
+import { signInWithPopup, signInWithEmailAndPassword, sendPasswordResetEmail, signOut as firebaseSignOut, onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "./firebase";
 
@@ -14,6 +14,11 @@ export async function signIn() {
 export async function signInWithEmail(email, password) {
   const result = await signInWithEmailAndPassword(auth, email.trim(), password);
   return result.user;
+}
+
+// Send a password-reset email so users can set/recover their password.
+export async function sendPasswordReset(email) {
+  await sendPasswordResetEmail(auth, email.trim());
 }
 
 export async function signOut() {
