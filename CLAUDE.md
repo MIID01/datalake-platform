@@ -82,7 +82,7 @@ Navy #022873, Sky Blue #1598CC, Orange #EF5829, Green #34BF3A. Background #F4F6F
 ### Hard Rules
 - Every page: loading, error, empty states. Never blank.
 - No mock data. No hardcoded values. Read from Firestore.
-- No allUsers IAM. Use domain:datalake.sa + service account only.
+- IAM invoker: browser-facing HTTP Cloud Functions (called from the React app with a Firebase ID token) MUST grant `allUsers` the `roles/run.invoker` role and enforce auth in-code via `admin.auth().verifyIdToken()` — a Firebase ID token is not a Google OIDC token, so a `domain:datalake.sa`-restricted invoker returns a platform 403 before the code runs and breaks the feature. Reserve `domain:datalake.sa` / service-account invoker restrictions for service-to-service (non-browser) functions only.
 - No min-instances on Cloud Run.
 - Timesheet chain: SUBMITTED > CTO_APPROVED > CLIENT_SIGNED > INVOICED
 - All data in me-central2.
