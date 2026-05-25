@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { Eye, CheckCircle, Plus, Search, FileText } from 'lucide-react'
+import { Eye, CheckCircle, Plus, Search, FileText, X } from 'lucide-react'
+import { auth, GENERATE_INVOICE_URL, SYNC_TO_ZOHO_BOOKS_URL, GENERATE_ZATCA_XML_URL } from '../../../lib/firebase'
 
 const statusColors = { DRAFT: 'badge-info', SENT: 'badge-warning', PAID: 'badge-success', OVERDUE: 'badge-critical' }
 
@@ -8,6 +9,8 @@ export default function FinanceInvoices({ invoices, timesheets = [], projects = 
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [approving, setApproving] = useState(null)
+  const [generating, setGenerating] = useState(false)
+  const [feedback, setFeedback] = useState(null) // { type: 'success' | 'error', msg }
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [selectedTimesheetId, setSelectedTimesheetId] = useState('')
@@ -27,14 +30,32 @@ export default function FinanceInvoices({ invoices, timesheets = [], projects = 
     return timesheets.filter(t => (t.state === 'CLIENT_SIGNED' || t.status === 'CLIENT_SIGNED') && !t.invoice_id)
   }, [timesheets])
 
+  // Approve a DRAFT invoice: generate the ZATCA compliance XML, then push to
+  // Zoho Books. Both require { invoice_id } and CEO role (enforced in-function).
   const handleApprove = async (id, e) => {
     e.stopPropagation()
+    if (approving) return
     setApproving(id)
-    // Simulate push to Zoho and ZATCA
-    setTimeout(() => {
-      alert("Invoice pushed to Zoho Books and ZATCA successfully.")
+    setFeedback(null)
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+
+      const zres = await fetch(GENERATE_ZATCA_XML_URL, { method: 'POST', headers, body: JSON.stringify({ invoice_id: id }) })
+      const zdata = await zres.json()
+      if (!zres.ok) throw new Error(zdata.error || 'ZATCA XML generation failed')
+
+      const sres = await fetch(SYNC_TO_ZOHO_BOOKS_URL, { method: 'POST', headers, body: JSON.stringify({ invoice_id: id }) })
+      const sdata = await sres.json()
+      if (!sres.ok) throw new Error(sdata.error || 'Zoho Books sync failed')
+
+      setFeedback({ type: 'success', msg: `Invoice approved — ZATCA XML archived and synced to Zoho Books${sdata.zoho_invoice_id ? ` (#${sdata.zoho_invoice_id})` : ''}.` })
+      setSelectedInvoice(null)
+    } catch (err) {
+      setFeedback({ type: 'error', msg: err.message || 'Approve & Send failed' })
+    } finally {
       setApproving(null)
-    }, 1500)
+    }
   }
 
   const handleRecordPayment = (e) => {
@@ -42,15 +63,66 @@ export default function FinanceInvoices({ invoices, timesheets = [], projects = 
     setPaymentModalOpen(true)
   }
 
-  const handleGenerateInvoice = () => {
-    if (!selectedTimesheetId) return
-    alert(`Generated Draft Invoice for timesheet ${selectedTimesheetId}!`)
-    setGenerateModalOpen(false)
-    setSelectedTimesheetId('')
+  // Generate a DRAFT invoice from a CLIENT_SIGNED timesheet. The backend needs
+  // project_id, period dates and line_items; the timesheet carries hours/period
+  // and its project carries the rate (rate_amount_sar + rate_structure).
+  const handleGenerateInvoice = async () => {
+    if (!selectedTimesheetId || generating) return
+    const ts = timesheets.find(t => t.id === selectedTimesheetId)
+    if (!ts) { setFeedback({ type: 'error', msg: 'Selected timesheet not found.' }); return }
+    const proj = projects.find(p => p.id === ts.project_id || p.project_id === ts.project_id)
+    if (!proj) { setFeedback({ type: 'error', msg: `No project found for timesheet ${ts.id}.` }); return }
+    const rate = Number(proj.rate_amount_sar)
+    if (!rate) { setFeedback({ type: 'error', msg: `Project "${proj.project_name || proj.project_id}" has no rate_amount_sar set — cannot bill.` }); return }
+
+    const m = Number(ts.period_month), y = Number(ts.period_year)
+    const period_start = new Date(y, m - 1, 1).toISOString().slice(0, 10)
+    const period_end = new Date(y, m, 0).toISOString().slice(0, 10) // last day of month
+    const periodLabel = ts.period_label || `${m}/${y}`
+
+    // Billing per project rate structure: HOURLY → hours × rate; MONTHLY/FIXED → 1 × rate.
+    const structure = (proj.rate_structure || 'MONTHLY').toUpperCase()
+    let line_items
+    if (structure === 'HOURLY') {
+      const hours = Number(ts.total_hours) || 0
+      if (!hours) { setFeedback({ type: 'error', msg: 'Timesheet has 0 hours — cannot bill hourly.' }); return }
+      line_items = [{ description: `Consulting services — ${ts.client_name} (${periodLabel}) — ${hours} hrs`, quantity: hours, unit_price: rate }]
+    } else {
+      line_items = [{ description: `Consulting services — ${ts.client_name} (${periodLabel})`, quantity: 1, unit_price: rate }]
+    }
+
+    setGenerating(true)
+    setFeedback(null)
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const res = await fetch(GENERATE_INVOICE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ project_id: ts.project_id, period_start, period_end, line_items, timesheet_id: ts.id, notes: `Auto-generated from timesheet ${ts.id}` }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Invoice generation failed')
+      setFeedback({ type: 'success', msg: `Draft ${data.invoice_number || 'invoice'} created — SAR ${Number(data.total || 0).toLocaleString()}.` })
+      setGenerateModalOpen(false)
+      setSelectedTimesheetId('')
+    } catch (err) {
+      setFeedback({ type: 'error', msg: err.message || 'Invoice generation failed' })
+    } finally {
+      setGenerating(false)
+    }
   }
 
   return (
     <div className="animate-fade-in-up">
+      {feedback && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, borderRadius: 8, fontSize: '0.85rem',
+          background: feedback.type === 'success' ? 'rgba(52,191,58,0.12)' : 'rgba(192,57,43,0.12)',
+          border: `1px solid ${feedback.type === 'success' ? 'rgba(52,191,58,0.3)' : 'rgba(192,57,43,0.3)'}`,
+          color: feedback.type === 'success' ? '#34BF3A' : '#C0392B' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle size={16} /> {feedback.msg}</span>
+          <button onClick={() => setFeedback(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
+        </div>
+      )}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ position: 'relative', width: 300 }}>
@@ -233,8 +305,8 @@ export default function FinanceInvoices({ invoices, timesheets = [], projects = 
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
               <button className="btn btn-ghost" onClick={() => setGenerateModalOpen(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleGenerateInvoice} disabled={!selectedTimesheetId}>
-                Generate Invoice Draft
+              <button className="btn btn-primary" onClick={handleGenerateInvoice} disabled={!selectedTimesheetId || generating}>
+                {generating ? 'Generating…' : 'Generate Invoice Draft'}
               </button>
             </div>
           </div>

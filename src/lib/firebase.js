@@ -101,3 +101,11 @@ export const GET_GRC_CHANGELOG_URL =
   "https://getgrcchangelog-ifzodp5svq-wx.a.run.app";
 export const DOWNLOAD_GRC_DOCUMENT_URL =
   "https://downloadgrcdocument-ifzodp5svq-wx.a.run.app";
+
+// Finance — revenue chain
+export const GENERATE_INVOICE_URL =
+  "https://generateinvoice-ifzodp5svq-wx.a.run.app";
+export const SYNC_TO_ZOHO_BOOKS_URL =
+  "https://synctozohobooks-ifzodp5svq-wx.a.run.app";
+export const GENERATE_ZATCA_XML_URL =
+  "https://generatezatcaxml-ifzodp5svq-wx.a.run.app";
