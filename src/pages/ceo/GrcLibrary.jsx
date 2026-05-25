@@ -278,15 +278,13 @@ function UploadTab() {
         });
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || `Upload failed for ${fd.file.name}`)
-        
-        // Auto-trigger Auditor Contract Review for PDF/DOCX
-        if (['pdf', 'docx'].includes(fileExt)) {
-          fetch(UPLOAD_GRC_DOC_URL.replace('uploadGrcDocument', 'auditorContractReview'), {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ doc_id: fd.doc_id.trim() }),
-          }).catch(e => console.error('Auditor review trigger failed:', e))
-        }
+
+        // NOTE: Auditor contract review (auditorContractReview) is a restricted,
+        // server-to-server function and must NOT be invoked from the browser.
+        // If an automatic review is wanted on upload, chain it server-side from
+        // the uploadGrcDocument handler. (The previous client-side trigger here
+        // was dead code — its host string never matched, so it re-POSTed to the
+        // upload endpoint instead.)
         results.push(data)
       }
       setUploadResults(results)
