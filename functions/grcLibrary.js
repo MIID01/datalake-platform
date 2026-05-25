@@ -6,6 +6,8 @@
 const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
 const { BigQuery } = require("@google-cloud/bigquery");
+const { PubSub } = require("@google-cloud/pubsub");
+const pubsub = new PubSub();
 
 const db = admin.firestore();
 const bigquery = new BigQuery();
@@ -157,6 +159,9 @@ async function uploadGrcDocumentHandler(req, res, { verifyAuth, getUserAccessPro
       // BigQuery Audit
       auditLog(req, profile, "GRC_DOCUMENT_" + actionType, doc_id, { version: newVersion, file_format, classification });
     });
+
+    // PUBLISH PUB/SUB EVENT
+    await pubsub.topic("datalake.grc.uploaded").publishMessage({ json: { document_id: doc_id } });
 
     return res.status(200).json({ success: true, doc_id, version: newVersion });
   } catch (err) {

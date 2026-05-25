@@ -16,6 +16,7 @@
     "@google-cloud/bigquery": "^7.9.0",
     "@google-cloud/firestore": "^8.5.0",
     "@google-cloud/logging": "^11.2.1",
+    "@google-cloud/pubsub": "^5.3.0",
     "@google-cloud/secret-manager": "^6.1.1",
     "@google-cloud/storage": "^7.19.0",
     "busboy": "^1.6.0",
