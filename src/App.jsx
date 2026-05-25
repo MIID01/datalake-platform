@@ -47,7 +47,7 @@ import EmpTravel from './pages/employee/Travel'
 import EmpTraining from './pages/employee/Training'
 import EmpSupport from './pages/employee/Support'
 import EmpProfile from './pages/employee/Profile'
-import OnboardingGate from './pages/employee/OnboardingGate'
+import EmployeeOnboarding from './pages/employee/Onboarding'
 
 // HR Pages
 import HRTalentPool from './pages/hr/HRTalentPool'
@@ -101,10 +101,12 @@ export default function App() {
           <Route path="projects" element={<CTOProjects />} />
         </Route>
 
+        {/* Onboarding gate — full-screen, OUTSIDE the employee layout */}
+        <Route path="/employee/onboarding" element={<EmployeeOnboarding />} />
+
         <Route path="/employee" element={<EmployeeLayout />}>
           <Route index element={<Navigate to="/employee/dashboard" replace />} />
           <Route path="dashboard" element={<EmpDashboard />} />
-          <Route path="onboarding" element={<OnboardingGate />} />
           <Route path="timesheets" element={<EmpTimesheets />} />
           <Route path="leave" element={<EmpLeave />} />
           <Route path="expenses" element={<EmpExpenses />} />

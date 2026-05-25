@@ -67,21 +67,15 @@ export default function EmployeeLayout() {
 
   if (loading) return <div style={{ height: '100vh', background: '#0a1628' }}></div>
 
-  const isFullyOnboarded = userData?.pdpl_consent_state === 'GRANTED' && 
-                           userData?.contract_signed && 
-                           userData?.training_completed && 
-                           userData?.profile_completed && 
-                           (userData?.assigned_projects?.length > 0)
-
-  // Redirect restricted paths if not onboarded
-  const currentPath = location.pathname
-  const isRestricted = navItems.find(i => i.locked && (i.end ? currentPath === i.path : currentPath.startsWith(i.path)))
-  if (isRestricted && !isFullyOnboarded) {
-    if (!userData?.training_completed) {
-      return <Navigate to="/employee/training" replace />
-    }
+  // Onboarding gate: until the new acknowledgment flow is complete, the employee
+  // cannot access ANY portal page — send them to the full-screen onboarding route.
+  const onboardingComplete = userData?.onboarding_complete === true
+  if (!onboardingComplete) {
     return <Navigate to="/employee/onboarding" replace />
   }
+
+  // Reached here ⇒ onboarding complete; nothing in the nav is locked.
+  const isFullyOnboarded = true
 
   return (
     <div className="app-layout" data-portal="employee" data-theme={darkMode ? 'dark' : 'light'}>
