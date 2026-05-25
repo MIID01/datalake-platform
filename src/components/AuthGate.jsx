@@ -126,7 +126,19 @@ export default function AuthGate({ children }) {
   // Not logged in -> redirect to public landing page
   if (!uid) return <Navigate to="/" replace />
 
-  // CEO bypass — full access to everything
+  // ── Onboarding gate ── EVERY role (including the CEO) must complete the
+  // policy onboarding before accessing ANY portal. Only the onboarding page
+  // itself is exempt (public/token paths already returned above). NOT_FOUND /
+  // disabled accounts keep their own screens below rather than being trapped.
+  const onOnboardingPage = currentPath === '/employee/onboarding'
+  const blockedAccount = userRole?.NOT_FOUND || userRole?.status === 'disabled'
+  if (!blockedAccount && userRole?.onboarding_complete !== true && !onOnboardingPage) {
+    return <Navigate to="/employee/onboarding" replace />
+  }
+  // Let any authenticated user render the onboarding page (bypass role/prefix routing).
+  if (onOnboardingPage) return children
+
+  // CEO bypass — full access to everything (after onboarding)
   if (isCeo) return children
 
   // User not found in system
