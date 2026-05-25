@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useRiyadhTime } from '../hooks/useUtils'
-import { 
-  Zap, BarChart3, Users, DollarSign, FileText, CheckSquare, 
+import { auth, db } from '../lib/firebase'
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import {
+  Zap, BarChart3, Users, DollarSign, FileText, CheckSquare,
   Shield, TrendingUp, Bell, Settings, ChevronLeft, ChevronRight,
   Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock, Library
 } from 'lucide-react'
@@ -51,6 +53,32 @@ export default function CEOLayout() {
     })
     return () => unsub()
     */
+  }, [])
+
+  // Onboarding gate — applies to EVERY role. A signed-in user whose record
+  // exists but isn't onboarded is sent to the full-screen onboarding flow.
+  // (No record → AuthGate handles "not configured"; don't trap them here.)
+  const [onbChecked, setOnbChecked] = useState(false)
+  const [needsOnboarding, setNeedsOnboarding] = useState(false)
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (u) => {
+      if (!u) { setNeedsOnboarding(false); setOnbChecked(true); return }
+      try {
+        let data = null
+        const byUid = await getDoc(doc(db, 'users', u.uid))
+        if (byUid.exists()) data = byUid.data()
+        else {
+          const q = await getDocs(query(collection(db, 'users'), where('email', '==', (u.email || '').toLowerCase())))
+          if (!q.empty) data = q.docs[0].data()
+        }
+        setNeedsOnboarding(!!data && data.onboarding_complete !== true)
+      } catch {
+        setNeedsOnboarding(false)
+      }
+      setOnbChecked(true)
+    })
+    return () => unsub()
   }, [])
 
   const handleSignIn = async () => {
@@ -106,6 +134,14 @@ export default function CEOLayout() {
         </div>
       </div>
     )
+  }
+
+  // Onboarding gate (every role) — wait for the check, then redirect if needed.
+  if (!onbChecked) {
+    return <div style={{ height: '100vh', background: '#0a1628' }} />
+  }
+  if (needsOnboarding) {
+    return <Navigate to="/employee/onboarding" replace />
   }
 
   return (
