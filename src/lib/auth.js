@@ -1,4 +1,4 @@
-import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged } from "firebase/auth";
+import { signInWithPopup, signInWithEmailAndPassword, signOut as firebaseSignOut, onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "./firebase";
 
@@ -7,6 +7,12 @@ export const CEO_EMAIL = "m.alqumri@datalake.sa";
 
 export async function signIn() {
   const result = await signInWithPopup(auth, googleProvider);
+  return result.user;
+}
+
+// Email/password sign-in (for accounts provisioned with a password by IT Admin).
+export async function signInWithEmail(email, password) {
+  const result = await signInWithEmailAndPassword(auth, email.trim(), password);
   return result.user;
 }
 

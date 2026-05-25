@@ -1,14 +1,26 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { auth } from '../lib/firebase'
-import { signIn, resolveUserRole, CEO_EMAIL } from '../lib/auth'
+import { signIn, signInWithEmail, resolveUserRole, CEO_EMAIL } from '../lib/auth'
 import { homePathForRole } from '../lib/routes'
-import { LogIn } from 'lucide-react'
+import { LogIn, Mail, Lock } from 'lucide-react'
 import '../styles/ceo.css'
+
+function friendlyAuthError(err) {
+  const c = err?.code || ''
+  if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found')) return 'Incorrect email or password.'
+  if (c.includes('invalid-email')) return 'Enter a valid email address.'
+  if (c.includes('too-many-requests')) return 'Too many attempts — please try again later.'
+  if (c.includes('user-disabled')) return 'This account has been disabled. Contact IT.'
+  return err?.message || 'Sign-in failed'
+}
 
 export default function LandingPage() {
   const navigate = useNavigate()
   const [authError, setAuthError] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   // Once signed in (here or already), resolve the role and send the user to
   // their portal home via the shared homePathForRole map.
@@ -28,7 +40,21 @@ export default function LandingPage() {
       await signIn()
       // Navigation is handled by the onAuthStateChanged listener above.
     } catch (err) {
-      setAuthError(err.message || 'Sign-in failed')
+      setAuthError(friendlyAuthError(err))
+    }
+  }
+
+  const handleEmailSignIn = async (e) => {
+    e.preventDefault()
+    if (!email || !password || submitting) return
+    setAuthError('')
+    setSubmitting(true)
+    try {
+      await signInWithEmail(email, password)
+      // Navigation is handled by the onAuthStateChanged listener above.
+    } catch (err) {
+      setAuthError(friendlyAuthError(err))
+      setSubmitting(false)
     }
   }
 
@@ -37,8 +63,37 @@ export default function LandingPage() {
       <div style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '48px 40px', maxWidth: 420, width: '90%', textAlign: 'center' }}>
         <img src="/images/logo-white.svg" alt="Datalake" style={{ height: 48, marginBottom: 20 }} />
         <h1 style={{ color: '#fff', fontSize: '1.5rem', fontWeight: 700, marginBottom: 8 }}>Datalake Platform</h1>
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', marginBottom: 32 }}>Sign in with your Datalake account to continue</p>
-        
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', marginBottom: 28 }}>Sign in with your Datalake account to continue</p>
+
+        <form onSubmit={handleEmailSignIn} style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18, textAlign: 'left' }}>
+          <div style={{ position: 'relative' }}>
+            <Mail size={16} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: 14, top: 14 }} />
+            <input
+              type="email" autoComplete="email" placeholder="name@datalake.sa"
+              value={email} onChange={e => setEmail(e.target.value)}
+              style={{ width: '100%', padding: '12px 14px 12px 42px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, color: '#fff', fontSize: '0.92rem', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ position: 'relative' }}>
+            <Lock size={16} color="rgba(255,255,255,0.4)" style={{ position: 'absolute', left: 14, top: 14 }} />
+            <input
+              type="password" autoComplete="current-password" placeholder="Password"
+              value={password} onChange={e => setPassword(e.target.value)}
+              style={{ width: '100%', padding: '12px 14px 12px 42px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, color: '#fff', fontSize: '0.92rem', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <button
+            type="submit" disabled={!email || !password || submitting}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px 24px', border: 'none', borderRadius: 12, background: '#1598CC', color: '#fff', fontWeight: 700, fontSize: '0.95rem', fontFamily: 'inherit', cursor: (!email || !password || submitting) ? 'not-allowed' : 'pointer', opacity: (!email || !password || submitting) ? 0.6 : 1 }}
+          >
+            <LogIn size={18} /> {submitting ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 18px', color: 'rgba(255,255,255,0.35)', fontSize: '0.75rem' }}>
+          <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.12)' }} /> or <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.12)' }} />
+        </div>
+
         <button
           onClick={handleSignIn}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, width: '100%', padding: '14px 24px', border: 'none', borderRadius: 12, background: '#fff', color: '#1A1A2E', fontWeight: 600, fontSize: '0.95rem', fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,0.2)', transition: 'transform 0.15s' }}
