@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { auth } from '../lib/firebase'
-import { signIn, signInWithEmail, sendPasswordReset, resolveUserRole, CEO_EMAIL } from '../lib/auth'
+import { signIn, signInWithEmail, sendPasswordReset, resolveUserRole, signOut, CEO_EMAIL } from '../lib/auth'
 import { homePathForRole } from '../lib/routes'
-import { LogIn, Mail, Lock } from 'lucide-react'
+import { LogIn, Mail, Lock, AlertTriangle, LogOut } from 'lucide-react'
 import '../styles/ceo.css'
 
 function friendlyAuthError(err) {
@@ -22,18 +22,31 @@ export default function LandingPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [unconfigured, setUnconfigured] = useState(false)
+  const [signedInEmail, setSignedInEmail] = useState('')
 
   // Once signed in (here or already), resolve the role and send the user to
   // their portal home via the shared homePathForRole map.
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (user) => {
-      if (!user) return
+      if (!user) { setUnconfigured(false); return }
       const record = await resolveUserRole(user.uid, user.email)
       const role = user.email === CEO_EMAIL ? 'ceo' : record?.role_id
-      if (role) navigate(homePathForRole(role), { replace: true })
+      if (role) { navigate(homePathForRole(role), { replace: true }); return }
+      // Signed in but no role mapped — don't hang on the sign-in form.
+      setSignedInEmail(user.email || '')
+      setSubmitting(false)
+      setUnconfigured(true)
     })
     return () => unsub()
   }, [navigate])
+
+  const handleSignOut = async () => {
+    try { await signOut() } catch { /* ignore */ }
+    setUnconfigured(false)
+    setEmail('')
+    setPassword('')
+  }
 
   const handleSignIn = async () => {
     setAuthError('')
@@ -69,6 +82,28 @@ export default function LandingPage() {
     } catch (err) {
       setAuthError(friendlyAuthError(err))
     }
+  }
+
+  // Signed in but no role configured — explicit dead-end with a way out (not a hang).
+  if (unconfigured) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'linear-gradient(135deg, #0a1628 0%, #022873 100%)', fontFamily: "'DM Sans', sans-serif" }}>
+        <div style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '48px 40px', maxWidth: 420, width: '90%', textAlign: 'center' }}>
+          <AlertTriangle size={44} color="#EF5829" style={{ marginBottom: 16 }} />
+          <h1 style={{ color: '#fff', fontSize: '1.4rem', fontWeight: 700, marginBottom: 10 }}>Account not configured</h1>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: 8 }}>
+            Account not configured. Contact IT.
+          </p>
+          {signedInEmail && <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', marginBottom: 24 }}>Signed in as {signedInEmail}</p>}
+          <button
+            onClick={handleSignOut}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 24px', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 12, background: 'transparent', color: '#fff', fontWeight: 600, fontSize: '0.9rem', fontFamily: 'inherit', cursor: 'pointer' }}
+          >
+            <LogOut size={16} /> Sign out
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
