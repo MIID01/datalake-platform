@@ -71,7 +71,7 @@ External services: **BigQuery** (`datalake_audit`, `datalake_finance` — immuta
 ## Business Context & Rules
 
 ### Active Employees (12)
-Mohammed Alqumri (CEO, m.alqumri@datalake.sa), Khalid Mohammed (Finance, finance@datalake.sa), Mahmoud Abdelghany (mah.abdelghany@datalake.sa), Mohamed Dahas (moh.dahas@datalake.sa), Marwen Benalayat (mar.benalayat@datalake.sa), Salaheddine Gragba (saleh.gragba@datalake.sa), Marwan Ayoub (mar.ayoub@datalake.sa), Alaa Alkattan (alaa.alkattan@datalake.sa), Bassam Soliman (Technical Director NOT CTO, bassam.soliman@datalake.sa), Mohamed Ashraf (moh.ashraf@datalake.sa), Mahmoud Metawea (mah.metawea@datalake.sa), Marwan Mohsen (mohamed.mohsen@datalake.sa)
+Mohammed Alqumri (CEO, m.alqumri@datalake.sa), Khalid Mohammed (Finance / Accountant, DLSA1003, khaled@datalake.sa), Mahmoud Abdelghany (mah.abdelghany@datalake.sa), Mohamed Dahas (moh.dahas@datalake.sa), Marwen Benalayat (mar.benalayat@datalake.sa), Salaheddine Gragba (saleh.gragba@datalake.sa), Marwan Ayoub (mar.ayoub@datalake.sa), Alaa Alkattan (alaa.alkattan@datalake.sa), Bassam Soliman (Technical Director NOT CTO, bassam.soliman@datalake.sa), Mohamed Ashraf (moh.ashraf@datalake.sa), Mahmoud Metawea (mah.metawea@datalake.sa), Marwan Mohsen (mohamed.mohsen@datalake.sa)
 
 ### CTO Role
 VACANT. CEO acts as CTO for timesheet approval. CTO portal stays built but unused.
