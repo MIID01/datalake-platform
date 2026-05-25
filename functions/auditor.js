@@ -20,27 +20,15 @@ const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
 const db = admin.firestore();
 
 // ══════════════════════════════════════════════════════════════════
-// 1. auditorContractReview — CEO only
+// 1. auditorContractReview — Pub/Sub trigger (datalake.grc.uploaded)
 // Reads a GRC document from storage, OCRs it if needed,
 // runs it through the Auditor AI to identify compliance risks.
 // Output is stored as DRAFT, status PENDING_CEO_REVIEW.
 // ══════════════════════════════════════════════════════════════════
-async function auditorContractReviewHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function auditorContractReviewHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
-
-    const { document_id } = req.body;
-    if (!document_id) return res.status(400).json({ error: "document_id required" });
+    const { document_id } = event.data.message.json;
+    if (!document_id) throw new Error("document_id required");
 
     // Load document metadata from Firestore
     const docRef = db.collection("grc_documents").doc(document_id);
@@ -59,29 +47,29 @@ async function auditorContractReviewHandler(req, res, { verifyAuth, getUserAcces
         fileBase64: fileBuffer.toString("base64"),
         lang: "en",
         agent: "auditor",
-        type: "contract_ocr",
-        triggeredBy: profile.email,
+        type: "compliance_audit",
+        triggeredBy: "system",
       });
 
       if (!ocrResult.success) {
-        return res.status(503).json({ error: "OCR failed — cannot read document", detail: ocrResult.error });
+        throw new Error(`OCR failed — cannot read document: ${ocrResult.error}`);
       }
 
       contractText = ocrResult.lines.map((l) => l.text).join("\n");
     } catch (storageErr) {
       console.error("GRC document download/OCR failed:", storageErr.message);
-      return res.status(500).json({ error: "Failed to retrieve document from storage", detail: storageErr.message });
+      throw storageErr;
     }
 
     if (!contractText.trim()) {
-      return res.status(422).json({ error: "Document appears to be empty or image-only and could not be read" });
+      throw new Error("Document appears to be empty or image-only and could not be read");
     }
 
     // ── Auditor LLM: risk review ──
     const llmResult = await callLLM({
       agent: "auditor",
       type: "contract_risk_review",
-      triggeredBy: profile.email,
+      triggeredBy: "system",
       promptTemplateId: "AUDITOR_CONTRACT_REVIEW_V1",
       systemPrompt: `You are the Datalake Auditor AI. Review this contract for compliance risks.
 Check against ALL of the following regulations:
@@ -112,7 +100,7 @@ Return valid JSON only, no markdown.`,
     });
 
     if (!llmResult.success) {
-      return res.status(503).json({ error: "AI review failed", detail: llmResult.error });
+      throw new Error(`AI review failed: ${llmResult.error}`);
     }
 
     const parsed = parseJsonOutput(llmResult.output);
@@ -129,7 +117,7 @@ Return valid JSON only, no markdown.`,
       reviewed_at: now,
       status: "PENDING_CEO_REVIEW",       // CEO must review before any action
       requires_ceo_approval: true,
-      triggered_by: profile.email,
+      triggered_by: "system",
       ai_model: "qwen2.5-7b-instruct-q4_K_M",
       inference_ms: llmResult.inferenceMs,
     });
@@ -142,30 +130,21 @@ Return valid JSON only, no markdown.`,
     });
 
     await db.collection("task_audit_log").add({
-      event: "CONTRACT_REVIEW_CREATED_BY_AI",
-      action_by: profile.email,
+      event: "CONTRACT_REVIEWED_BY_AI",
+      action_by: "system",
       action_at: now,
-      details: {
-        document_id,
-        review_id: reviewRef.id,
+      details: { 
+        document_id, 
+        review_id: reviewRef.id, 
         risk_level: review.risk_level || "UNKNOWN",
         findings_count: review.findings?.length || 0,
         ai_model: "qwen2.5-7b-instruct-q4_K_M",
       },
-      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
-    return res.status(200).json({
-      success: true,
-      review_id: reviewRef.id,
-      risk_level: review.risk_level || "UNKNOWN",
-      findings_count: review.findings?.length || 0,
-      status: "PENDING_CEO_REVIEW",
-      message: "Contract review completed by Auditor AI. CEO review required before action.",
-    });
   } catch (err) {
     console.error("auditorContractReview error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    throw err;
   }
 }
 

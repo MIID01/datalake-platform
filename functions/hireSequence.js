@@ -14,6 +14,8 @@
 
 const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
+const { PubSub } = require("@google-cloud/pubsub");
+const pubsub = new PubSub();
 // DTLK-PROMPT-AI-001: No external AI APIs. Self-hosted only.
 const { callLLM, parseJsonOutput } = require("./lib/ai-client");
 const { google } = require("googleapis");
@@ -99,6 +101,9 @@ async function initiateHireHandler(req, res, { verifyAuth, getUserAccessProfile,
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
+    // PUBLISH PUB/SUB EVENT
+    await pubsub.topic("datalake.hire.initiated").publishMessage({ json: { hire_id: hireId } });
+
     return res.status(200).json({ success: true, hire_id: hireId });
   } catch (err) {
     console.error("initiateHire error:", err);
@@ -107,31 +112,20 @@ async function initiateHireHandler(req, res, { verifyAuth, getUserAccessProfile,
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 2. generateContract — CEO only, Gemini fills template
+// 2. generateContract — Pub/Sub trigger (datalake.hire.initiated)
 // ═══════════════════════════════════════════════════════════════════
-async function generateContractHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function generateContractHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
-
-    const { hire_id } = req.body;
-    if (!hire_id) return res.status(400).json({ error: "hire_id is required" });
+    const { hire_id } = event.data.message.json;
+    if (!hire_id) throw new Error("hire_id is required in Pub/Sub message");
 
     const hireDoc = await db.collection("pending_hires").doc(hire_id).get();
-    if (!hireDoc.exists) return res.status(404).json({ error: "Hire record not found" });
+    if (!hireDoc.exists) throw new Error("Hire record not found");
     const hire = hireDoc.data();
 
     if (hire.status !== "PENDING_CONTRACT") {
-      return res.status(400).json({ error: `Cannot generate contract — status is ${hire.status}` });
+      console.warn(`generateContract skipped: status is ${hire.status}`);
+      return;
     }
 
     // Generate contract text via Vertex AI
@@ -145,10 +139,12 @@ async function generateContractHandler(req, res, { verifyAuth, getUserAccessProf
       status: "CONTRACT_READY",
     });
 
-    return res.status(200).json({ success: true, contract_text: contractText });
+    // PUBLISH PUB/SUB EVENT
+    await pubsub.topic("datalake.contract.generated").publishMessage({ json: { hire_id } });
+
   } catch (err) {
     console.error("generateContract error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    throw err; // Allow Pub/Sub to retry if needed
   }
 }
 
@@ -332,30 +328,22 @@ Return valid JSON only, no markdown.`,
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 3. dispatchContractForSignature — CEO only
+// 3. dispatchContractForSignature — Pub/Sub trigger (datalake.contract.generated)
 // ═══════════════════════════════════════════════════════════════════
-async function dispatchContractHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function dispatchContractHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
-
-    const { hire_id } = req.body;
-    if (!hire_id) return res.status(400).json({ error: "hire_id is required" });
+    const { hire_id } = event.data.message.json;
+    if (!hire_id) throw new Error("hire_id is required");
 
     const hireDoc = await db.collection("pending_hires").doc(hire_id).get();
-    if (!hireDoc.exists) return res.status(404).json({ error: "Hire not found" });
+    if (!hireDoc.exists) throw new Error("Hire not found");
     const hire = hireDoc.data();
 
-    if (!hire.contract_generated) return res.status(400).json({ error: "Contract not yet generated" });
+    if (!hire.contract_generated) throw new Error("Contract not yet generated");
+    if (hire.status === "CONTRACT_SENT") {
+      console.warn("Contract already sent");
+      return;
+    }
 
     // Generate one-time acceptance token
     const acceptToken = uuidv4();
@@ -397,15 +385,13 @@ async function dispatchContractHandler(req, res, { verifyAuth, getUserAccessProf
     });
 
     await db.collection("task_audit_log").add({
-      event: "CONTRACT_DISPATCHED", action_by: profile.email, action_at: now,
+      event: "CONTRACT_DISPATCHED", action_by: "system", action_at: now,
       details: { hire_id, candidate_name: hire.candidate_name, gmail_id: sendResult.data.id },
-      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
-    return res.status(200).json({ success: true, sent_to: hire.candidate_email, gmail_id: sendResult.data.id });
   } catch (err) {
     console.error("dispatchContract error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    throw err;
   }
 }
 
@@ -495,6 +481,9 @@ async function recordSignatureHandler(req, res, { ALLOWED_ORIGINS }) {
       ip_address: ipAddress,
     });
 
+    // PUBLISH PUB/SUB EVENT
+    await pubsub.topic("datalake.contract.signed").publishMessage({ json: { hire_id: tokenData.hire_id } });
+
     return res.status(200).json({ success: true, message: "Contract accepted. Welcome to Datalake." });
   } catch (err) {
     console.error("recordSignature error:", err);
@@ -503,31 +492,22 @@ async function recordSignatureHandler(req, res, { ALLOWED_ORIGINS }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 5. provisionEngineer — CEO only, after contract signed
+// 5. provisionEngineer — Pub/Sub trigger (datalake.contract.signed)
 // ═══════════════════════════════════════════════════════════════════
-async function provisionEngineerHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function provisionEngineerHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
-
-    const { hire_id } = req.body;
-    if (!hire_id) return res.status(400).json({ error: "hire_id required" });
+    const { hire_id } = event.data.message.json;
+    if (!hire_id) throw new Error("hire_id required");
 
     const hireDoc = await db.collection("pending_hires").doc(hire_id).get();
-    if (!hireDoc.exists) return res.status(404).json({ error: "Hire not found" });
+    if (!hireDoc.exists) throw new Error("Hire not found");
     const hire = hireDoc.data();
 
-    if (!hire.contract_signed) return res.status(400).json({ error: "Contract not yet signed" });
-    if (hire.engineer_provisioned) return res.status(409).json({ error: "Engineer already provisioned" });
+    if (!hire.contract_signed) throw new Error("Contract not yet signed");
+    if (hire.engineer_provisioned) {
+      console.warn("Engineer already provisioned");
+      return;
+    }
 
     // Calculate contract end date
     const endDate = new Date(hire.start_date);
@@ -638,20 +618,13 @@ async function provisionEngineerHandler(req, res, { verifyAuth, getUserAccessPro
 
     // Audit
     await db.collection("task_audit_log").add({
-      event: "ENGINEER_PROVISIONED", action_by: profile.email, action_at: now,
+      event: "ENGINEER_PROVISIONED", action_by: "system", action_at: now,
       details: { hire_id, engineer_id: engineerId, candidate_name: hire.candidate_name },
-      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
-    return res.status(200).json({
-      success: true,
-      engineer_id: engineerId,
-      email: hire.candidate_email,
-      portal_url: "https://datalake-production-sa.web.app/portal",
-    });
   } catch (err) {
     console.error("provisionEngineer error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    throw err;
   }
 }
 
