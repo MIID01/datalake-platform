@@ -4,6 +4,7 @@
 export function homePathForRole(role) {
   switch (role) {
     case 'ceo': return '/ceo'
+    case 'it_admin': return '/admin'
     case 'hr': return '/hr'
     case 'cto': return '/cto'
     case 'client': return '/client'
@@ -18,6 +19,7 @@ export function homePathForRole(role) {
 export function portalPrefixForRole(role) {
   switch (role) {
     case 'ceo': return '/ceo'
+    case 'it_admin': return '/admin'
     case 'hr': return '/hr'
     case 'cto': return '/cto'
     case 'client': return '/client'

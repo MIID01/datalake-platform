@@ -25,10 +25,20 @@ service cloud.firestore {
     // ── RBAC Collections ──
     match /users/{uid} {
       allow read: if request.auth != null;
-      allow write: if isCeo();
+      allow create, delete: if isCeo();
+      // Only the CEO assigns roles — but CANNOT change their OWN role (segregation of duties).
+      allow update: if isCeo() && (request.auth.uid != uid || request.resource.data.role_id == resource.data.role_id);
       // Employees may flip ONLY their own onboarding flags on their own user doc.
       allow update: if request.auth != null && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['onboarding_complete', 'onboarding_completed_at']);
+    }
+
+    // ── IT Administration (it_admin only) — segregated from role assignment ──
+    match /admin_credentials/{docId} {
+      allow read, write: if request.auth != null && getUserRole() == "it_admin";
+    }
+    match /password_policies/{docId} {
+      allow read, write: if request.auth != null && getUserRole() == "it_admin";
     }
     match /roles/{roleId} {
       allow read: if request.auth != null;

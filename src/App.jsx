@@ -8,6 +8,13 @@ import CEOLayout from './layouts/CEOLayout'
 import EmployeeLayout from './layouts/EmployeeLayout'
 import HRLayout from './layouts/HRLayout'
 import CTOLayout from './layouts/CTOLayout'
+import AdminLayout from './layouts/AdminLayout'
+
+// IT Administration portal
+import AdminCredentials from './pages/admin/Credentials'
+import AdminAccess from './pages/admin/Access'
+import AdminAuditLogs from './pages/admin/AuditLogs'
+import AdminUsers from './pages/admin/Users'
 
 // CEO Pages
 import CEOCommandCenter from './pages/ceo/CommandCenter'
@@ -99,6 +106,16 @@ export default function App() {
           <Route index element={<CTODashboard />} />
           <Route path="approvals" element={<CTOApprovals />} />
           <Route path="projects" element={<CTOProjects />} />
+        </Route>
+
+        {/* IT Administration Portal (it_admin) — segregated from CEO /ceo/admin */}
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Navigate to="/admin/credentials" replace />} />
+          <Route path="credentials" element={<AdminCredentials />} />
+          <Route path="access" element={<AdminAccess />} />
+          <Route path="audit" element={<AdminAuditLogs />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="*" element={<Navigate to="/admin/credentials" replace />} />
         </Route>
 
         {/* Onboarding gate — full-screen, OUTSIDE the employee layout */}

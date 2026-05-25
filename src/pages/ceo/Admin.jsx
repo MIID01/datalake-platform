@@ -15,6 +15,19 @@ const DATA_CLASSES = [
   'client_timesheets','client_billing','engineer_rates','finance_full','audit_log','compliance_documents'
 ]
 
+// Canonical assignable roles (incl. it_admin). Merged with any custom roles from Firestore.
+const CANONICAL_ROLES = [
+  { id: 'employee', role_name: 'Employee' },
+  { id: 'hr', role_name: 'HR Admin' },
+  { id: 'finance', role_name: 'Finance' },
+  { id: 'it_admin', role_name: 'IT Admin' },
+  { id: 'cto', role_name: 'CTO' },
+  { id: 'ceo', role_name: 'CEO' },
+  { id: 'client', role_name: 'Client' },
+  { id: 'pm', role_name: 'Project Manager' },
+]
+const CEO_EMAIL = 'm.alqumri@datalake.sa'
+
 const s = {
   page: { padding: '32px 24px', maxWidth: 1200, margin: '0 auto' },
   h1: { fontSize: '1.5rem', fontWeight: 700, color: '#fff', marginBottom: 24 },
@@ -179,12 +192,18 @@ export default function Admin() {
 
   const getMatrixValue = (roleId, dc) => matrixDiffs[roleId]?.[dc] || state.access_matrix[roleId]?.data_classes?.[dc] || 'hidden'
   const userCountForRole = (roleId) => state.users.filter(u => u.role_id === roleId).length
+  // Canonical roles + any custom roles from Firestore (deduped) — guarantees it_admin is assignable.
+  const assignableRoles = [
+    ...CANONICAL_ROLES,
+    ...state.roles.filter(r => !CANONICAL_ROLES.some(c => c.id === r.id)).map(r => ({ id: r.id, role_name: r.role_name })),
+  ]
 
   if (loading) return <div style={{ ...s.page, color: 'rgba(255,255,255,0.6)', textAlign: 'center', paddingTop: 80 }}><Loader size={24} style={{ margin: '0 auto 12px', animation: 'spin 1s linear infinite' }} /><div>Loading RBAC state...</div></div>
 
   return (
     <div style={s.page}>
-      <h1 style={s.h1}>Admin Panel</h1>
+      <h1 style={s.h1}>Role Administration</h1>
+      <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.82rem', margin: '-12px 0 20px' }}>Assign roles &amp; manage RBAC. Password and credential management lives in the IT Administration portal (segregation of duties).</p>
       {error && <div style={{ padding: '10px 16px', background: 'rgba(239,88,41,0.15)', border: '1px solid rgba(239,88,41,0.3)', borderRadius: 8, color: '#fb923c', fontSize: '0.82rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={16} />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#fb923c', cursor: 'pointer' }}><X size={14} /></button></div>}
       <div style={s.tabs}>{TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={s.tab(tab === t.id)}><t.icon size={16} />{t.label}</button>)}</div>
 
@@ -202,10 +221,14 @@ export default function Admin() {
             <td style={s.td}><span style={s.badge('system')}>{u.role_id}</span></td>
             <td style={s.td}><span style={s.badge(u.status)}>{u.status}</span></td>
             <td style={s.td}><div style={{ display: 'flex', gap: 6 }}>
-              <button style={{...s.btn('sm'), background: 'rgba(21,152,204,0.2)', color: '#38bdf8'}} onClick={() => { 
-                const availableRoles = state.roles.filter(r => r.id !== u.role_id)
-                setModal('changeRole'); setModalData({ uid: u.id, new_role_id: availableRoles[0]?.id || '', current_role: u.role_id, email: u.email }) 
-              }}>Role</button>
+              {u.email === CEO_EMAIL ? (
+                <button style={{...s.btn('sm'), background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.35)', cursor: 'not-allowed'}} disabled title="Segregation of duties: the CEO cannot change their own role">Role</button>
+              ) : (
+                <button style={{...s.btn('sm'), background: 'rgba(21,152,204,0.2)', color: '#38bdf8'}} onClick={() => {
+                  const availableRoles = assignableRoles.filter(r => r.id !== u.role_id)
+                  setModal('changeRole'); setModalData({ uid: u.id, new_role_id: availableRoles[0]?.id || '', current_role: u.role_id, email: u.email })
+                }}>Role</button>
+              )}
               <button style={{...s.btn('sm'), background: u.status === 'active' ? 'rgba(239,88,41,0.15)' : 'rgba(52,191,58,0.15)', color: u.status === 'active' ? '#fb923c' : '#4ade80'}} onClick={() => handleToggleDisable(u.id, u.status)}>{u.status === 'active' ? 'Disable' : 'Enable'}</button>
               <button style={{...s.btn('sm'), background: 'rgba(239,88,41,0.15)', color: '#fb923c'}} onClick={async () => {
                 if(window.confirm('Delete user from database? This cannot be undone.')) {
@@ -270,7 +293,7 @@ export default function Admin() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div><label style={s.label}>Email *</label><input style={s.input} placeholder="user@datalake.sa" value={modalData.email || ''} onChange={e => setModalData(p => ({...p, email: e.target.value}))} /></div>
           <div><label style={s.label}>Display Name *</label><input style={s.input} placeholder="Full name" value={modalData.display_name || ''} onChange={e => setModalData(p => ({...p, display_name: e.target.value}))} /></div>
-          <div><label style={s.label}>Role *</label><select style={s.select} value={modalData.role_id || ''} onChange={e => setModalData(p => ({...p, role_id: e.target.value}))}>{state.roles.map(r => <option key={r.id} value={r.id} style={{background:'#1a2744',color:'#fff'}}>{r.role_name}</option>)}</select></div>
+          <div><label style={s.label}>Role *</label><select style={s.select} value={modalData.role_id || ''} onChange={e => setModalData(p => ({...p, role_id: e.target.value}))}>{assignableRoles.map(r => <option key={r.id} value={r.id} style={{background:'#1a2744',color:'#fff'}}>{r.role_name}</option>)}</select></div>
           {(modalData.role_id === 'engineer' || modalData.role_id === 'pm') && <div><label style={s.label}>Employee ID</label><input style={s.input} placeholder="e.g. DLSA1001" value={modalData.employee_id || ''} onChange={e => setModalData(p => ({...p, employee_id: e.target.value}))} /></div>}
           {modalData.role_id === 'client' && <div><label style={s.label}>Client *</label><select style={s.select} value={modalData.client_id || ''} onChange={e => setModalData(p => ({...p, client_id: e.target.value}))}><option value="">Select...</option>{state.clients.map(c => <option key={c.id} value={c.id} style={{background:'#1a2744',color:'#fff'}}>{c.client_name}</option>)}</select></div>}
           <button style={{...s.btn(), width: '100%', justifyContent: 'center', marginTop: 8}} onClick={handleAddUser} disabled={saving}>{saving ? 'Creating...' : 'Create User'}</button>
@@ -280,7 +303,7 @@ export default function Admin() {
       {modal === 'changeRole' && <div style={s.modal} onClick={() => setModal(null)}><div style={s.modalCard} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}><h3 style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 700 }}>Change Role — {modalData.email}</h3><button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}><X size={20} /></button></div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div><label style={s.label}>New Role</label><select style={s.select} value={modalData.new_role_id || ''} onChange={e => setModalData(p => ({...p, new_role_id: e.target.value}))}>{state.roles.filter(r => r.id !== modalData.current_role).map(r => <option key={r.id} value={r.id} style={{background:'#1a2744',color:'#fff'}}>{r.role_name}</option>)}</select></div>
+          <div><label style={s.label}>New Role</label><select style={s.select} value={modalData.new_role_id || ''} onChange={e => setModalData(p => ({...p, new_role_id: e.target.value}))}>{assignableRoles.filter(r => r.id !== modalData.current_role).map(r => <option key={r.id} value={r.id} style={{background:'#1a2744',color:'#fff'}}>{r.role_name}</option>)}</select></div>
           <button style={{...s.btn(), width: '100%', justifyContent: 'center', marginTop: 8}} onClick={handleChangeRole} disabled={saving}>{saving ? 'Updating...' : 'Update Role'}</button>
         </div>
       </div></div>}
