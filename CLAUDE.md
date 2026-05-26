@@ -38,7 +38,16 @@ Deploy (project `datalake-production-sa`):
 
 Role resolution precedence (used identically in `resolveUserRole` and AuthGate): **UID-keyed `users` doc → `users` query by `email` → email fallbacks**. Two emails are hardcoded bypasses on both client and in `firestore.rules`: `m.alqumri@datalake.sa` (=`CEO_EMAIL`, always `ceo`) and `hr@datalake.sa` (always `hr`). Keep these in sync across `src/lib/auth.js`, `AuthGate.jsx`, and `firestore.rules` if changed.
 
-Roles: `ceo`, `cto`, `hr`, `employee`, `client`, `finance`. `finance` lives *under* the CEO portal at `/ceo/finance`.
+Roles: `ceo`, `cto`, `hr`, `employee`, `client`, `finance`.
+
+**Portal segregation** (enforced in AuthGate; `firestore.rules` is the real boundary):
+- `/ceo/*` — **CEO only** (`m.alqumri@datalake.sa`); any other role is redirected to its own home.
+- `/finance/*` — `finance` role + CEO. `FinanceLayout` (Dashboard/Invoices/Payroll/Expenses/Reports) reuses the CEO finance components (`src/pages/ceo/finance/*`, `CEOPayroll`) via Outlet context. `finance` home/prefix is now `/finance` (was `/ceo/finance`).
+- `/hr/*` → `hr` + CEO · `/admin/*` → `it_admin` + CEO · `/employee/*` → **all roles** (everyone is also an employee).
+- The CEO sidebar has a **Switch Portal** dropdown (CEO/Finance/HR/Admin/Employee views).
+
+### CI/CD
+`.github/workflows/deploy.yml`: on push to `main`, build → deploy to a Firebase **preview channel** → run Cypress against the preview URL → **promote to live only if green** (failing tests leave live untouched) → tag `v{date}-{time}`. Secrets: `FIREBASE_TOKEN`, `CYPRESS_ENV_JSON`. `.github/dependabot.yml` runs weekly npm vulnerability scans (root + `functions/` + actions). Rollback runbook: `docs/rollback.md`.
 
 ### Frontend data model
 - **No global state library.** State is local `useState` plus live Firestore `onSnapshot` listeners. Layouts (`src/layouts/*Layout.jsx`) own the user-data subscription and the sidebar/onboarding/theme shell; pages own their own queries.
