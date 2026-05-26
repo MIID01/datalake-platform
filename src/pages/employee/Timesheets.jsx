@@ -199,6 +199,7 @@ export default function Timesheets() {
   const workingDays = calendarDays.filter(d => !d.isNonWorking)
   const totalEnteredHours = Object.values(dayHours).reduce((s, h) => s + (parseFloat(h) || 0), 0)
   const expectedHours = workingDays.length * 8
+  const hasProject = !projectsLoading && liveProjects.length > 0
 
   const handleHourChange = (dateKey, value) => {
     const num = parseFloat(value)
@@ -257,11 +258,11 @@ export default function Timesheets() {
           </p>
         </div>
         <button
-          className={`btn ${isWindowOpen ? 'btn-primary' : 'btn-ghost'}`}
-          onClick={() => isWindowOpen && setShowForm(!showForm)}
-          disabled={!isWindowOpen}
-          style={!isWindowOpen ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
-          title={!isWindowOpen ? `Submission window: ${WINDOW_OPEN_DAY}th — ${WINDOW_CLOSE_DAY}th of each month` : ''}
+          className={`btn ${isWindowOpen && hasProject ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => isWindowOpen && hasProject && setShowForm(!showForm)}
+          disabled={!isWindowOpen || !hasProject}
+          style={(!isWindowOpen || !hasProject) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+          title={!isWindowOpen ? `Submission window: ${WINDOW_OPEN_DAY}th — ${WINDOW_CLOSE_DAY}th of each month` : (!hasProject ? 'No project assigned' : '')}
         >
           <Plus size={16} /> New Timesheet
         </button>
@@ -314,8 +315,19 @@ export default function Timesheets() {
         </div>
       )}
 
+      {/* No project assigned — graceful empty state (prevents the form from rendering without an assignment) */}
+      {!projectsLoading && !hasProject && (
+        <div className="card animate-fade-in-up" style={{ marginBottom: 24, textAlign: 'center', padding: '40px 24px' }}>
+          <Briefcase size={40} style={{ color: 'var(--text-tertiary)', margin: '0 auto 16px' }} />
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: 8 }}>No project assigned</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: 420, margin: '0 auto', lineHeight: 1.6 }}>
+            You don't have an active project assignment yet, so timesheets can't be created. Please contact the CEO to be assigned to a project.
+          </p>
+        </div>
+      )}
+
       {/* Submission Form */}
-      {showForm && (
+      {showForm && hasProject && (
         <div className="card animate-fade-in-up" style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
             <button className={`btn btn-sm ${method === 'manual' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMethod('manual')}>

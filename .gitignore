@@ -48,3 +48,4 @@ functions/set-all-passwords.cjs
 # Cypress run artifacts
 cypress/screenshots/
 cypress/videos/
+functions/inspect-employee.cjs

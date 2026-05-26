@@ -14,6 +14,13 @@ service firebase.storage {
       allow update, delete: if isCeo();
     }
 
+    match /employee-photos/{fileName} {
+      // Any signed-in user can view profile photos; an employee can upload/replace their own.
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null;
+      allow delete: if isCeo();
+    }
+
     match /datalake-worm-hr/employee_documents/{fileName} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;

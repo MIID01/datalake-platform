@@ -57,7 +57,14 @@ service cloud.firestore {
     match /employees/{docId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && (getUserRole() == "ceo" || getUserRole() == "hr");
-      allow update: if request.auth != null && (getUserRole() == "ceo" || getUserRole() == "hr" || request.auth.token.email == resource.data.email);
+      // CEO/HR may update any field. The employee who owns the record (matched by email)
+      // may edit ONLY their own limited self-service fields.
+      allow update: if request.auth != null && (
+        getUserRole() == "ceo" || getUserRole() == "hr" ||
+        (request.auth.token.email == resource.data.email &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['phone', 'emergency_contact', 'photo_url', 'skills', 'certifications', 'updated_at']))
+      );
       allow delete: if request.auth != null && (getUserRole() == "ceo" || (getUserRole() == "hr" && resource.data.employment_status == "PENDING_APPROVAL"));
 
       // Onboarding acknowledgments: an employee writes their own ack docs
