@@ -1,8 +1,27 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Component } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { auth, db } from '../../lib/firebase'
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore'
 import { ChevronDown, CheckCircle, Lock, ShieldCheck } from 'lucide-react'
+
+// Error boundary so a crash never shows a white page
+class OnboardingErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(err) { return { error: err } }
+  componentDidCatch(err, info) { console.error('[Onboarding] crash:', err, info) }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight: '100vh', background: '#F4F6F9', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center', flexDirection: 'column', gap: 16 }}>
+          <h2 style={{ color: '#C0392B', margin: 0 }}>Something went wrong</h2>
+          <p style={{ color: '#475569', maxWidth: 500 }}>{this.state.error.message}</p>
+          <button onClick={() => window.location.reload()} style={{ padding: '10px 24px', borderRadius: 8, border: '1px solid #022873', background: '#022873', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>Reload</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 const NAVY = '#022873'
 const SKY = '#1598CC'
@@ -241,7 +260,7 @@ function PolicyBody({ blocks }) {
   )
 }
 
-export default function Onboarding() {
+function OnboardingInner() {
   const navigate = useNavigate()
   const [profile, setProfile] = useState(null) // { uid, docId, email, name, emp_id }
   const [loading, setLoading] = useState(true)
@@ -257,11 +276,12 @@ export default function Onboarding() {
       try {
         let docId = user.uid
         let data = null
+        const userEmail = user.email || ''
         const byUid = await getDoc(doc(db, 'users', user.uid))
         if (byUid.exists()) {
           data = byUid.data()
-        } else {
-          const snap = await getDocs(query(collection(db, 'users'), where('email', '==', user.email.toLowerCase())))
+        } else if (userEmail) {
+          const snap = await getDocs(query(collection(db, 'users'), where('email', '==', userEmail.toLowerCase())))
           if (!snap.empty) { docId = snap.docs[0].id; data = snap.docs[0].data() }
         }
         // Already onboarded → straight to dashboard
@@ -269,11 +289,12 @@ export default function Onboarding() {
         setProfile({
           uid: user.uid,
           docId,
-          email: user.email,
-          name: data?.full_name || data?.display_name || user.displayName || user.email,
-          emp_id: data?.emp_id || user.uid,
+          email: userEmail,
+          name: data?.full_name || data?.display_name || user.displayName || userEmail || 'Employee',
+          emp_id: data?.employee_id || data?.emp_id || user.uid,
         })
       } catch (err) {
+        console.error('[Onboarding] profile load error:', err)
         setError(err.message || 'Could not load your profile.')
       } finally {
         setLoading(false)
@@ -428,5 +449,13 @@ export default function Onboarding() {
         </button>
       </main>
     </div>
+  )
+}
+
+export default function Onboarding() {
+  return (
+    <OnboardingErrorBoundary>
+      <OnboardingInner />
+    </OnboardingErrorBoundary>
   )
 }

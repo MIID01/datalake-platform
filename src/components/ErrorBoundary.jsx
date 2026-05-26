@@ -45,12 +45,15 @@ class ErrorBoundary extends React.Component {
             <RefreshCw size={18} /> Reload Page
           </button>
           
-          {process.env.NODE_ENV === 'development' && this.state.error && (
+          {this.state.error && (
             <div style={{
-              marginTop: '40px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px',
-              textAlign: 'left', maxWidth: '800px', overflowX: 'auto', border: '1px solid var(--border-primary)'
+              marginTop: '40px', padding: '16px', background: 'rgba(0,0,0,0.06)', borderRadius: '8px',
+              textAlign: 'left', maxWidth: '800px', overflowX: 'auto', border: '1px solid #E5E7EB'
             }}>
-              <code style={{ fontSize: '0.8rem', color: '#f87171' }}>{this.state.error.toString()}</code>
+              <code style={{ fontSize: '0.8rem', color: '#C0392B', whiteSpace: 'pre-wrap', display: 'block' }}>
+                {this.state.error.toString()}
+                {this.state.error.stack ? '\n\n' + this.state.error.stack : ''}
+              </code>
             </div>
           )}
         </div>
