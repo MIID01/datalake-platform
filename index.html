@@ -11,7 +11,8 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Dancing+Script:wght@400;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><p style="padding:40px;font-family:sans-serif;color:#666">Loading…</p></div>
+    <script>window.addEventListener('error',function(e){document.getElementById('root').innerHTML='<div style="padding:40px;font-family:sans-serif;max-width:700px;margin:0 auto"><h2 style="color:#C0392B">App Error</h2><pre style="background:#f5f5f5;padding:16px;border-radius:8px;overflow:auto;font-size:13px">'+((e.error?e.error.stack:e.message)||'Unknown error')+'</pre><button onclick="location.reload()" style="margin-top:16px;padding:10px 24px;background:#022873;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">Reload</button></div>'});window.addEventListener('unhandledrejection',function(e){document.getElementById('root').innerHTML='<div style="padding:40px;font-family:sans-serif;max-width:700px;margin:0 auto"><h2 style="color:#C0392B">App Error</h2><pre style="background:#f5f5f5;padding:16px;border-radius:8px;overflow:auto;font-size:13px">'+(e.reason?e.reason.stack||e.reason.message||String(e.reason):'Unknown rejection')+'</pre><button onclick="location.reload()" style="margin-top:16px;padding:10px 24px;background:#022873;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">Reload</button></div>'});</script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
