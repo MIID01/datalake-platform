@@ -38,6 +38,13 @@ const SAUDI_HOLIDAYS_2026 = [
 
 const holidayMap = new Map(SAUDI_HOLIDAYS_2026.map(h => [h.date, h.name]))
 
+// Parse a fetch Response as JSON without throwing on non-JSON bodies (e.g. a
+// Cloud Function returning a plain-text "Internal Server Error" on a 500).
+async function parseJsonSafe(res) {
+  const text = await res.text()
+  try { return JSON.parse(text) } catch { return null }
+}
+
 // Check if a date falls on Saudi weekend (Friday = 5, Saturday = 6)
 function isSaudiWeekend(date) {
   const day = date.getDay()
@@ -80,11 +87,12 @@ export default function Timesheets() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
       })
-      const data = await res.json()
+      const data = await parseJsonSafe(res)
+      if (!res.ok || !data) throw new Error(data?.error || `Could not load timesheets (server returned ${res.status}).`)
       setMyTimesheets(data.timesheets || [])
     } catch (err) {
       console.warn('Failed to fetch history:', err.message)
-      setError(err)
+      setError(new Error('Could not load timesheets. Please try again.'))
     }
   }
 
@@ -140,13 +148,14 @@ export default function Timesheets() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
         })
-        const data = await res.json()
+        const data = await parseJsonSafe(res)
+        if (!res.ok || !data) throw new Error(data?.error || `Could not load projects (server returned ${res.status}).`)
         const projs = (data.projects || []).filter(p => p.status === 'ACTIVE')
         setLiveProjects(projs)
         if (projs.length > 0) setSelectedProjectId(projs[0].project_id)
       } catch (err) {
         console.warn('Failed to fetch projects:', err.message)
-        setError(err)
+        setError(new Error('Could not load your project assignment. Please try again.'))
       }
       setProjectsLoading(false)
     })

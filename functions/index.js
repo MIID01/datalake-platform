@@ -51,7 +51,7 @@ exports.submitCareerApplication = onRequest({
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -265,7 +265,7 @@ exports.extractTimesheetAI = onRequest(
     }
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
     const authHeader = req.headers.authorization;
@@ -366,7 +366,7 @@ exports.createTask = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -508,7 +508,7 @@ exports.submitHRScore = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -861,7 +861,7 @@ exports.updateCandidateStage = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -962,7 +962,7 @@ exports.downloadCandidateCV = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -1059,7 +1059,7 @@ exports.createProject = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1145,7 +1145,7 @@ exports.assignEngineerToProject = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1229,7 +1229,7 @@ exports.getEngineerProjectView = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST" && req.method !== "GET") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -1346,7 +1346,7 @@ exports.submitTimesheet = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1538,7 +1538,7 @@ exports.ctoApproveTimesheet = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
@@ -1644,7 +1644,7 @@ exports.clientSignTimesheet = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
 
     // Verify Firebase Auth
@@ -1791,26 +1791,34 @@ exports.getMyTimesheets = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) { res.status(401).json({ error: "Missing auth" }); return; }
     let decodedToken;
     try { decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]); } catch { res.status(401).json({ error: "Invalid token" }); return; }
 
-    const snapshot = await db.collection("timesheets")
-      .where("engineer_email", "==", decodedToken.email)
-      .orderBy("submitted_at", "desc").limit(12).get();
+    try {
+      // No composite (engineer_email + submitted_at) index required: filter by
+      // engineer, then sort/limit in memory (an engineer has at most a handful).
+      const snapshot = await db.collection("timesheets")
+        .where("engineer_email", "==", decodedToken.email)
+        .get();
 
-    const timesheets = snapshot.docs.map(d => {
-      const t = d.data();
-      return {
-        timesheet_id: t.timesheet_id, project_name: t.project_name, client_name: t.client_name,
-        period_label: t.period_label, total_hours: t.total_hours, state: t.state,
-        submitted_at: t.submitted_at, rejection_reason: t.rejection_reason,
-        // NO days detail, NO rates, NO client approver email
-      };
-    });
-    res.status(200).json({ timesheets });
+      const timesheets = snapshot.docs
+        .map(d => d.data())
+        .sort((a, b) => (b.submitted_at?.toMillis?.() || 0) - (a.submitted_at?.toMillis?.() || 0))
+        .slice(0, 12)
+        .map(t => ({
+          timesheet_id: t.timesheet_id, project_name: t.project_name, client_name: t.client_name,
+          period_label: t.period_label, total_hours: t.total_hours, state: t.state,
+          submitted_at: t.submitted_at, rejection_reason: t.rejection_reason,
+          // NO days detail, NO rates, NO client approver email
+        }));
+      res.status(200).json({ timesheets });
+    } catch (err) {
+      console.error("getMyTimesheets error:", err);
+      res.status(500).json({ error: "Could not load timesheets" });
+    }
   }
 );
 
@@ -1833,7 +1841,7 @@ exports.getClientTimesheets = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     // Verify Firebase Auth token
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -1918,7 +1926,7 @@ exports.extractCVData = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
@@ -2140,7 +2148,7 @@ exports.getRBACState = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     try {
       const profile = await requireCeo(req);
       const [usersSnap, rolesSnap, matrixSnap, clientsSnap] = await Promise.all([
@@ -2177,7 +2185,7 @@ exports.addUser = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2241,7 +2249,7 @@ exports.updateUserRole = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2283,7 +2291,7 @@ exports.disableUser = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2321,7 +2329,7 @@ exports.createCustomRole = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2373,7 +2381,7 @@ exports.deleteCustomRole = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
@@ -2415,7 +2423,7 @@ exports.updateAccessMatrix = onRequest(
     // CORS headers
     res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
     try {
       const profile = await requireCeo(req);
