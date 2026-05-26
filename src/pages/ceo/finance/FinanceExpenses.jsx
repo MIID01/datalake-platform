@@ -7,10 +7,8 @@ export default function FinanceExpenses({ expenses }) {
   const [approving, setApproving] = useState(null)
 
   const { budgetData, filteredExpenses } = useMemo(() => {
-    // Generate Budget vs Actual chart data (Mock budget, actual from expenses)
+    // Real actual-spend-by-category for the current month (no fabricated budget).
     const categoryMap = {}
-    
-    // Group expenses by category
     const actualExpenses = expenses.filter(e => {
       const d = new Date(e.date)
       return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear()
@@ -21,12 +19,9 @@ export default function FinanceExpenses({ expenses }) {
       categoryMap[cat] = (categoryMap[cat] || 0) + Number(e.amount || 0)
     })
 
-    const chartData = [
-      { category: 'Software & Cloud', budget: 50000, actual: categoryMap['Software'] || 0 },
-      { category: 'Travel', budget: 30000, actual: categoryMap['Travel'] || 0 },
-      { category: 'Office', budget: 15000, actual: categoryMap['Office'] || 0 },
-      { category: 'Marketing', budget: 40000, actual: categoryMap['Marketing'] || 0 },
-    ]
+    const chartData = Object.entries(categoryMap)
+      .map(([category, actual]) => ({ category, actual }))
+      .sort((a, b) => b.actual - a.actual)
 
     // List Filtering
     const list = expenses.filter(e => filterCategory === 'All' || (e.category || 'Uncategorized') === filterCategory)
@@ -48,19 +43,24 @@ export default function FinanceExpenses({ expenses }) {
     <div className="animate-fade-in-up">
       <div className="grid-2" style={{ gap: 24, marginBottom: 24 }}>
         <div className="card" style={{ gridColumn: 'span 2' }}>
-          <h3 className="chart-card-title" style={{ marginBottom: 20 }}>OpEx Budget vs Actual (MTD)</h3>
+          <h3 className="chart-card-title" style={{ marginBottom: 20 }}>OpEx by Category (MTD)</h3>
           <div style={{ width: '100%', height: 350 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={budgetData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" vertical={false} />
-                <XAxis dataKey="category" tick={{ fill: 'var(--text-tertiary)' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: 'var(--text-tertiary)' }} axisLine={false} tickLine={false} tickFormatter={formatSAR} />
-                <RechartsTooltip cursor={{ fill: 'var(--bg-elevated)' }} contentStyle={{ borderRadius: 8, border: 'none' }} formatter={v => `SAR ${v.toLocaleString()}`} />
-                <Legend />
-                <Bar dataKey="budget" name="Budget" fill="var(--sky-blue)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="actual" name="Actual" fill="var(--purple)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {budgetData.length === 0 ? (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '0.9rem' }}>
+                No expenses recorded this month.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={budgetData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" vertical={false} />
+                  <XAxis dataKey="category" tick={{ fill: 'var(--text-tertiary)' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: 'var(--text-tertiary)' }} axisLine={false} tickLine={false} tickFormatter={formatSAR} />
+                  <RechartsTooltip cursor={{ fill: 'var(--bg-elevated)' }} contentStyle={{ borderRadius: 8, border: 'none' }} formatter={v => `SAR ${v.toLocaleString()}`} />
+                  <Legend />
+                  <Bar dataKey="actual" name="Actual" fill="var(--purple)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       </div>

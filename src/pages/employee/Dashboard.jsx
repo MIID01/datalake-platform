@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useCountUp } from '../../hooks/useUtils'
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore'
-import { db, auth } from '../../lib/firebase'
+import { db, auth, GET_ENGINEER_PROJECT_VIEW_URL } from '../../lib/firebase'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
 import { Calendar, Clock, Ticket, Palmtree, FileText, CreditCard, LifeBuoy, AlertTriangle, ChevronRight, Loader } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -40,6 +40,7 @@ export default function Dashboard() {
     openTickets: { value: 0 },
   })
   const [upcomingActions, setUpcomingActions] = useState([])
+  const [contract, setContract] = useState(null) // real active-assignment summary (PO/rates stripped server-side)
 
   useEffect(() => {
     let unsubs = []
@@ -67,6 +68,33 @@ export default function Dashboard() {
               setDashboardStats(prev => ({ ...prev, leaveBalance: { value: data.annual_remaining || 0, total: data.annual_total || 21 } }))
             }
           }))
+
+          // Active project assignment for the Contract Summary (financials/PO
+          // stripped server-side by getEngineerProjectView).
+          try {
+            const idToken = await user.getIdToken()
+            const res = await fetch(GET_ENGINEER_PROJECT_VIEW_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            })
+            const text = await res.text()
+            let data = null
+            try { data = JSON.parse(text) } catch { data = null }
+            const projs = data?.projects || []
+            const proj = projs.find(p => p.status === 'ACTIVE') || projs[0]
+            if (proj) {
+              const start = proj.start_date?._seconds ? new Date(proj.start_date._seconds * 1000) : null
+              const end = proj.end_date?._seconds ? new Date(proj.end_date._seconds * 1000) : null
+              setContract({
+                client: proj.client_name || '—',
+                role: proj.my_assignment?.role_on_project || '—',
+                period: (start && end)
+                  ? `${start.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })} — ${end.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`
+                  : '—',
+                daysLeft: end ? Math.max(0, Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24))) : null,
+              })
+            }
+          } catch (e) { console.warn('Assignment fetch failed:', e.message) }
 
           setLoading(false)
         } catch (e) {
@@ -162,23 +190,33 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Contract Summary */}
+          {/* Contract Summary — real active assignment (PO/rates not shown) */}
           <div className="card animate-fade-in-up stagger-5">
             <div className="card-header"><h3>Contract Summary</h3></div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {[
-                { label: 'Client', value: 'Emkan' },
-                { label: 'Role', value: 'Senior Java Engineer' },
-                { label: 'PO Number', value: 'PO-2024-018', mono: true },
-                { label: 'Contract Period', value: 'Jun 2025 — Jun 2026' },
-                { label: 'Days Remaining', value: '42', color: 'var(--green)' },
-              ].map((field, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: i < 4 ? '1px solid var(--border-primary)' : 'none' }}>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>{field.label}</span>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: field.color || 'var(--text-primary)', fontFamily: field.mono ? 'var(--font-mono)' : 'inherit' }}>{field.value}</span>
-                </div>
-              ))}
-            </div>
+            {contract ? (
+              (() => {
+                const fields = [
+                  { label: 'Client', value: contract.client },
+                  { label: 'Role', value: contract.role },
+                  { label: 'Contract Period', value: contract.period },
+                  ...(contract.daysLeft != null ? [{ label: 'Days Remaining', value: String(contract.daysLeft), color: contract.daysLeft < 30 ? 'var(--amber)' : 'var(--green)' }] : []),
+                ]
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {fields.map((field, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: i < fields.length - 1 ? '1px solid var(--border-primary)' : 'none' }}>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>{field.label}</span>
+                        <span style={{ fontSize: '0.875rem', fontWeight: 600, color: field.color || 'var(--text-primary)' }}>{field.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()
+            ) : (
+              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
+                No active project assignment.
+              </div>
+            )}
           </div>
         </div>
       </div>

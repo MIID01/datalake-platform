@@ -33,7 +33,7 @@ export default function AIOperations() {
         newStatuses[s.name] = {
           status: 'Running',
           lastInvocation: new Date().toLocaleTimeString(),
-          errorCount: Math.floor(Math.random() * 3) // mock for now
+          errorCount: 0 // no client-side error feed; shown as 0 rather than fabricated
         };
       });
       setStatuses(newStatuses);

@@ -10,13 +10,10 @@ const iconMap = {
   'Pub/Sub': '📡', 'Cloud Scheduler': '⏰', 'Zoho Books API': '📗', 'Zoho Payroll API': '💵',
 }
 
-// Mock 24-hour metric data
-const generate24hrData = (baseline, variance) => {
-  return Array.from({ length: 24 }, (_, i) => ({
-    hour: `${i}:00`,
-    value: baseline + Math.round((Math.random() - 0.5) * variance * 2)
-  }))
-}
+// Real 24h trend from a doc's `history` array ([] when no metric history exists).
+const trend = (history) => Array.isArray(history)
+  ? history.map((value, i) => ({ hour: `${i}:00`, value }))
+  : []
 
 export default function SystemHealth() {
   const [systemHealth, setSystemHealth] = useState([])
@@ -28,6 +25,17 @@ export default function SystemHealth() {
   }, [])
 
   const allGreen = systemHealth.every(s => s.status === 'green')
+
+  // Aggregate availability trend from real per-service history (empty if none stored).
+  const overallHistory = (() => {
+    const withHist = systemHealth.filter(s => Array.isArray(s.history) && s.history.length)
+    if (!withHist.length) return []
+    const len = Math.max(...withHist.map(s => s.history.length))
+    return Array.from({ length: len }, (_, i) => ({
+      hour: `${i}:00`,
+      value: Math.round(withHist.reduce((sum, s) => sum + (s.history[i] ?? s.history[s.history.length - 1]), 0) / withHist.length),
+    }))
+  })()
 
   return (
     <div>
@@ -67,7 +75,7 @@ export default function SystemHealth() {
                 </div>
                 <div style={{ flex: 1, height: 50 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={generate24hrData(comp.successRate, 2)}>
+                    <LineChart data={trend(comp.history)}>
                       <Line type="monotone" dataKey="value" stroke="var(--green)" strokeWidth={1.5} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
@@ -102,15 +110,21 @@ export default function SystemHealth() {
           <h3 className="chart-card-title">System Performance (24 Hours)</h3>
         </div>
         <div style={{ height: 280 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={generate24hrData(99, 3)}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
-              <XAxis dataKey="hour" tick={{ fill: 'var(--text-tertiary)', fontSize: 10 }} interval={3} />
-              <YAxis domain={[90, 100]} tick={{ fill: 'var(--text-tertiary)', fontSize: 10 }} tickFormatter={v => `${v}%`} />
-              <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-card)', borderRadius: 10, color: 'var(--text-primary)' }} formatter={v => `${v}%`} />
-              <Line type="monotone" dataKey="value" name="Availability" stroke="var(--green)" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+          {overallHistory.length === 0 ? (
+            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '0.9rem' }}>
+              No historical metric data available.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={overallHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
+                <XAxis dataKey="hour" tick={{ fill: 'var(--text-tertiary)', fontSize: 10 }} interval={3} />
+                <YAxis domain={[90, 100]} tick={{ fill: 'var(--text-tertiary)', fontSize: 10 }} tickFormatter={v => `${v}%`} />
+                <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-card)', borderRadius: 10, color: 'var(--text-primary)' }} formatter={v => `${v}%`} />
+                <Line type="monotone" dataKey="value" name="Availability" stroke="var(--green)" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
     </div>
