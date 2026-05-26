@@ -1,0 +1,88 @@
+name: Deploy (preview → test → promote)
+
+# On every push to main: build, deploy to a Firebase Hosting PREVIEW channel,
+# run Cypress against the preview URL, and only promote to LIVE if tests pass.
+# A failing test run leaves the previous live version untouched.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+env:
+  FIREBASE_PROJECT: datalake-production-sa
+  PREVIEW_CHANNEL: ci-preview
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push the success tag
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Build
+        run: npm run build
+
+      # ── Deploy to a preview channel (does NOT touch live) ──
+      - name: Deploy to preview channel
+        id: preview
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          OUT=$(npx firebase-tools@latest hosting:channel:deploy "$PREVIEW_CHANNEL" \
+            --project "$FIREBASE_PROJECT" --expires 1d --json)
+          echo "$OUT"
+          URL=$(echo "$OUT" | npx --yes node-jq '.. | objects | .url? // empty' 2>/dev/null | head -1)
+          if [ -z "$URL" ]; then
+            URL=$(echo "$OUT" | grep -oE 'https://[^"]+\.web\.app[^"]*' | head -1)
+          fi
+          echo "Preview URL: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # ── Cypress against the preview URL ──
+      # Test users/secrets come from a single CYPRESS_ENV_JSON repo secret
+      # (mirrors the gitignored cypress.env.json — see cypress.env.json.template).
+      - name: Write Cypress env
+        run: printf '%s' '${{ secrets.CYPRESS_ENV_JSON }}' > cypress.env.json
+
+      - name: Run Cypress against preview
+        id: e2e
+        run: npx cypress run --config baseUrl=${{ steps.preview.outputs.url }}
+
+      # ── Promote preview → live ONLY if the steps above succeeded ──
+      - name: Promote preview to live
+        if: success()
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          npx firebase-tools@latest hosting:clone \
+            "$FIREBASE_PROJECT:$PREVIEW_CHANNEL" "$FIREBASE_PROJECT:live" \
+            --token "$FIREBASE_TOKEN"
+
+      # ── Tag each successful live deploy: v{date}-{time} ──
+      - name: Tag successful deploy
+        if: success()
+        run: |
+          TAG="v$(date -u +'%Y%m%d')-$(date -u +'%H%M%S')"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Tagged $TAG"
+
+      # ── On failure, make it explicit that live was NOT changed ──
+      - name: Report skipped promotion
+        if: failure()
+        run: echo "::warning::Build or E2E failed — live deploy was NOT promoted. Previous live version is intact."
