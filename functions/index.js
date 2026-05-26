@@ -1,4 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { onMessagePublished } = require("firebase-functions/v2/pubsub");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
@@ -2548,14 +2549,14 @@ exports.initiateHire = onRequest(
   (req, res) => initiateHireHandler(req, res, hireHelpers)
 );
 
-exports.generateContract = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
-  (req, res) => generateContractHandler(req, res, hireHelpers)
+exports.generateContract = onMessagePublished(
+  { topic: "datalake.hire.initiated", region: "me-central2" },
+  (event) => generateContractHandler(event)
 );
 
-exports.dispatchContractForSignature = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
-  (req, res) => dispatchContractHandler(req, res, hireHelpers)
+exports.dispatchContractForSignature = onMessagePublished(
+  { topic: "datalake.contract.generated", region: "me-central2" },
+  (event) => dispatchContractHandler(event)
 );
 
 exports.recordSignature = onRequest(
@@ -2563,9 +2564,9 @@ exports.recordSignature = onRequest(
   (req, res) => recordSignatureHandler(req, res, hireHelpers)
 );
 
-exports.provisionEngineer = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
-  (req, res) => provisionEngineerHandler(req, res, hireHelpers)
+exports.provisionEngineer = onMessagePublished(
+  { topic: "datalake.contract.signed", region: "me-central2" },
+  (event) => provisionEngineerHandler(event)
 );
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2590,9 +2591,9 @@ const {
   getComplianceReportsHandler,
 } = require("./auditor");
 
-exports.auditorContractReview = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 180, cors: ALLOWED_ORIGINS },
-  (req, res) => auditorContractReviewHandler(req, res, hireHelpers)
+exports.auditorContractReview = onMessagePublished(
+  { topic: "datalake.grc.uploaded", region: "me-central2" },
+  (event) => auditorContractReviewHandler(event)
 );
 
 exports.getContractReviews = onRequest(
@@ -2626,14 +2627,14 @@ const {
   controllerInvoiceValidateHandler,
 } = require("./controller");
 
-exports.controllerTimesheetValidate = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 180, cors: ALLOWED_ORIGINS },
-  (req, res) => controllerTimesheetValidateHandler(req, res, hireHelpers)
+exports.controllerTimesheetValidate = onMessagePublished(
+  { topic: "datalake.timesheet.cto_approved", region: "me-central2" },
+  (event) => controllerTimesheetValidateHandler(event)
 );
 
-exports.controllerInvoiceValidate = onRequest(
-  { region: "me-central2", memory: "512MiB", timeoutSeconds: 180, cors: ALLOWED_ORIGINS },
-  (req, res) => controllerInvoiceValidateHandler(req, res, hireHelpers)
+exports.controllerInvoiceValidate = onMessagePublished(
+  { topic: "datalake.invoice.generated", region: "me-central2" },
+  (event) => controllerInvoiceValidateHandler(event)
 );
 
 // ═══════════════════════════════════════════════════════════════════

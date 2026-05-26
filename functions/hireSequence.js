@@ -540,7 +540,7 @@ async function provisionEngineerHandler(event) {
       status: "active",
       engineer_id: engineerId,
       created_at: now,
-      created_by: profile.email,
+      created_by: hire.initiated_by || "system",
       client_id: null,
     }, { merge: true });
 
@@ -560,7 +560,7 @@ async function provisionEngineerHandler(event) {
       status: "active",
       hire_id: hire.hire_id,
       provisioned_at: now,
-      provisioned_by: profile.email,
+      provisioned_by: hire.initiated_by || "system",
     });
 
     // Update pending_hires

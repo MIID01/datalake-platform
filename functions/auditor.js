@@ -33,7 +33,7 @@ async function auditorContractReviewHandler(event) {
     // Load document metadata from Firestore
     const docRef = db.collection("grc_documents").doc(document_id);
     const docSnap = await docRef.get();
-    if (!docSnap.exists) return res.status(404).json({ error: "GRC document not found" });
+    if (!docSnap.exists) throw new Error(`GRC document not found: ${document_id}`);
     const grcDoc = docSnap.data();
 
     // Download file from WORM GCS bucket
