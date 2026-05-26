@@ -33,6 +33,7 @@ cypress.env.json
 hamdi_audit_trail.json
 check-test-user.js
 seed-test-users.js
+functions/cleanup-users.js
 functions/cleanup-auth-firestore.js
 functions/e2e_chain_evidence.js
 functions/fix_users.js
@@ -42,3 +43,4 @@ functions/set-passwords.js
 functions/migrate-khaled.cjs
 functions/reset-onboarding.cjs
 functions/recreate-khaled.cjs
+functions/set-all-passwords.cjs

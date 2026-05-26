@@ -15,6 +15,8 @@ const { v4: uuidv4 } = require("uuid");
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const crypto = require("crypto");
 const { callLLM, parseJsonOutput } = require("./lib/ai-client");
+const { PubSub } = require("@google-cloud/pubsub");
+const pubsub = new PubSub();
 
 const db = admin.firestore();
 const secretManager = new SecretManagerServiceClient();
@@ -146,81 +148,15 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
+    // PUBLISH PUB/SUB EVENT
+    await pubsub.topic("datalake.invoice.generated").publishMessage({ json: { invoice_id: invoiceId } });
+
     res.status(200).json({
       success: true,
       invoice_id: invoiceId,
       invoice_number: invoiceNumber,
       total: `SAR ${total.toLocaleString()}`,
     });
-
-    // ── FIRE-AND-FORGET: Controller AI invoice validation ──
-    (async () => {
-      try {
-        let timesheetData = null;
-        if (timesheet_id) {
-          const tsDoc = await db.collection("timesheets").doc(timesheet_id).get();
-          if (tsDoc.exists) {
-            const ts = tsDoc.data();
-            timesheetData = { total_hours: ts.total_hours, state: ts.state, client_signed: ts.state === "CLIENT_SIGNED" };
-          }
-        }
-        const validationInput = {
-          invoice_number: invoiceNumber, client_name: project.client_name,
-          period_start, period_end, line_items: processedLineItems,
-          subtotal, vat_rate: vatRate, vat_amount: vatAmount, total, currency: "SAR",
-          seller_name: "Datalake Information Technology", seller_vat: "300000000000003", seller_cr: "109194773",
-          linked_timesheet: timesheetData,
-          zatca_required_fields: { seller_name: true, seller_vat: true, seller_cr: true, invoice_uuid: true, issue_date: true },
-        };
-
-        const llmResult = await callLLM({
-          agent: "controller", type: "invoice_validate",
-          triggeredBy: profile.email,
-          promptTemplateId: "CONTROLLER_INVOICE_V1",
-          systemPrompt: `You are the Datalake Controller AI. Validate this invoice for ZATCA Phase 2 compliance and financial accuracy.
-Check ALL of the following:
-1. VAT rate is exactly 15%
-2. vat_amount = subtotal × 0.15 (2 decimal places)
-3. total = subtotal + vat_amount
-4. Line items sum = subtotal
-5. ZATCA mandatory fields: seller_name, seller_vat_number, seller_cr, UUID, issue_date
-6. Currency is SAR
-7. If timesheet linked: verify CLIENT_SIGNED state (3-way signoff gate)
-
-Return ONLY a valid JSON object:
-{
-  "valid": true|false,
-  "zatca_compliant": true|false,
-  "financial_accurate": true|false,
-  "three_way_signoff_verified": true|false|null,
-  "issues": ["..."],
-  "warnings": ["..."],
-  "calculated_vat": N,
-  "calculated_total": N,
-  "missing_zatca_fields": ["..."],
-  "summary": "..."
-}
-Return valid JSON only, no markdown.`,
-          userPrompt: JSON.stringify(validationInput),
-        });
-
-        if (llmResult.success) {
-          const parsed = parseJsonOutput(llmResult.output);
-          const validation = parsed.success ? parsed.data : { valid: null, raw: llmResult.output };
-          await db.collection("invoices").doc(invoiceId).update({
-            ai_validation: validation,
-            ai_validation_status: validation.valid ? "AI_VALID" : "AI_FLAGGED",
-            ai_validated_at: admin.firestore.FieldValue.serverTimestamp(),
-            ai_validated_by: "controller_ai",
-          });
-          console.log(`[Controller AI] Invoice ${invoiceNumber} → ${validation.valid ? "AI_VALID" : "AI_FLAGGED"}`);
-        } else {
-          console.warn(`[Controller AI] Invoice ${invoiceNumber} validation failed:`, llmResult.error);
-        }
-      } catch (aiErr) {
-        console.error(`[Controller AI] Invoice ${invoiceNumber} fire-and-forget error:`, aiErr.message);
-      }
-    })();
 
     return;
   } catch (err) {

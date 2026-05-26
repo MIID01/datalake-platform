@@ -20,30 +20,15 @@ const { callLLM, parseJsonOutput } = require("./lib/ai-client");
 const db = admin.firestore();
 
 // ══════════════════════════════════════════════════════════════════
-// 1. controllerTimesheetValidate — CTO or CEO only
+// 1. controllerTimesheetValidate — Pub/Sub trigger (datalake.timesheet.cto_approved)
 // Called after timesheet submission to validate against PO terms.
 // AI checks: hours cap, rate match, date validity, VAT calculation.
 // Result stored on timesheet doc — CTO/CEO reviews flagged items.
 // ══════════════════════════════════════════════════════════════════
-async function controllerTimesheetValidateHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function controllerTimesheetValidateHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    // CTO or CEO can trigger validation
-    if (!["cto", "ceo"].includes(profile.role_id)) {
-      return res.status(403).json({ error: "CTO or CEO role required" });
-    }
-
-    const { timesheet_id } = req.body;
-    if (!timesheet_id) return res.status(400).json({ error: "timesheet_id required" });
+    const { timesheet_id } = event.data.message.json;
+    if (!timesheet_id) throw new Error("timesheet_id required");
 
     // Load timesheet
     const tsDoc = await db.collection("timesheets").doc(timesheet_id).get();
@@ -87,8 +72,8 @@ async function controllerTimesheetValidateHandler(req, res, { verifyAuth, getUse
     // ── Controller LLM: timesheet validation ──
     const llmResult = await callLLM({
       agent: "controller",
-      type: "timesheet_validate",
-      triggeredBy: profile.email,
+      type: "timesheet_validation",
+      triggeredBy: "system",
       promptTemplateId: "CONTROLLER_TIMESHEET_V1",
       systemPrompt: `You are the Datalake Controller AI. Validate this timesheet against the purchase order and Saudi tax requirements.
 Perform ALL of the following checks:
@@ -120,7 +105,7 @@ Return valid JSON only, no markdown.`,
     });
 
     if (!llmResult.success) {
-      return res.status(503).json({ error: "AI validation failed", detail: llmResult.error });
+      throw new Error(`AI validation failed: ${llmResult.error}`);
     }
 
     const parsed = parseJsonOutput(llmResult.output);
@@ -147,7 +132,7 @@ Return valid JSON only, no markdown.`,
 
     await db.collection("task_audit_log").add({
       event: "TIMESHEET_AI_VALIDATED",
-      action_by: profile.email,
+      action_by: "system",
       action_at: now,
       details: {
         timesheet_id,
@@ -156,58 +141,25 @@ Return valid JSON only, no markdown.`,
         warnings_count: validation.warnings?.length || 0,
         ai_model: "qwen2.5-7b-instruct-q4_K_M",
       },
-      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
-    return res.status(200).json({
-      success: true,
-      timesheet_id,
-      validation_status: validationStatus,
-      valid: validation.valid,
-      issues: validation.issues || [],
-      warnings: validation.warnings || [],
-      amounts: {
-        total_hours: validation.total_hours_verified,
-        total_amount_sar: validation.total_amount_sar,
-        vat_amount_sar: validation.vat_amount_sar,
-        total_with_vat_sar: validation.total_with_vat_sar,
-      },
-      po_remaining_hours: validation.po_remaining_hours,
-      message: validationStatus === "AI_VALID"
-        ? "Timesheet validated by Controller AI. Ready for approval."
-        : `Timesheet flagged by Controller AI. ${validation.issues?.length || 0} issue(s) require review.`,
-    });
   } catch (err) {
     console.error("controllerTimesheetValidate error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    throw err;
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 2. controllerInvoiceValidate — CEO only
-// AI validates invoice data against the underlying timesheet and PO.
-// Checks: correct VAT, correct totals, ZATCA compliance fields present.
-// Output stored on invoice doc — CEO reviews and approves.
+// 2. controllerInvoiceValidate — Pub/Sub trigger (datalake.invoice.generated)
+// Called after auto-invoice generation to verify against Zatca rules.
 // ══════════════════════════════════════════════════════════════════
-async function controllerInvoiceValidateHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function controllerInvoiceValidateHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
-
-    const { invoice_id } = req.body;
-    if (!invoice_id) return res.status(400).json({ error: "invoice_id required" });
+    const { invoice_id } = event.data.message.json;
+    if (!invoice_id) throw new Error("invoice_id required");
 
     const invDoc = await db.collection("invoices").doc(invoice_id).get();
-    if (!invDoc.exists) return res.status(404).json({ error: "Invoice not found" });
+    if (!invDoc.exists) throw new Error("Invoice not found");
     const invoice = invDoc.data();
 
     // Load linked timesheet if present
@@ -250,8 +202,8 @@ async function controllerInvoiceValidateHandler(req, res, { verifyAuth, getUserA
 
     const llmResult = await callLLM({
       agent: "controller",
-      type: "invoice_validate",
-      triggeredBy: profile.email,
+      type: "invoice_validation",
+      triggeredBy: "system",
       promptTemplateId: "CONTROLLER_INVOICE_V1",
       systemPrompt: `You are the Datalake Controller AI. Validate this invoice for ZATCA Phase 2 compliance and financial accuracy.
 Check ALL of the following:
@@ -282,7 +234,7 @@ Return valid JSON only, no markdown.`,
     });
 
     if (!llmResult.success) {
-      return res.status(503).json({ error: "AI validation failed", detail: llmResult.error });
+      throw new Error(`AI validation failed: ${llmResult.error}`);
     }
 
     const parsed = parseJsonOutput(llmResult.output);
@@ -298,7 +250,7 @@ Return valid JSON only, no markdown.`,
 
     await db.collection("task_audit_log").add({
       event: "INVOICE_AI_VALIDATED",
-      action_by: profile.email,
+      action_by: "system",
       action_at: now,
       details: {
         invoice_id,
@@ -308,26 +260,11 @@ Return valid JSON only, no markdown.`,
         issues_count: validation.issues?.length || 0,
         ai_model: "qwen2.5-7b-instruct-q4_K_M",
       },
-      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
-    return res.status(200).json({
-      success: true,
-      invoice_id,
-      valid: validation.valid,
-      zatca_compliant: validation.zatca_compliant,
-      financial_accurate: validation.financial_accurate,
-      three_way_signoff_verified: validation.three_way_signoff_verified,
-      issues: validation.issues || [],
-      warnings: validation.warnings || [],
-      missing_zatca_fields: validation.missing_zatca_fields || [],
-      message: validation.valid
-        ? "Invoice validated by Controller AI. Ready for CEO approval and dispatch."
-        : `Invoice flagged by Controller AI. ${validation.issues?.length || 0} issue(s) require correction.`,
-    });
   } catch (err) {
     console.error("controllerInvoiceValidate error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    throw err;
   }
 }
 

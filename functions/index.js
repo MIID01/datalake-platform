@@ -2881,3 +2881,10 @@ const { exportInvoiceToBQ, exportExpenseToBQ } = require("./financeExport");
 
 exports.exportInvoiceToBQ = exportInvoiceToBQ;
 exports.exportExpenseToBQ = exportExpenseToBQ;
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 13 — IT Admin Functions
+// ═══════════════════════════════════════════════════════════════════
+const { adminsetpassword, assignrole } = require('./adminAuth');
+exports.adminsetpassword = adminsetpassword;
+exports.assignrole = assignrole;
