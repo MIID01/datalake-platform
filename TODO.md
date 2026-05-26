@@ -11,10 +11,8 @@ Auto-calculates subtotal + 15% VAT. Calls `generateInvoice` on submit.
 Branch `parked/finance-invoice-wiring` has the auto-generation code — redesign with a composition step.
 
 ### T2: Remaining mock-data cleanup (most done — see Done)
-- **Finance Cash Flow** — replace `baseCash=0` with a real forecast from the `recalculateForecast` function.
-- **AI Operations** — replace the `setTimeout` fake "Running" status with real Cloud Run health pings (random errorCount already removed).
-- **Contracts** — replace the hardcoded Proposal Audit Trail with Firestore data.
-- **Compliance** — replace the hardcoded Upcoming Deadlines with the `compliance_calendar` collection.
+- **Finance Cash Flow** — replace `baseCash=0` with a real forecast from the `recalculateForecast` function. ⏸ deferred: overlaps the in-flight finance backend work on `feature/controller-finance`.
+- **AI Operations** — replace the `setTimeout` fake "Running" status with real Cloud Run health pings. ⏸ deferred: browser→Cloud Run health pings need an unauthenticated health endpoint + CORS; random errorCount already removed.
 
 ## Parked (waiting on dependencies)
 
@@ -39,3 +37,5 @@ Needs the Payroll Procedure document (Phase 6) first. Build the WPS file format 
 - **Firebase Storage enabled**; `storage.rules` deployed (incl. `employee-photos/`)
 - **Security**: rotated all account passwords to unique values after a leaked shared password; purged the secret from git history
 - **Docs**: `docs/rollback.md` (hosting / Cloud Run / rules / git-tag rollback)
+- **Storage scoping**: `employee-photos` writes scoped to the owning employee (filename `{employee_id}` must match the caller's record; CEO/HR override)
+- **More mock removed**: Compliance "Upcoming Deadlines" → real `compliance.deadlines` field + empty state; Contracts "Proposal Audit Trail" → real `proposal_reviews` collection (rules added) + empty state

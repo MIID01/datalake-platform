@@ -9,13 +9,17 @@ const typeIcons = { Employment: '👤', 'Client SLA': '🏢', NDA: '🔒', Vendo
 
 export default function Contracts() {
   const [contractsData, setContractsData] = useState([])
+  const [proposalReviews, setProposalReviews] = useState([])
   const [filter, setFilter] = useState('All')
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'contracts'), snap => {
       setContractsData(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     })
-    return () => unsub()
+    const unsubReviews = onSnapshot(collection(db, 'proposal_reviews'), snap => {
+      setProposalReviews(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    }, err => console.warn('proposal_reviews listener:', err.message))
+    return () => { unsub(); unsubReviews() }
   }, [])
 
   const filtered = filter === 'All' ? contractsData : contractsData.filter(c => c.type === filter)
@@ -119,33 +123,19 @@ export default function Contracts() {
         <table className="data-table">
           <thead><tr><th>Proposal</th><th>Client</th><th>Upload Date</th><th>Risk Level</th><th>AI Flags</th><th>Action</th><th>Reasoning</th></tr></thead>
           <tbody>
-            <tr>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>PROP-2026-018</td>
-              <td style={{ fontWeight: 600 }}>NEOM</td>
-              <td>Apr 18, 2026</td>
-              <td><span className="badge badge-critical">HIGH</span></td>
-              <td><span className="badge badge-warning">Missing SAMA clause</span></td>
-              <td><span className="badge badge-critical">BLOCKED</span></td>
-              <td style={{ fontSize: '0.8rem', maxWidth: 200 }}>Proposal missing mandatory SAMA audit rights clause (Section 4.2.1)</td>
-            </tr>
-            <tr>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>PROP-2026-017</td>
-              <td style={{ fontWeight: 600 }}>Emkan</td>
-              <td>Apr 12, 2026</td>
-              <td><span className="badge badge-success">LOW</span></td>
-              <td><span className="badge badge-success">No flags</span></td>
-              <td><span className="badge badge-success">APPROVED</span></td>
-              <td style={{ fontSize: '0.8rem', maxWidth: 200 }}>All compliance clauses present. Standard engagement terms.</td>
-            </tr>
-            <tr>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>PROP-2026-015</td>
-              <td style={{ fontWeight: 600 }}>MOH</td>
-              <td>Apr 5, 2026</td>
-              <td><span className="badge badge-warning">MEDIUM</span></td>
-              <td><span className="badge badge-warning">Short SLA terms</span></td>
-              <td><span className="badge badge-info">APPROVED w/ WARNINGS</span></td>
-              <td style={{ fontSize: '0.8rem', maxWidth: 200 }}>SLA response times are aggressive. CEO approved with override note.</td>
-            </tr>
+            {proposalReviews.length === 0 ? (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--text-tertiary)' }}>No proposal reviews recorded yet.</td></tr>
+            ) : proposalReviews.map(p => (
+              <tr key={p.id}>
+                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{p.proposal_id || p.id}</td>
+                <td style={{ fontWeight: 600 }}>{p.client_name || '—'}</td>
+                <td>{p.upload_date || (p.created_at?.seconds ? new Date(p.created_at.seconds * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')}</td>
+                <td><span className={`badge ${riskColors[p.risk_level] || 'badge-neutral'}`}>{(p.risk_level || '—').toUpperCase()}</span></td>
+                <td><span className={`badge ${p.ai_flags ? 'badge-warning' : 'badge-success'}`}>{p.ai_flags || 'No flags'}</span></td>
+                <td><span className={`badge ${p.action === 'BLOCKED' ? 'badge-critical' : p.action === 'APPROVED' ? 'badge-success' : 'badge-info'}`}>{p.action || '—'}</span></td>
+                <td style={{ fontSize: '0.8rem', maxWidth: 200 }}>{p.reasoning || '—'}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

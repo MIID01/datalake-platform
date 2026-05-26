@@ -127,14 +127,12 @@ export default function Compliance() {
         <div className="card animate-fade-in-up stagger-4">
           <div className="card-header"><h3>Upcoming Deadlines</h3></div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[
-              { label: 'Contract Renewal: Ahmed Al-Rashidi', due: 'Apr 25, 2026', urgency: 'urgent' },
-              { label: 'Contract Renewal: Lina K.', due: 'Apr 30, 2026', urgency: 'urgent' },
-              { label: 'NCA Annual Security Review', due: 'Jun 15, 2026', urgency: 'info' },
-              { label: 'PDPL Annual Training Due', due: 'May 15, 2026', urgency: 'warning' },
-              { label: 'AWS Vendor Contract Renewal', due: 'Expired', urgency: 'urgent' },
-            ].map((d, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: i < 4 ? '1px solid var(--border-primary)' : 'none' }}>
+            {(complianceData.deadlines || []).length === 0 ? (
+              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
+                No upcoming deadlines.
+              </div>
+            ) : (complianceData.deadlines).map((d, i, arr) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border-primary)' : 'none' }}>
                 <span className={`badge ${d.urgency === 'urgent' ? 'badge-critical' : d.urgency === 'warning' ? 'badge-warning' : 'badge-info'}`} style={{ width: 60, textAlign: 'center' }}>
                   {d.urgency === 'urgent' ? 'URGENT' : d.urgency === 'warning' ? 'SOON' : 'OK'}
                 </span>
