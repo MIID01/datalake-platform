@@ -20,7 +20,7 @@ const { callLLM, parseJsonOutput } = require("./lib/ai-client");
 const db = admin.firestore();
 
 // ══════════════════════════════════════════════════════════════════
-// 1. controllerTimesheetValidate — Pub/Sub trigger (datalake.timesheet.cto_approved)
+// 1. controllerTimesheetValidate — CTO or CEO only
 // Called after timesheet submission to validate against PO terms.
 // AI checks: hours cap, rate match, date validity, VAT calculation.
 // Result stored on timesheet doc — CTO/CEO reviews flagged items.
@@ -28,16 +28,16 @@ const db = admin.firestore();
 async function controllerTimesheetValidateHandler(event) {
   try {
     const { timesheet_id } = event.data.message.json;
-    if (!timesheet_id) throw new Error("timesheet_id required");
+    if (!timesheet_id) throw new Error("timesheet_id required in Pub/Sub message");
 
     // Load timesheet
     const tsDoc = await db.collection("timesheets").doc(timesheet_id).get();
-    if (!tsDoc.exists) return res.status(404).json({ error: "Timesheet not found" });
+    if (!tsDoc.exists) throw new Error(`Timesheet not found: ${timesheet_id}`);
     const timesheet = tsDoc.data();
 
     // Load project (for PO terms and contracted rate)
     const projectDoc = await db.collection("projects").doc(timesheet.project_id).get();
-    if (!projectDoc.exists) return res.status(404).json({ error: "Project not found" });
+    if (!projectDoc.exists) throw new Error(`Project not found: ${timesheet.project_id}`);
     const project = projectDoc.data();
 
     // Build validation input — no PII beyond names already in the system
@@ -72,8 +72,8 @@ async function controllerTimesheetValidateHandler(event) {
     // ── Controller LLM: timesheet validation ──
     const llmResult = await callLLM({
       agent: "controller",
-      type: "timesheet_validation",
-      triggeredBy: "system",
+      type: "timesheet_validate",
+      triggeredBy: "system:pubsub",
       promptTemplateId: "CONTROLLER_TIMESHEET_V1",
       systemPrompt: `You are the Datalake Controller AI. Validate this timesheet against the purchase order and Saudi tax requirements.
 Perform ALL of the following checks:
@@ -132,7 +132,7 @@ Return valid JSON only, no markdown.`,
 
     await db.collection("task_audit_log").add({
       event: "TIMESHEET_AI_VALIDATED",
-      action_by: "system",
+      action_by: "system:pubsub",
       action_at: now,
       details: {
         timesheet_id,
@@ -143,6 +143,7 @@ Return valid JSON only, no markdown.`,
       },
     });
 
+    console.log(`[Controller] Timesheet ${timesheet_id} validated: ${validationStatus}`);
   } catch (err) {
     console.error("controllerTimesheetValidate error:", err);
     throw err;
@@ -150,16 +151,18 @@ Return valid JSON only, no markdown.`,
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 2. controllerInvoiceValidate — Pub/Sub trigger (datalake.invoice.generated)
-// Called after auto-invoice generation to verify against Zatca rules.
+// 2. controllerInvoiceValidate — CEO only
+// AI validates invoice data against the underlying timesheet and PO.
+// Checks: correct VAT, correct totals, ZATCA compliance fields present.
+// Output stored on invoice doc — CEO reviews and approves.
 // ══════════════════════════════════════════════════════════════════
 async function controllerInvoiceValidateHandler(event) {
   try {
     const { invoice_id } = event.data.message.json;
-    if (!invoice_id) throw new Error("invoice_id required");
+    if (!invoice_id) throw new Error("invoice_id required in Pub/Sub message");
 
     const invDoc = await db.collection("invoices").doc(invoice_id).get();
-    if (!invDoc.exists) throw new Error("Invoice not found");
+    if (!invDoc.exists) throw new Error(`Invoice not found: ${invoice_id}`);
     const invoice = invDoc.data();
 
     // Load linked timesheet if present
@@ -202,8 +205,8 @@ async function controllerInvoiceValidateHandler(event) {
 
     const llmResult = await callLLM({
       agent: "controller",
-      type: "invoice_validation",
-      triggeredBy: "system",
+      type: "invoice_validate",
+      triggeredBy: "system:pubsub",
       promptTemplateId: "CONTROLLER_INVOICE_V1",
       systemPrompt: `You are the Datalake Controller AI. Validate this invoice for ZATCA Phase 2 compliance and financial accuracy.
 Check ALL of the following:
@@ -250,7 +253,7 @@ Return valid JSON only, no markdown.`,
 
     await db.collection("task_audit_log").add({
       event: "INVOICE_AI_VALIDATED",
-      action_by: "system",
+      action_by: "system:pubsub",
       action_at: now,
       details: {
         invoice_id,
@@ -262,6 +265,7 @@ Return valid JSON only, no markdown.`,
       },
     });
 
+    console.log(`[Controller] Invoice ${invoice_id} validated: ${validation.valid ? "AI_VALID" : "AI_FLAGGED"}`);
   } catch (err) {
     console.error("controllerInvoiceValidate error:", err);
     throw err;
