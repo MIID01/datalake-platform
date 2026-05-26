@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom'
+import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import ErrorBoundary from '../components/ErrorBoundary'
 import { useRiyadhTime } from '../hooks/useUtils'
 import { auth, db } from '../lib/firebase'
@@ -67,14 +67,8 @@ export default function EmployeeLayout() {
 
   if (loading) return <div style={{ height: '100vh', background: '#0a1628' }}></div>
 
-  // Onboarding gate: until the new acknowledgment flow is complete, the employee
-  // cannot access ANY portal page — send them to the full-screen onboarding route.
-  const onboardingComplete = userData?.onboarding_complete === true
-  if (!onboardingComplete) {
-    return <Navigate to="/employee/onboarding" replace />
-  }
-
-  // Reached here ⇒ onboarding complete; nothing in the nav is locked.
+  // Onboarding gate now lives centrally in AuthGate (applies to every role) —
+  // any user reaching this layout has already completed onboarding.
   const isFullyOnboarded = true
 
   return (

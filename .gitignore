@@ -41,3 +41,4 @@ functions/reset_passwords.cjs
 functions/set-passwords.js
 functions/migrate-khaled.cjs
 functions/reset-onboarding.cjs
+functions/recreate-khaled.cjs
