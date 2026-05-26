@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import AuthGate from './components/AuthGate'
+import ErrorBoundary from './components/ErrorBoundary'
 import Consent from './pages/Consent'
 
 // Layouts
@@ -73,6 +74,7 @@ import Careers from './pages/Careers'
 export default function App() {
   return (
     <AuthGate>
+      <ErrorBoundary>
       <Routes>
         <Route path="/" element={<LandingPage />} />
 
@@ -158,6 +160,7 @@ export default function App() {
         <Route path="/careers" element={<Careers />} />
         <Route path="/consent/:token" element={<Consent />} />
       </Routes>
+      </ErrorBoundary>
     </AuthGate>
   )
 }
