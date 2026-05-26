@@ -10,6 +10,10 @@ import EmployeeLayout from './layouts/EmployeeLayout'
 import HRLayout from './layouts/HRLayout'
 import CTOLayout from './layouts/CTOLayout'
 import AdminLayout from './layouts/AdminLayout'
+import FinanceLayout, {
+  FinanceDashboardPage, FinanceInvoicesPage, FinanceExpensesPage,
+  FinanceReportsPage, FinancePayrollPage,
+} from './layouts/FinanceLayout'
 
 // IT Administration portal
 import AdminCredentials from './pages/admin/Credentials'
@@ -118,6 +122,16 @@ export default function App() {
           <Route path="audit" element={<AdminAuditLogs />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="*" element={<Navigate to="/admin/credentials" replace />} />
+        </Route>
+
+        {/* Finance Portal (finance role + CEO) — reuses CEO finance components */}
+        <Route path="/finance" element={<FinanceLayout />}>
+          <Route index element={<FinanceDashboardPage />} />
+          <Route path="invoices" element={<FinanceInvoicesPage />} />
+          <Route path="payroll" element={<FinancePayrollPage />} />
+          <Route path="expenses" element={<FinanceExpensesPage />} />
+          <Route path="reports" element={<FinanceReportsPage />} />
+          <Route path="*" element={<Navigate to="/finance" replace />} />
         </Route>
 
         {/* Onboarding gate — full-screen, OUTSIDE the employee layout */}

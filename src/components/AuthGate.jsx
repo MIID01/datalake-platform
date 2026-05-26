@@ -189,8 +189,17 @@ export default function AuthGate({ children }) {
   if (userRole?.role_id) {
     const role = userRole.role_id;
 
-    // Route protection: if the user has wandered outside their portal, send
-    // them back to their role's home. Unknown roles (no prefix) fall through.
+    // /employee/* is shared — every authenticated role is also an employee.
+    if (currentPath.startsWith('/employee')) return children
+
+    // /ceo/* is CEO-ONLY (the CEO already returned above). Any other role here
+    // is bounced to their own home: finance → /finance, employee →
+    // /employee/dashboard, hr → /hr, it_admin → /admin, etc.
+    if (currentPath.startsWith('/ceo')) {
+      return <Navigate to={homePathForRole(role)} replace />
+    }
+
+    // Otherwise keep the user within their own portal prefix.
     const prefix = portalPrefixForRole(role)
     if (prefix && !currentPath.startsWith(prefix)) {
       return <Navigate to={homePathForRole(role)} replace />

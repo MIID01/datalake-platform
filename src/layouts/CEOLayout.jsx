@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useRiyadhTime } from '../hooks/useUtils'
 import {
   Zap, BarChart3, Users, DollarSign, FileText, CheckSquare,
@@ -39,6 +39,21 @@ export default function CEOLayout() {
   const [authError, setAuthError] = useState('')
   const time = useRiyadhTime()
   const location = useLocation()
+  const navigate = useNavigate()
+
+  // CEO-only "Switch Portal" — jump into any role's portal view.
+  const PORTAL_VIEWS = [
+    { label: 'CEO View', path: '/ceo' },
+    { label: 'Finance View', path: '/finance' },
+    { label: 'HR View', path: '/hr' },
+    { label: 'Admin View', path: '/admin' },
+    { label: 'Employee View', path: '/employee/dashboard' },
+  ]
+  const currentView = location.pathname.startsWith('/finance') ? '/finance'
+    : location.pathname.startsWith('/hr') ? '/hr'
+    : location.pathname.startsWith('/admin') ? '/admin'
+    : location.pathname.startsWith('/employee') ? '/employee/dashboard'
+    : '/ceo'
 
   useEffect(() => {
     // Temporary bypass for demo
@@ -122,6 +137,23 @@ export default function CEOLayout() {
             <span>CEO Command Center</span>
           </div>
         </div>
+
+        {/* CEO-only Switch Portal dropdown */}
+        {!collapsed && (
+          <div style={{ padding: '0 16px 12px' }}>
+            <label style={{ display: 'block', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Switch Portal</label>
+            <select
+              value={currentView}
+              onChange={(e) => navigate(e.target.value)}
+              id="ceo-switch-portal"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem', fontFamily: 'inherit', cursor: 'pointer' }}
+            >
+              {PORTAL_VIEWS.map(v => (
+                <option key={v.path} value={v.path} style={{ background: '#0a1628', color: '#fff' }}>{v.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <nav className="sidebar-nav">
           {navItems.map((item) => {
