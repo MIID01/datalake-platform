@@ -6,6 +6,8 @@ const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
 const Busboy = require("busboy");
 const crypto = require("crypto");
+const { PubSub } = require("@google-cloud/pubsub");
+const pubsub = new PubSub();
 // NOTE: VertexAI / Gemini removed per DTLK-PROMPT-AI-001.
 // All AI inference now runs on self-hosted datalake-ai-inference (Qwen 2.5 7B).
 const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
@@ -1603,6 +1605,9 @@ exports.ctoApproveTimesheet = onRequest(
           sign_url: signUrl,
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        // Trigger Controller AI timesheet validation via Pub/Sub
+        await pubsub.topic("datalake.timesheet.cto_approved").publishMessage({ json: { timesheet_id } });
       }
 
       await db.collection("task_audit_log").add({
