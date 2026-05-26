@@ -44,3 +44,7 @@ functions/migrate-khaled.cjs
 functions/reset-onboarding.cjs
 functions/recreate-khaled.cjs
 functions/set-all-passwords.cjs
+
+# Cypress run artifacts
+cypress/screenshots/
+cypress/videos/
