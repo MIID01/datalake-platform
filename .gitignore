@@ -49,3 +49,7 @@ functions/set-all-passwords.cjs
 cypress/screenshots/
 cypress/videos/
 functions/inspect-employee.cjs
+
+# Graphify generated output
+graphify-out/
+functions/rotate-passwords.cjs
