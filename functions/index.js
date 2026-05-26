@@ -2542,9 +2542,12 @@ exports.getCandidateInterviewSummary = onRequest(
 const {
   initiateHireHandler,
   generateContractHandler,
+  gatekeeperContractDraftHandler,
   dispatchContractHandler,
   recordSignatureHandler,
   provisionEngineerHandler,
+  uploadContractPDFHandler,
+  gatekeeperContractExtractHandler,
 } = require("./hireSequence");
 
 const hireHelpers = { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS };
@@ -2574,12 +2577,22 @@ exports.provisionEngineer = onMessagePublished(
   (event) => provisionEngineerHandler(event)
 );
 
+// CEO uploads signed contract PDF → triggers Gatekeeper AI extraction
+exports.uploadContractPDF = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => uploadContractPDFHandler(req, res, hireHelpers)
+);
+
+// Gatekeeper AI extracts fields from uploaded contract PDF (OCR + LLM)
+exports.gatekeeperContractExtract = onMessagePublished(
+  { topic: "datalake.contract.uploaded", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  (event) => gatekeeperContractExtractHandler(event)
+);
+
 // ═══════════════════════════════════════════════════════════════════
 // AGENT: GATEKEEPER — Contract Draft (DTLK-PROMPT-AI-001)
 // Self-hosted Qwen 2.5 7B. Output = DRAFT, requires CEO approval.
 // ═══════════════════════════════════════════════════════════════════
-const { gatekeeperContractDraftHandler } = require("./hireSequence");
-
 exports.gatekeeperContractDraft = onRequest(
   { region: "me-central2", memory: "512MiB", timeoutSeconds: 180, cors: ALLOWED_ORIGINS },
   (req, res) => gatekeeperContractDraftHandler(req, res, hireHelpers)

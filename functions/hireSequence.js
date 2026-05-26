@@ -17,7 +17,8 @@ const { v4: uuidv4 } = require("uuid");
 const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
 // DTLK-PROMPT-AI-001: No external AI APIs. Self-hosted only.
-const { callLLM, parseJsonOutput } = require("./lib/ai-client");
+const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
+const Busboy = require("busboy");
 const { google } = require("googleapis");
 
 const db = admin.firestore();
@@ -628,6 +629,241 @@ async function provisionEngineerHandler(event) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 6. uploadContractPDF — CEO uploads signed contract PDF
+//    Stores in Cloud Storage, publishes datalake.contract.uploaded
+// ═══════════════════════════════════════════════════════════════════
+async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    return res.status(204).send("");
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    const decoded = await verifyAuth(req);
+    const profile = await getUserAccessProfile(decoded.uid);
+    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
+
+    // Parse multipart form
+    const busboy = Busboy({ headers: req.headers });
+    const fileBuffers = [];
+    let fileName = null;
+    let fileMimeType = null;
+    let hireId = null;
+
+    await new Promise((resolve, reject) => {
+      busboy.on("field", (name, val) => {
+        if (name === "hire_id") hireId = val;
+      });
+      busboy.on("file", (name, stream, info) => {
+        if (name !== "contract_pdf") { stream.resume(); return; }
+        fileMimeType = info.mimeType;
+        fileName = info.filename;
+        stream.on("data", (chunk) => fileBuffers.push(chunk));
+        stream.on("end", () => {});
+      });
+      busboy.on("finish", resolve);
+      busboy.on("error", reject);
+      busboy.end(req.rawBody || req.body);
+    });
+
+    if (!hireId) return res.status(400).json({ error: "hire_id field required" });
+    if (fileBuffers.length === 0) return res.status(400).json({ error: "No contract_pdf file received" });
+
+    const pdfBuffer = Buffer.concat(fileBuffers);
+    if (pdfBuffer.length > 15 * 1024 * 1024) return res.status(400).json({ error: "File too large (max 15MB)" });
+
+    const allowedTypes = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
+    if (!allowedTypes.includes(fileMimeType)) {
+      return res.status(400).json({ error: `Unsupported file type: ${fileMimeType}. Upload PDF, PNG, or JPG.` });
+    }
+
+    // Verify hire exists
+    const hireDoc = await db.collection("pending_hires").doc(hireId).get();
+    if (!hireDoc.exists) return res.status(404).json({ error: "Hire record not found" });
+
+    // Upload to Cloud Storage
+    const bucket = admin.storage().bucket("datalake-worm-hr");
+    const storagePath = `contracts/${hireId}/${Date.now()}_${fileName}`;
+    const file = bucket.file(storagePath);
+    await file.save(pdfBuffer, {
+      contentType: fileMimeType,
+      metadata: {
+        cacheControl: "private, max-age=0",
+        metadata: { hire_id: hireId, uploaded_by: profile.email },
+      },
+    });
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await db.collection("pending_hires").doc(hireId).update({
+      contract_pdf_storage_path: storagePath,
+      contract_pdf_filename: fileName,
+      contract_pdf_size_bytes: pdfBuffer.length,
+      contract_pdf_uploaded_at: now,
+      contract_pdf_uploaded_by: profile.email,
+      contract_extraction_status: "PENDING",
+    });
+
+    // Audit
+    await db.collection("task_audit_log").add({
+      event: "CONTRACT_PDF_UPLOADED",
+      action_by: profile.email,
+      action_at: now,
+      details: { hire_id: hireId, file_name: fileName, size_bytes: pdfBuffer.length, storage_path: storagePath },
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+    });
+
+    // Publish for Gatekeeper extraction
+    await pubsub.topic("datalake.contract.uploaded").publishMessage({ json: { hire_id: hireId } });
+
+    return res.status(200).json({
+      success: true,
+      hire_id: hireId,
+      storage_path: storagePath,
+      message: "Contract PDF uploaded. Gatekeeper AI extraction started.",
+    });
+  } catch (err) {
+    console.error("uploadContractPDF error:", err);
+    return res.status(500).json({ error: "Internal server error", detail: err.message });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 7. gatekeeperContractExtract — Pub/Sub trigger (datalake.contract.uploaded)
+//    OCR → LLM extracts 15 fields → populates pending_hires doc
+//    DTLK-PROMPT-AI-001: Self-hosted OCR (PaddleOCR) + LLM (Qwen 2.5)
+// ═══════════════════════════════════════════════════════════════════
+async function gatekeeperContractExtractHandler(event) {
+  try {
+    const { hire_id } = event.data.message.json;
+    if (!hire_id) throw new Error("hire_id required in Pub/Sub message");
+
+    const hireDoc = await db.collection("pending_hires").doc(hire_id).get();
+    if (!hireDoc.exists) throw new Error(`Hire not found: ${hire_id}`);
+    const hire = hireDoc.data();
+
+    const storagePath = hire.contract_pdf_storage_path;
+    if (!storagePath) throw new Error(`No contract PDF on hire: ${hire_id}`);
+
+    // Step 1: Download PDF from Cloud Storage
+    const bucket = admin.storage().bucket("datalake-worm-hr");
+    const [pdfBuffer] = await bucket.file(storagePath).download();
+    console.log(`[Gatekeeper] Downloaded contract PDF: ${storagePath} (${pdfBuffer.length} bytes)`);
+
+    // Step 2: OCR — extract text via PaddleOCR (self-hosted, me-central2)
+    const ocrResult = await callOCR({
+      fileBase64: pdfBuffer.toString("base64"),
+      lang: "en",
+      agent: "gatekeeper",
+      type: "contract_ocr",
+      triggeredBy: "system:pubsub",
+    });
+
+    if (!ocrResult.success || !ocrResult.lines?.length) {
+      await db.collection("pending_hires").doc(hire_id).update({
+        contract_extraction_status: "OCR_FAILED",
+        contract_extraction_error: ocrResult.error || "No text extracted",
+      });
+      throw new Error(`OCR failed for hire ${hire_id}: ${ocrResult.error || "no text"}`);
+    }
+
+    const fullText = ocrResult.lines.map((l) => l.text).join("\n");
+    console.log(`[Gatekeeper] OCR extracted ${ocrResult.lines.length} lines from contract`);
+
+    // Step 3: LLM — extract structured fields via Qwen 2.5 (self-hosted, me-central2)
+    const llmResult = await callLLM({
+      agent: "gatekeeper",
+      type: "contract_extract",
+      triggeredBy: "system:pubsub",
+      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V1",
+      systemPrompt: `You are the Datalake Gatekeeper AI. Extract structured employment data from this contract text.
+This is a Saudi employment or staff augmentation contract. Extract ALL available fields.
+Return ONLY a valid JSON object with these exact fields (use null for any field not found):
+{
+  "employee_name": "Full name in English",
+  "employee_name_ar": "Full name in Arabic if present, else null",
+  "job_title": "Position or role title",
+  "client_name": "Client company name the employee is deployed to",
+  "po_number": "Purchase order number if present",
+  "po_value_sar": 0,
+  "contract_start_date": "YYYY-MM-DD",
+  "contract_end_date": "YYYY-MM-DD",
+  "salary_monthly_sar": 0,
+  "housing_allowance_sar": 0,
+  "transport_allowance_sar": 0,
+  "probation_period_months": 3,
+  "notice_period_days": 30,
+  "work_location": "City or site name",
+  "iqama_national_id": "ID number if present"
+}
+Rules:
+- All SAR amounts must be numbers only (no commas, no "SAR" text)
+- Dates must be YYYY-MM-DD format
+- If a field is partially visible or ambiguous, include it with a best-effort value
+- Return valid JSON only, no markdown`,
+      userPrompt: fullText,
+    });
+
+    if (!llmResult.success) {
+      await db.collection("pending_hires").doc(hire_id).update({
+        contract_extraction_status: "LLM_FAILED",
+        contract_extraction_error: llmResult.error,
+      });
+      throw new Error(`LLM extraction failed for hire ${hire_id}: ${llmResult.error}`);
+    }
+
+    // Step 4: Parse and store extracted fields
+    const parsed = parseJsonOutput(llmResult.output);
+    const fields = parsed.success ? parsed.data : {};
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // Build update — merge extracted fields onto hire record
+    const update = {
+      contract_extracted_fields: fields,
+      contract_extraction_status: parsed.success ? "EXTRACTED" : "PARSE_FAILED",
+      contract_extracted_at: now,
+      contract_ocr_lines: ocrResult.lines.length,
+      contract_extraction_model: "qwen2.5-7b-instruct-q4_K_M",
+    };
+
+    // Overwrite key fields on the hire record so provisionEngineer picks them up
+    if (fields.salary_monthly_sar) update.salary_monthly = Number(fields.salary_monthly_sar);
+    if (fields.contract_start_date) update.start_date = fields.contract_start_date;
+    if (fields.job_title) update.job_title = fields.job_title;
+    if (fields.po_number) update.po_number = fields.po_number;
+    if (fields.po_value_sar) update.po_value_sar = Number(fields.po_value_sar);
+    if (fields.contract_end_date) update.contract_end_date = fields.contract_end_date;
+    if (fields.housing_allowance_sar) update.housing_allowance_sar = Number(fields.housing_allowance_sar);
+    if (fields.transport_allowance_sar) update.transport_allowance_sar = Number(fields.transport_allowance_sar);
+    if (fields.work_location) update.work_location = fields.work_location;
+
+    await db.collection("pending_hires").doc(hire_id).update(update);
+
+    // Step 5: Audit log
+    await db.collection("task_audit_log").add({
+      event: "CONTRACT_AI_EXTRACTED",
+      action_by: "system:gatekeeperContractExtract",
+      action_at: now,
+      details: {
+        hire_id,
+        fields_extracted: Object.keys(fields).filter((k) => fields[k] != null),
+        fields_null: Object.keys(fields).filter((k) => fields[k] == null),
+        ocr_lines: ocrResult.lines.length,
+        ai_model: "qwen2.5-7b-instruct-q4_K_M",
+        inference_ms: llmResult.inferenceMs,
+      },
+    });
+
+    console.log(`[Gatekeeper] Contract extraction complete for hire ${hire_id}: ${Object.keys(fields).filter((k) => fields[k] != null).length}/15 fields extracted`);
+  } catch (err) {
+    console.error("gatekeeperContractExtract error:", err);
+    throw err;
+  }
+}
+
 // ── Gmail helpers (same pattern as sendInterviewCV) ──
 async function getGmailClient() {
   const auth = new google.auth.GoogleAuth({ scopes: ["https://www.googleapis.com/auth/gmail.send"] });
@@ -685,4 +921,6 @@ module.exports = {
   dispatchContractHandler,
   recordSignatureHandler,
   provisionEngineerHandler,
+  uploadContractPDFHandler,
+  gatekeeperContractExtractHandler,
 };
