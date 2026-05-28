@@ -102,10 +102,8 @@ export const GET_GRC_CHANGELOG_URL =
 export const DOWNLOAD_GRC_DOCUMENT_URL =
   "https://downloadgrcdocument-ifzodp5svq-wx.a.run.app";
 
-// Invoicing APIs
-export const GENERATE_INVOICE_URL =
-  "https://generateinvoice-ifzodp5svq-wx.a.run.app";
-export const SYNC_TO_ZOHO_BOOKS_URL =
-  "https://synctozohobooks-ifzodp5svq-wx.a.run.app";
-export const GENERATE_ZATCA_XML_URL =
-  "https://generatezatcaxml-ifzodp5svq-wx.a.run.app";
+// Multi-Tenant Integration Config (Phase 9)
+export const SAVE_INTEGRATION_CONFIG_URL =
+  "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";
+export const GET_INTEGRATION_CONFIG_URL =
+  "https://getintegrationconfig-ifzodp5svq-wx.a.run.app";
