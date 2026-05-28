@@ -317,8 +317,51 @@ async function generateGOSIReportHandler(event) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Phase 8: Controller Monthly Ops (Revenue Reconciliation)
+// ═══════════════════════════════════════════════════════════════════
+async function controllerMonthlyOpsHandler(event) {
+  console.log("[Controller] Running monthly revenue reconciliation...");
+  try {
+    const { year, month, year_month } = event.data.message.json;
+    
+    // Revenue reconciliation: Check if all timesheets for the previous month are invoiced
+    const timesheetsSnap = await db.collection("timesheets").where("status", "==", "APPROVED").get();
+      
+    let unbilledCount = 0;
+    timesheetsSnap.docs.forEach(doc => {
+      const ts = doc.data();
+      // If timesheet is from the year_month and not invoiced
+      if (ts.month === year_month && !ts.invoice_id) {
+        unbilledCount++;
+      }
+    });
+    
+    if (unbilledCount > 0) {
+      console.warn(`[Controller] Found ${unbilledCount} unbilled timesheets for ${year_month}. Generating alert.`);
+      await db.collection("tasks").add({
+        task_id: `REC-${Date.now()}`,
+        title: `Revenue Reconciliation Alert: ${year_month}`,
+        description: `Found ${unbilledCount} approved timesheets without corresponding invoices.`,
+        task_type: "RECONCILIATION",
+        creation_method: "SYSTEM",
+        created_by: "controller_ai",
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        assigned_to_role: "CEO",
+        priority: "HIGH",
+        state: "OPEN"
+      });
+    } else {
+      console.log(`[Controller] Revenue reconciliation passed for ${year_month}. All approved timesheets are invoiced.`);
+    }
+  } catch (err) {
+    console.error("[Controller] controllerMonthlyOpsHandler error:", err);
+  }
+}
+
 module.exports = {
   calculatePayrollHandler,
   generateWPSFileHandler,
-  generateGOSIReportHandler
+  generateGOSIReportHandler,
+  controllerMonthlyOpsHandler
 };

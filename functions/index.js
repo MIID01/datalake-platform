@@ -2913,7 +2913,7 @@ exports.assignrole = assignrole;
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5: CONTROLLER AI — FINANCE CHAIN
 // ═══════════════════════════════════════════════════════════════════
-const { calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler } = require("./finance");
+const { calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler, controllerMonthlyOpsHandler } = require("./finance");
 
 exports.calculatePayroll = onSchedule(
   {
@@ -3013,7 +3013,7 @@ exports.whatsappWebhook = onRequest(
 // ==============================================================================
 const { validateLeaveRequestHandler, clientApproveLeaveHandler, approveLeaveHandler, controllerAdjustPayrollHandler } = require("./leave");
 const { validateExpenseHandler, routeTicketHandler } = require("./requests");
-const { resetLeaveBalancesHandler, pdplCandidatePurgeHandler, scanContractExpiryHandler, validateHireBudgetHandler } = require("./hr");
+const { resetLeaveBalancesHandler, pdplCandidatePurgeHandler, scanContractExpiryHandler, validateHireBudgetHandler, gatekeeperMonthlyOpsHandler } = require("./hr");
 
 exports.clientApproveLeave = onRequest(
   { region: "me-central2", memory: "256MiB" },
@@ -3058,13 +3058,34 @@ exports.pdplCandidatePurge = onSchedule(
   async (event) => { await pdplCandidatePurgeHandler(); }
 );
 
-exports.scanContractExpiry = onSchedule(
-  { schedule: "0 9 1 * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
-  async (event) => { await scanContractExpiryHandler(); }
-);
-
 exports.validateHireBudget = onDocumentCreated(
   { document: "hire_requests/{docId}", region: "me-central2", memory: "256MiB" },
   async (event) => { await validateHireBudgetHandler(event); }
+);
+
+// ==============================================================================
+// PHASE 8: MONTHLY OPERATIONS ENGINE
+// ==============================================================================
+const { monthlyOperationsTriggerHandler } = require("./ops");
+const { generateMonthlyReportHandler } = require("./reports");
+
+exports.monthlyOperationsTrigger = onSchedule(
+  { schedule: "0 0 1 * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await monthlyOperationsTriggerHandler(); }
+);
+
+exports.gatekeeperMonthlyOps = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "256MiB", timeoutSeconds: 300 },
+  async (event) => { await gatekeeperMonthlyOpsHandler(event); }
+);
+
+exports.controllerMonthlyOps = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  async (event) => { await controllerMonthlyOpsHandler(event); }
+);
+
+exports.generateMonthlyReport = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  async (event) => { await generateMonthlyReportHandler(event); }
 );
 

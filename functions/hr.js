@@ -176,9 +176,22 @@ async function validateHireBudgetHandler(event) {
   }
 }
 
+// 5. gatekeeperMonthlyOpsHandler (Pub/Sub Subscriber to datalake.monthly.trigger)
+async function gatekeeperMonthlyOpsHandler(event) {
+  console.log("[HR] gatekeeperMonthlyOpsHandler triggered...");
+  try {
+    await scanContractExpiryHandler();
+    await pdplCandidatePurgeHandler();
+    console.log("[HR] Gatekeeper monthly ops complete.");
+  } catch (err) {
+    console.error("gatekeeperMonthlyOpsHandler error:", err);
+  }
+}
+
 module.exports = {
   resetLeaveBalancesHandler,
   pdplCandidatePurgeHandler,
   scanContractExpiryHandler,
-  validateHireBudgetHandler
+  validateHireBudgetHandler,
+  gatekeeperMonthlyOpsHandler
 };
