@@ -109,3 +109,7 @@ export const SYNC_TO_ZOHO_BOOKS_URL =
   "https://synctozohobooks-ifzodp5svq-wx.a.run.app";
 export const GENERATE_ZATCA_XML_URL =
   "https://generatezatcaxml-ifzodp5svq-wx.a.run.app";
+
+// HR Contract upload (Qiwa-signed PDF → Gatekeeper OCR + LLM extraction)
+export const UPLOAD_CONTRACT_PDF_URL =
+  "https://uploadcontractpdf-ifzodp5svq-wx.a.run.app";

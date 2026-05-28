@@ -70,6 +70,10 @@ import HRScoring from './pages/hr/HRScoring'
 import InterviewCVPrep from './pages/hr/InterviewCVPrep'
 import HRJobListings from './pages/hr/HRJobListings'
 import HREmployees from './pages/hr/HREmployees'
+import HRContracts from './pages/hr/HRContracts'
+
+// Legal (external — token-gated public flow)
+import LegalReview from './pages/legal/LegalReview'
 
 // Client Pages
 import ClientLayout from './layouts/ClientLayout'
@@ -167,10 +171,14 @@ export default function App() {
         <Route path="/hr" element={<HRLayout />}>
           <Route index element={<HRTalentPool />} />
           <Route path="employees" element={<HREmployees />} />
+          <Route path="contracts" element={<HRContracts />} />
           <Route path="scoring" element={<HRScoring />} />
           <Route path="interview-cv" element={<InterviewCVPrep />} />
           <Route path="jobs" element={<HRJobListings />} />
         </Route>
+
+        {/* External Legal review — public, token-gated like /client/scorecard */}
+        <Route path="/legal/review/:token" element={<LegalReview />} />
 
         {/* Client Portal (authenticated client users) — wrapped in ClientLayout */}
         <Route path="/client" element={<ClientLayout />}>

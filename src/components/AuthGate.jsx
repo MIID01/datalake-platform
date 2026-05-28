@@ -16,7 +16,7 @@ import { ShieldAlert, Loader, LogOut } from 'lucide-react'
  * 5. CEO bypass: m.alqumri@datalake.sa always has full access
  */
 
-const PUBLIC_PATHS = ['/', '/careers', '/consent/', '/client/scorecard/', '/contract/']
+const PUBLIC_PATHS = ['/', '/careers', '/consent/', '/client/scorecard/', '/contract/', '/legal/review/']
 
 function isPublicPath(path) {
   if (path === '/' || path === '/careers') return true

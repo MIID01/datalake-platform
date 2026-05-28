@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
-import { ClipboardCheck, FileText, LogOut, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ClipboardCheck, FileText, LogOut, ChevronLeft, ChevronRight, Scale } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
 import '../styles/ceo.css'
 
@@ -9,6 +9,7 @@ import { Users, Briefcase } from 'lucide-react'
 const navItems = [
   { icon: Users, label: 'Talent Pool', path: '/hr', end: true },
   { icon: Users, label: 'Employee Directory', path: '/hr/employees' },
+  { icon: Scale, label: 'Contracts', path: '/hr/contracts' },
   { icon: ClipboardCheck, label: 'Interview Scoring', path: '/hr/scoring' },
   { icon: FileText, label: 'Interview CV Prep', path: '/hr/interview-cv' },
   { icon: Briefcase, label: 'Job Listings', path: '/hr/jobs' },
