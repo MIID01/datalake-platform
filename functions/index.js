@@ -3013,3 +3013,45 @@ exports.whatsappWebhook = onRequest(
 );
 
 
+
+// ==============================================================================
+// APPROVAL ROUTING AND NOTIFICATIONS
+// ==============================================================================
+const { submitLeaveRequestHandler, validateLeaveRequestHandler, clientApproveLeaveHandler, approveLeaveHandler, controllerAdjustPayrollHandler } = require("./leave");
+const { validateExpenseHandler, submitTicketHandler } = require("./requests");
+
+exports.submitLeaveRequest = onRequest(
+  { region: "me-central2", memory: "256MiB" },
+  (req, res) => submitLeaveRequestHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
+);
+
+exports.clientApproveLeave = onRequest(
+  { region: "me-central2", memory: "256MiB" },
+  (req, res) => clientApproveLeaveHandler(req, res)
+);
+
+exports.approveLeave = onRequest(
+  { region: "me-central2", memory: "256MiB" },
+  (req, res) => approveLeaveHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
+);
+
+exports.validateLeaveRequest = onMessagePublished(
+  { topic: "datalake.leave.requested", region: "me-central2", memory: "256MiB" },
+  async (event) => { await validateLeaveRequestHandler(event); }
+);
+
+exports.controllerAdjustPayroll = onMessagePublished(
+  { topic: "datalake.leave.approved", region: "me-central2", memory: "256MiB" },
+  async (event) => { await controllerAdjustPayrollHandler(event); }
+);
+
+exports.validateExpense = onRequest(
+  { region: "me-central2", memory: "256MiB" },
+  (req, res) => validateExpenseHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
+);
+
+exports.submitTicket = onRequest(
+  { region: "me-central2", memory: "256MiB" },
+  (req, res) => submitTicketHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
+);
+
