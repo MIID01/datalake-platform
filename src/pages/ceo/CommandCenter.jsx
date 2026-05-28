@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useCountUp } from '../../hooks/useUtils'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
-import { TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, CheckCircle, XCircle } from 'lucide-react'
+import { TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, CheckCircle, FileText, DollarSign, UserPlus, LifeBuoy, Calendar } from 'lucide-react'
 import { db } from '../../lib/firebase'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 
@@ -38,26 +39,34 @@ function KPICard({ label, value, unit, trend, color, delay, sparkData }) {
   )
 }
 
-function ApprovalItem({ item, onApprove, onReject }) {
-  const slaPercent = (item.slaRemaining / item.sla) * 100
-  const slaClass = slaPercent < 25 ? 'urgent' : slaPercent < 50 ? 'warning' : 'ok'
+// Items the CEO must personally decide on, by category.
+// Routine leave / routine expenses / IT tickets are intentionally excluded —
+// those route through PM/Finance/HR/IT respectively (see approval-routing.js).
+const CATEGORY_META = {
+  invoice:  { Icon: FileText,  color: '#1598CC', label: 'Invoice',  cta: 'Review',   href: '/ceo/finance' },
+  payroll:  { Icon: DollarSign, color: '#34BF3A', label: 'Payroll',  cta: 'Review',   href: '/ceo/payroll' },
+  hiring:   { Icon: UserPlus,  color: '#9C27B0', label: 'Hiring',   cta: 'Decide',   href: '/ceo/pipeline' },
+  ticket:   { Icon: LifeBuoy,  color: '#C0392B', label: 'Critical Ticket', cta: 'Open', href: '/ceo/tickets' },
+  leave:    { Icon: Calendar,  color: '#F39C12', label: 'Leave',    cta: 'Review',   href: '/ceo/leave' },
+}
 
+function DecisionItem({ item, onOpen }) {
+  const meta = CATEGORY_META[item.category] || {}
+  const Icon = meta.Icon
   return (
-    <div className="approval-item" id={`approval-${item.id}`}>
-      <div className="approval-icon">{item.icon}</div>
+    <div className="approval-item" id={`decision-${item.id}`} style={{ cursor: 'pointer' }} onClick={() => onOpen(item)}>
+      <div className="approval-icon" style={{ color: meta.color, background: `${meta.color}15` }}>
+        {Icon && <Icon size={18} />}
+      </div>
       <div className="approval-info">
         <div className="approval-title">{item.title}</div>
-        <div className="approval-meta">{item.requester} · Submitted {new Date(item.submitted).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="approval-meta">
+          {meta.label} · {item.subtitle}
+        </div>
       </div>
-      <span className={`approval-sla ${slaClass}`}>
-        {item.slaRemaining}h left
-      </span>
       <div className="approval-actions">
-        <button className="btn btn-success btn-sm" onClick={() => onApprove(item.id)}>
-          <CheckCircle size={14} /> {item.actions[0]}
-        </button>
-        <button className="btn btn-ghost btn-sm" onClick={() => onReject(item.id)}>
-          <XCircle size={14} /> {item.actions[1]}
+        <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onOpen(item) }}>
+          {meta.cta || 'Open'} <ArrowRight size={13} />
         </button>
       </div>
     </div>
@@ -65,9 +74,10 @@ function ApprovalItem({ item, onApprove, onReject }) {
 }
 
 export default function CommandCenter() {
+  const navigate = useNavigate()
   const [alerts, setAlerts] = useState([])
-  const [approvals, setApprovals] = useState([])
-  const [activityFeed, setActivityFeed] = useState([])
+  const [decisions, setDecisions] = useState({ invoices: [], payroll: [], hiring: [], tickets: [], leave: [] })
+  const [activityFeed] = useState([])
   const [undoItem, setUndoItem] = useState(null)
 
   const [liveKPIs, setLiveKPIs] = useState({
@@ -76,7 +86,6 @@ export default function CommandCenter() {
     activeProjects: { value: 0, trend: 0 },
     pendingTimesheets: { value: 0, trend: 0 },
     pendingInvoices: { value: 0, trend: 0 },
-    pendingApprovals: { value: 0, trend: 0 }
   })
 
   useEffect(() => {
@@ -102,7 +111,7 @@ export default function CommandCenter() {
     // 2. Employees (count where status=active)
     unsubs.push(onSnapshot(query(collection(db, 'employees'), where('status', '==', 'active')), snap => {
       setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap.size, trend: 0 } }))
-    }, e => {
+    }, () => {
       // Fallback capitalized
       onSnapshot(query(collection(db, 'employees'), where('status', '==', 'Active')), snap2 => {
         setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap2.size, trend: 0 } }))
@@ -112,7 +121,7 @@ export default function CommandCenter() {
     // 3. Projects (count where status=active)
     unsubs.push(onSnapshot(query(collection(db, 'projects'), where('status', '==', 'active')), snap => {
       setLiveKPIs(p => ({ ...p, activeProjects: { value: snap.size, trend: 0 } }))
-    }, e => {
+    }, () => {
       // Fallback capitalized
       onSnapshot(query(collection(db, 'projects'), where('status', '==', 'Active')), snap2 => {
         setLiveKPIs(p => ({ ...p, activeProjects: { value: snap2.size, trend: 0 } }))
@@ -124,34 +133,103 @@ export default function CommandCenter() {
       setLiveKPIs(p => ({ ...p, pendingTimesheets: { value: snap.size, trend: 0 } }))
     }, e => console.warn(e)))
 
+    // 5. CEO decisions — ONLY the 5 categories that must reach the CEO.
+    //    Routine leave / expenses / IT tickets are filtered out by design.
+
+    // 5a. Draft invoices awaiting CEO sign-off
+    unsubs.push(onSnapshot(query(collection(db, 'invoices'), where('status', '==', 'DRAFT')), snap => {
+      const items = snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id: `inv-${d.id}`, category: 'invoice',
+          title: `Invoice ${data.invoice_id || data.invoice_number || d.id}`,
+          subtitle: `${data.client_name || 'Unknown client'} · SAR ${Number(data.total || 0).toLocaleString()}`,
+          href: `/finance/invoices/${data.invoice_id || d.id}`,
+          created_at: data.created_at,
+        }
+      })
+      setDecisions(p => ({ ...p, invoices: items }))
+    }, () => {}))
+
+    // 5b. Draft payroll runs awaiting CEO approval
+    unsubs.push(onSnapshot(query(collection(db, 'payroll_runs'), where('status', '==', 'DRAFT')), snap => {
+      const items = snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id: `pay-${d.id}`, category: 'payroll',
+          title: `Payroll — ${data.period || data.month || d.id}`,
+          subtitle: `${data.employee_count || '?'} employees · SAR ${Number(data.total_gross || data.total || 0).toLocaleString()}`,
+          href: '/ceo/payroll',
+          created_at: data.created_at,
+        }
+      })
+      setDecisions(p => ({ ...p, payroll: items }))
+    }, () => {}))
+
+    // 5c. Candidates in OFFER_PENDING (CEO must approve every hire)
+    unsubs.push(onSnapshot(query(collection(db, 'talent_pool'), where('state', '==', 'OFFER_PENDING')), snap => {
+      const items = snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id: `cand-${d.id}`, category: 'hiring',
+          title: data.full_name || data.name || 'Candidate',
+          subtitle: `${data.role_applied || data.role || 'Role'} · offer pending CEO approval`,
+          href: '/ceo/pipeline',
+          created_at: data.created_at,
+        }
+      })
+      setDecisions(p => ({ ...p, hiring: items }))
+    }, () => {}))
+
+    // 5d. CRITICAL-priority support tickets (escalations)
+    unsubs.push(onSnapshot(query(collection(db, 'support_tickets'), where('priority', '==', 'Critical')), snap => {
+      const items = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(t => t.status !== 'Resolved' && t.status !== 'Closed')
+        .map(t => ({
+          id: `tkt-${t.id}`, category: 'ticket',
+          title: t.subject || t.ticket_id,
+          subtitle: `${t.category || 'Issue'} · from ${t.engineer_name || t.engineer_email || 'employee'}`,
+          href: '/ceo/tickets',
+          created_at: t.created_at,
+        }))
+      setDecisions(p => ({ ...p, tickets: items }))
+    }, () => {}))
+
+    // 5e. Leave requests where the type is UNPAID or HAJJ — only these reach the CEO
+    unsubs.push(onSnapshot(query(collection(db, 'leave_requests'), where('status', 'in', ['SUBMITTED', 'PENDING', 'PM_APPROVED'])), snap => {
+      const items = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(l => {
+          const t = String(l.leave_type || '').toLowerCase()
+          return t === 'unpaid' || t === 'hajj'
+        })
+        .map(l => ({
+          id: `leave-${l.id}`, category: 'leave',
+          title: `${l.engineer_name || l.engineer_email || 'Engineer'} — ${l.leave_type_label || l.leave_type}`,
+          subtitle: `${l.start_date} → ${l.end_date} · ${l.working_days || '?'} days`,
+          href: '/ceo/leave',
+          created_at: l.created_at,
+        }))
+      setDecisions(p => ({ ...p, leave: items }))
+    }, () => {}))
+
     return () => unsubs.forEach(u => u && u())
   }, [])
 
-  // Calculate pending approvals (for CEO, this might be draft invoices + leave requests, or just a sum)
-  useEffect(() => {
-    setLiveKPIs(p => ({
-      ...p,
-      pendingApprovals: { value: p.pendingInvoices.value + p.pendingTimesheets.value, trend: 0 }
-    }))
-  }, [liveKPIs.pendingInvoices.value, liveKPIs.pendingTimesheets.value])
+  // Roll up every category that reaches the CEO into a single decisions list.
+  const ceoDecisions = [
+    ...decisions.invoices, ...decisions.payroll, ...decisions.hiring, ...decisions.tickets, ...decisions.leave,
+  ].sort((a, b) => (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0))
+  // Pending Approvals KPI now reflects ONLY what the CEO must personally decide. Derived, not stored.
+  const pendingApprovalsCount = ceoDecisions.length
 
-  const sparkRevenue = []
-  const sparkEngineers = []
-  const sparkCash = []
-  const sparkCompliance = []
-
-  const handleApprove = (id) => {
-    const item = approvals.find(a => a.id === id)
-    setApprovals(prev => prev.filter(a => a.id !== id))
-    setUndoItem(item)
-    setTimeout(() => setUndoItem(null), 5000)
+  const handleOpenDecision = (item) => {
+    if (item.href) navigate(item.href)
   }
 
   const handleUndo = () => {
-    if (undoItem) {
-      setApprovals(prev => [...prev, undoItem].sort((a, b) => a.slaRemaining - b.slaRemaining))
-      setUndoItem(null)
-    }
+    if (undoItem) setUndoItem(null)
   }
 
   return (
@@ -185,27 +263,32 @@ export default function CommandCenter() {
         <KPICard label="Active Projects" value={liveKPIs.activeProjects.value} unit="" trend={0} color="var(--amber)" delay={3} />
         <KPICard label="Pending Timesheets" value={liveKPIs.pendingTimesheets.value} unit="" trend={0} color="var(--orange)" delay={4} />
         <KPICard label="Pending Invoices" value={liveKPIs.pendingInvoices.value} unit="" trend={0} color="var(--amber)" delay={5} />
-        <KPICard label="Pending Approvals" value={liveKPIs.pendingApprovals.value} unit="" trend={0} color="var(--red)" delay={6} />
+        <KPICard label="Pending Approvals" value={pendingApprovalsCount} unit="" trend={0} color="var(--red)" delay={6} />
       </div>
 
       {/* Main Content: Approvals + Activity Feed */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24 }}>
-        {/* Pending Approvals */}
+        {/* Items Needing Your Decision — only the 5 CEO-required categories */}
         <div className="card animate-fade-in-up stagger-3" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Pending Approvals <span className="badge badge-orange" style={{ marginLeft: 8 }}>{approvals.length}</span>
+              Items Needing Your Decision <span className="badge badge-orange" style={{ marginLeft: 8 }}>{ceoDecisions.length}</span>
             </h3>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>Sorted by urgency</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+              Invoices · Payroll · Hires · Critical · Unpaid/Hajj leave
+            </span>
           </div>
           <div style={{ maxHeight: 520, overflowY: 'auto' }}>
-            {approvals.sort((a, b) => a.slaRemaining - b.slaRemaining).map(item => (
-              <ApprovalItem key={item.id} item={item} onApprove={handleApprove} onReject={handleApprove} />
+            {ceoDecisions.map(item => (
+              <DecisionItem key={item.id} item={item} onOpen={handleOpenDecision} />
             ))}
-            {approvals.length === 0 && (
+            {ceoDecisions.length === 0 && (
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>
                 <CheckCircle size={32} style={{ marginBottom: 8, opacity: 0.5 }} />
-                <div>All clear — no pending approvals</div>
+                <div>All clear — no decisions waiting on you</div>
+                <div style={{ fontSize: '0.78rem', marginTop: 6 }}>
+                  Routine leave / expenses / IT tickets are routed to PM, Finance, HR, IT
+                </div>
               </div>
             )}
           </div>
@@ -241,12 +324,11 @@ export default function CommandCenter() {
         </div>
       </div>
 
-      {/* Undo Toast */}
+      {/* Undo Toast (legacy) */}
       {undoItem && (
         <div className="undo-toast">
-          <span>✓ Action completed on {undoItem.title.substring(0, 40)}...</span>
-          <span className="undo-btn" onClick={handleUndo}>Undo</span>
-          <span className="undo-timer">5s</span>
+          <span>✓ Action completed on {(undoItem.title || '').substring(0, 40)}...</span>
+          <span className="undo-btn" onClick={handleUndo}>Dismiss</span>
         </div>
       )}
     </div>

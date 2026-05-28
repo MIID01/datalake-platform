@@ -197,6 +197,11 @@ export default function Leave() {
         handover_notes: form.handover_notes || null,
         status: initialStatus,
         approval_note: approvalNote || null,
+        // Top-level fields for cheap Firestore queries (client portal filters by client_pm_email)
+        client_pm_email: approvalContext?.clientPm?.email || null,
+        client_pm_name: approvalContext?.clientPm?.name || null,
+        project_id: approvalContext?.project?.project_id || null,
+        client_name: approvalContext?.project?.client_name || null,
         // Snapshot of who this is being routed to — backend uses this to drive notifications + UI shows it back to the engineer
         routing: {
           chain: approverInfo.chain || [],

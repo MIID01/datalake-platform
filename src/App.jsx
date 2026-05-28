@@ -71,9 +71,11 @@ import HRJobListings from './pages/hr/HRJobListings'
 import HREmployees from './pages/hr/HREmployees'
 
 // Client Pages
+import ClientLayout from './layouts/ClientLayout'
 import ClientTimesheetApproval from './pages/client/ClientDashboard'
 import ClientScorecard from './pages/client/ClientScorecard'
 import ContractAcceptance from './pages/client/ContractAcceptance'
+import ClientLeaveApprovals from './pages/client/ClientLeaveApprovals'
 
 import Careers from './pages/Careers'
 
@@ -168,8 +170,12 @@ export default function App() {
           <Route path="jobs" element={<HRJobListings />} />
         </Route>
 
-        {/* Client Portal */}
-        <Route path="/client" element={<ClientTimesheetApproval />} />
+        {/* Client Portal (authenticated client users) — wrapped in ClientLayout */}
+        <Route path="/client" element={<ClientLayout />}>
+          <Route index element={<ClientTimesheetApproval />} />
+          <Route path="leave-approvals" element={<ClientLeaveApprovals />} />
+        </Route>
+        {/* Token-based client flows (public / unauthenticated) — sit outside ClientLayout */}
         <Route path="/client/timesheet/:token" element={<ClientTimesheetApproval />} />
         <Route path="/client/scorecard/:token" element={<ClientScorecard />} />
         <Route path="/contract/:token" element={<ContractAcceptance />} />

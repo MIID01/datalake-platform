@@ -3,14 +3,15 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { useRiyadhTime } from '../hooks/useUtils'
 import {
   LayoutDashboard, Users, Clock, FileText, CreditCard,
-  LifeBuoy, Search, Bell, ChevronLeft, ChevronRight
+  LifeBuoy, Search, Bell, ChevronLeft, ChevronRight, Calendar,
 } from 'lucide-react'
 import '../styles/engineer.css'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/client', end: true },
+  { icon: Calendar, label: 'Leave Approvals', path: '/client/leave-approvals' },
   { icon: Users, label: 'My Engineers', path: '/client/engineers' },
-  { icon: Clock, label: 'Timesheet Approvals', path: '/client/timesheets', badge: 2 },
+  { icon: Clock, label: 'Timesheet Approvals', path: '/client/timesheets' },
   { icon: CreditCard, label: 'PO & Budget', path: '/client/pos' },
   { icon: FileText, label: 'Invoices', path: '/client/invoices' },
   { icon: LifeBuoy, label: 'Support', path: '/client/support' },
