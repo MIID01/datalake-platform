@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { collection, onSnapshot, query, where, doc, updateDoc } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { CheckCircle, XCircle, X, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useKeyboardShortcuts } from '../../hooks/useUtils'
@@ -66,13 +66,15 @@ export default function Approvals() {
         const { getAuth } = await import('firebase/auth')
         const auth = getAuth()
         const token = await auth.currentUser.getIdToken()
+        // Name the actual approver (CEO is acting in this seat until a PM is assigned).
+        const approverName = auth.currentUser.displayName || auth.currentUser.email
         const res = await fetch('https://me-central2-datalake-production-sa.cloudfunctions.net/ctoApproveTimesheet', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify({ timesheet_id: id, decision, notes: 'Approved by CEO' })
+          body: JSON.stringify({ timesheet_id: id, decision, notes: `${decision === 'APPROVE' ? 'Approved' : 'Rejected'} by ${approverName} (acting PM)` })
         })
         if (!res.ok) throw new Error('API failed')
       } catch (err) {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, orderBy } from 'firebase/firestore'
 import { db, auth } from '../../lib/firebase'
-import { loadApprovalContext, describeLeaveApprover } from '../../lib/approval-routing'
+import { loadApprovalContext, describeLeaveApprover, formatApprovalChain } from '../../lib/approval-routing'
 import { Plus, Calendar, CheckCircle, AlertTriangle, FileText, Loader, Users } from 'lucide-react'
 
 // Saudi Labor Law leave entitlements (defaults)
@@ -399,10 +399,11 @@ export default function Leave() {
             </div>
           ) : (
             <table className="data-table">
-              <thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th></tr></thead>
+              <thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Approver Chain</th></tr></thead>
               <tbody>
                 {requests.map(r => {
                   const sc = STATUS_COLORS[r.status] || STATUS_COLORS.PENDING
+                  const chainStr = formatApprovalChain(r.approval_history)
                   return (
                     <tr key={r.id}>
                       <td style={{ fontWeight: 600 }}>{r.leave_type_label || r.leave_type}</td>
@@ -417,6 +418,9 @@ export default function Leave() {
                         }}>
                           {sc.label}
                         </span>
+                      </td>
+                      <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        {chainStr || (r.approved_by === 'system:auto' ? 'Auto-approved' : '—')}
                       </td>
                     </tr>
                   )

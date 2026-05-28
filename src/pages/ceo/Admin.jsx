@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { auth, db } from '../../lib/firebase'
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, addDoc, query, where, serverTimestamp } from 'firebase/firestore'
-import { Users, Shield, Grid3X3, Plus, X, CheckCircle, Loader, AlertTriangle } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Users, Shield, Grid3X3, Plus, X, CheckCircle, Loader, AlertTriangle, ScrollText } from 'lucide-react'
 
 const TABS = [
   { id: 'users', label: 'Users', icon: Users },
@@ -204,6 +205,13 @@ export default function Admin() {
     <div style={s.page}>
       <h1 style={s.h1}>Role Administration</h1>
       <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.82rem', margin: '-12px 0 20px' }}>Assign roles &amp; manage RBAC. Password and credential management lives in the IT Administration portal (segregation of duties).</p>
+      <Link to="/ceo/admin/delegation" style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', marginBottom: 20,
+        background: 'rgba(21,152,204,0.15)', border: '1px solid rgba(21,152,204,0.35)',
+        borderRadius: 8, fontSize: '0.82rem', color: '#7dd3fc', fontWeight: 600, textDecoration: 'none',
+      }}>
+        <ScrollText size={14} /> Delegation of Authority — expense / leave / ticket routing
+      </Link>
       {error && <div style={{ padding: '10px 16px', background: 'rgba(239,88,41,0.15)', border: '1px solid rgba(239,88,41,0.3)', borderRadius: 8, color: '#fb923c', fontSize: '0.82rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={16} />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#fb923c', cursor: 'pointer' }}><X size={14} /></button></div>}
       <div style={s.tabs}>{TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={s.tab(tab === t.id)}><t.icon size={16} />{t.label}</button>)}</div>
 

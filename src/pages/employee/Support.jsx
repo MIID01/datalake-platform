@@ -281,6 +281,7 @@ export default function Support() {
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 2 }}>
                   {ticket.ticket_id} · {ticket.category} · {fmtDate(ticket.created_at)}
+                  {ticket.assigned_to && <> · <span style={{ color: 'var(--accent-primary, #1598CC)' }}>Assigned to {ticket.assigned_to}</span></>}
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>

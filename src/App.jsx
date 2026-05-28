@@ -44,6 +44,7 @@ import CEOAIOperations from './pages/ceo/AIOperations'
 import CEOTaskInbox from './pages/ceo/TaskInbox'
 import CEOProjects from './pages/ceo/Projects'
 import CEOAdmin from './pages/ceo/Admin'
+import CEODelegation from './pages/ceo/Delegation'
 import CEOEmployees from './pages/ceo/CEOEmployees'
 
 // CTO Pages
@@ -109,6 +110,7 @@ export default function App() {
           <Route path="ai-ops" element={<CEOAIOperations />} />
           <Route path="tasks" element={<CEOTaskInbox />} />
           <Route path="admin" element={<CEOAdmin />} />
+          <Route path="admin/delegation" element={<CEODelegation />} />
         </Route>
 
         {/* CTO Portal */}

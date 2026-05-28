@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth } from '../../lib/firebase'
-import { loadApprovalContext, describeExpenseApprover } from '../../lib/approval-routing'
+import { loadApprovalContext, describeExpenseApprover, formatApprovalChain } from '../../lib/approval-routing'
 import { Plus, CheckCircle, AlertTriangle, Loader, Receipt, Users } from 'lucide-react'
 
 const CATEGORIES = ['Transportation', 'Meals', 'Accommodation', 'Office Supplies', 'Communication', 'Client Entertainment', 'Equipment', 'Training', 'Other']
@@ -289,10 +289,11 @@ export default function Expenses() {
           </div>
         ) : (
           <table className="data-table">
-            <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Status</th><th>Approver Chain</th></tr></thead>
             <tbody>
               {expenses.map(exp => {
                 const sc = STATUS_CONFIG[exp.status] || STATUS_CONFIG.SUBMITTED
+                const chainStr = formatApprovalChain(exp.approval_history)
                 return (
                   <tr key={exp.id}>
                     <td style={{ fontSize: '0.82rem' }}>{fmtDate(exp.date)}</td>
@@ -306,6 +307,9 @@ export default function Expenses() {
                       }}>
                         {sc.label}
                       </span>
+                    </td>
+                    <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      {chainStr || (exp.approved_by === 'system:auto' ? 'Auto-approved' : '—')}
                     </td>
                   </tr>
                 )
