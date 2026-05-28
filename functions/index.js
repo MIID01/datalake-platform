@@ -2615,6 +2615,9 @@ const {
   auditorComplianceCheckHandler,
   getContractReviewsHandler,
   getComplianceReportsHandler,
+  aiAuditorMonthlyCronHandler,
+  checkEvidenceIntegrityHandler,
+  trackCAPAStatusHandler
 } = require("./auditor");
 
 exports.auditorContractReview = onMessagePublished(
@@ -2851,33 +2854,24 @@ DO NOT RETURN ANY OTHER TEXT OR MARKDOWN.`;
   }
 );
 
-exports.aiAuditorMonthlyCron = onSchedule(
-  { schedule: "0 0 1 * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "512MiB" },
-  async (event) => {
-    const systemPrompt = "You are the Datalake AI Auditor. Review the monthly activity summary and generate an audit finding report. Return strict JSON array of findings.";
-    const userPrompt = "Run the monthly audit on platform activity for the previous month. Check for anomalous timesheet approvals, missing consent records, and security rule violations.";
+exports.aiAuditorMonthlyCron = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  async (event) => { await aiAuditorMonthlyCronHandler(event); }
+);
 
-    try {
-      const res = await callLLM({
-        agent: "auditor",
-        type: "MONTHLY_AUDIT",
-        systemPrompt,
-        userPrompt,
-        triggeredBy: "system:onSchedule"
-      });
-      
-      const db = admin.firestore();
-      await db.collection("audit_reports").add({
-        created_at: admin.firestore.FieldValue.serverTimestamp(),
-        report_raw: res.output,
-        status: "GENERATED"
-      });
-      
-      console.log("Monthly AI audit completed.");
-    } catch (err) {
-      console.error("Monthly AI audit failed:", err);
-    }
-  }
+exports.checkEvidenceIntegrityWeekly = onSchedule(
+  { schedule: "0 3 * * 0", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await checkEvidenceIntegrityHandler(); }
+);
+
+exports.checkEvidenceIntegrityMonthly = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "256MiB" },
+  async (event) => { await checkEvidenceIntegrityHandler(); }
+);
+
+exports.trackCAPAStatus = onSchedule(
+  { schedule: "0 4 * * 0", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await trackCAPAStatusHandler(); }
 );
 
 // ═══════════════════════════════════════════════════════════════════
