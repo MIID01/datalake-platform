@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCountUp } from '../../hooks/useUtils'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
-import { TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, CheckCircle, FileText, DollarSign, UserPlus, LifeBuoy, Calendar } from 'lucide-react'
+import { TrendingUp, TrendingDown, AlertTriangle, X, ArrowRight, CheckCircle, FileText, DollarSign, UserPlus, LifeBuoy, Calendar, Briefcase } from 'lucide-react'
+import { HireBudgetBreakdown } from './HireRequest'
 import { db } from '../../lib/firebase'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 
@@ -46,6 +47,7 @@ const CATEGORY_META = {
   invoice:  { Icon: FileText,  color: '#1598CC', label: 'Invoice',  cta: 'Review',   href: '/ceo/finance' },
   payroll:  { Icon: DollarSign, color: '#34BF3A', label: 'Payroll',  cta: 'Review',   href: '/ceo/payroll' },
   hiring:   { Icon: UserPlus,  color: '#9C27B0', label: 'Hiring',   cta: 'Decide',   href: '/ceo/pipeline' },
+  hire_req: { Icon: Briefcase, color: '#EF5829', label: 'Hire Request', cta: 'Review Budget', href: '/ceo/talent' },
   ticket:   { Icon: LifeBuoy,  color: '#C0392B', label: 'Critical Ticket', cta: 'Open', href: '/ceo/tickets' },
   leave:    { Icon: Calendar,  color: '#F39C12', label: 'Leave',    cta: 'Review',   href: '/ceo/leave' },
 }
@@ -54,21 +56,28 @@ function DecisionItem({ item, onOpen }) {
   const meta = CATEGORY_META[item.category] || {}
   const Icon = meta.Icon
   return (
-    <div className="approval-item" id={`decision-${item.id}`} style={{ cursor: 'pointer' }} onClick={() => onOpen(item)}>
-      <div className="approval-icon" style={{ color: meta.color, background: `${meta.color}15` }}>
-        {Icon && <Icon size={18} />}
-      </div>
-      <div className="approval-info">
-        <div className="approval-title">{item.title}</div>
-        <div className="approval-meta">
-          {meta.label} · {item.subtitle}
+    <div id={`decision-${item.id}`} style={{ borderBottom: '1px solid var(--border-primary)' }}>
+      <div className="approval-item" style={{ cursor: 'pointer' }} onClick={() => onOpen(item)}>
+        <div className="approval-icon" style={{ color: meta.color, background: `${meta.color}15` }}>
+          {Icon && <Icon size={18} />}
+        </div>
+        <div className="approval-info">
+          <div className="approval-title">{item.title}</div>
+          <div className="approval-meta">
+            {meta.label} · {item.subtitle}
+          </div>
+        </div>
+        <div className="approval-actions">
+          <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onOpen(item) }}>
+            {meta.cta || 'Open'} <ArrowRight size={13} />
+          </button>
         </div>
       </div>
-      <div className="approval-actions">
-        <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onOpen(item) }}>
-          {meta.cta || 'Open'} <ArrowRight size={13} />
-        </button>
-      </div>
+      {item.budget && (
+        <div style={{ padding: '0 18px 14px 18px' }}>
+          <HireBudgetBreakdown budget={item.budget} compact={true} />
+        </div>
+      )}
     </div>
   )
 }
@@ -76,7 +85,7 @@ function DecisionItem({ item, onOpen }) {
 export default function CommandCenter() {
   const navigate = useNavigate()
   const [alerts, setAlerts] = useState([])
-  const [decisions, setDecisions] = useState({ invoices: [], payroll: [], hiring: [], tickets: [], leave: [] })
+  const [decisions, setDecisions] = useState({ invoices: [], payroll: [], hiring: [], hireRequests: [], tickets: [], leave: [] })
   const [activityFeed] = useState([])
   const [undoItem, setUndoItem] = useState(null)
 
@@ -181,6 +190,22 @@ export default function CommandCenter() {
       setDecisions(p => ({ ...p, hiring: items }))
     }, () => {}))
 
+    // 5c-bis. Hire requests in BUDGET_CHECKED — Finance has validated the math, CEO decides
+    unsubs.push(onSnapshot(query(collection(db, 'hire_requests'), where('status', '==', 'BUDGET_CHECKED')), snap => {
+      const items = snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id: `hire-${d.id}`, category: 'hire_req',
+          title: `${data.role_title || 'Role'} for ${data.client_name || 'client'}`,
+          subtitle: `${data.project_name || data.project_id || 'project'} · ${data.po_number || 'no PO'}`,
+          href: '/ceo/talent',
+          created_at: data.created_at,
+          budget: data.budget || null,
+        }
+      })
+      setDecisions(p => ({ ...p, hireRequests: items }))
+    }, () => {}))
+
     // 5d. CRITICAL-priority support tickets (escalations)
     unsubs.push(onSnapshot(query(collection(db, 'support_tickets'), where('priority', '==', 'Critical')), snap => {
       const items = snap.docs
@@ -219,7 +244,7 @@ export default function CommandCenter() {
 
   // Roll up every category that reaches the CEO into a single decisions list.
   const ceoDecisions = [
-    ...decisions.invoices, ...decisions.payroll, ...decisions.hiring, ...decisions.tickets, ...decisions.leave,
+    ...decisions.invoices, ...decisions.payroll, ...decisions.hiring, ...decisions.hireRequests, ...decisions.tickets, ...decisions.leave,
   ].sort((a, b) => (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0))
   // Pending Approvals KPI now reflects ONLY what the CEO must personally decide. Derived, not stored.
   const pendingApprovalsCount = ceoDecisions.length

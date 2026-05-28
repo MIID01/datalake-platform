@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { tierConfig, stageConfig, STATE_COLORS, STATE_LABELS } from '../../data/constants'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
-import { UserPlus, Users, LogOut, CheckCircle, ChevronRight, Eye, XCircle, ArrowRight, Database, Search, Shield, RefreshCw, Trash2, Clock, Filter, AlertTriangle } from 'lucide-react'
+import { UserPlus, Users, LogOut, CheckCircle, ChevronRight, Eye, XCircle, ArrowRight, Database, Search, Shield, RefreshCw, Trash2, Clock, Filter, AlertTriangle, Briefcase } from 'lucide-react'
+import HireRequest from './HireRequest'
 
 const statusColors = {
   Active: 'badge-success', Expiring: 'badge-critical', Offboarded: 'badge-neutral'
@@ -239,8 +240,9 @@ export default function Talent() {
       {/* ═══════════════════════════════════════════════════ */}
       <div>
         <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-primary)', paddingBottom: 8 }}>Section B: Candidate Pipeline</h2>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
           {[
+            { id: 'hire', icon: Briefcase, label: 'Hire Requests' },
             { id: 'scoring', icon: UserPlus, label: 'Scoring Pipeline' },
             { id: 'talentpool', icon: Database, label: 'Talent Pool' },
             { id: 'engineers', icon: Users, label: 'Active Engineers' },
@@ -261,6 +263,11 @@ export default function Talent() {
           ))}
         </div>
 
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* HIRE REQUESTS — Budget-validated hire pipeline */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {activeSection === 'hire' && <HireRequest />}
 
       {/* ═══════════════════════════════════════════════════ */}
       {/* SCORING PIPELINE — 5-Stage Evaluation */}

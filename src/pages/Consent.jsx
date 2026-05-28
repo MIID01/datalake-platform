@@ -126,7 +126,7 @@ export default function Consent() {
             <li>Identification, contact, employment, and financial data — for HR, payroll, and statutory reporting</li>
             <li>Project and timesheet data — for client billing</li>
             <li>Platform usage data — for security monitoring</li>
-            <li>AI-assisted processing — Datalake uses AI tools for CV formatting, scoring, and document drafting. AI outputs are reviewed by a human before any decision about you.</li>
+            <li>AI-assisted processing — Datalake uses AI tools for CV formatting, scoring, and extracting fields from documents you upload. AI outputs are reviewed by a human before any decision about you.</li>
           </ul>
           All data stored exclusively in Saudi Arabia. No cross-border transfer.<br/><br/>
           Your rights are described in the Privacy Policy (DTLK-POL-PRI-001) and HR Policy (DTLK-POL-HRM-001), available in the platform after consent.
