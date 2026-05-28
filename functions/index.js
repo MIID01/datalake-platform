@@ -2915,3 +2915,31 @@ exports.exportExpenseToBQ = exportExpenseToBQ;
 const { adminsetpassword, assignrole } = require('./adminAuth');
 exports.adminsetpassword = adminsetpassword;
 exports.assignrole = assignrole;
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 5: CONTROLLER AI — FINANCE CHAIN
+// ═══════════════════════════════════════════════════════════════════
+const { calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler } = require("./finance");
+
+exports.calculatePayroll = onSchedule(
+  {
+    schedule: "0 0 25 * *", // 25th of each month at midnight
+    timeZone: "Asia/Riyadh",
+    region: "me-central2",
+    memory: "512MiB",
+    timeoutSeconds: 300,
+  },
+  async () => { await calculatePayrollHandler(); }
+);
+
+exports.generateWPSFile = onMessagePublished(
+  { topic: "datalake.payroll.approved", region: "me-central2", memory: "256MiB" },
+  async (event) => { await generateWPSFileHandler(event); }
+);
+
+exports.generateGOSIReport = onMessagePublished(
+  { topic: "datalake.payroll.approved", region: "me-central2", memory: "256MiB" },
+  async (event) => { await generateGOSIReportHandler(event); }
+);
+
+

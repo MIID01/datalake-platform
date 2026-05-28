@@ -70,15 +70,17 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
     const profile = await getUserAccessProfile(decoded.uid);
     if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
 
-    const { project_id, period_start, period_end, line_items, notes, timesheet_id } = req.body;
-    if (!project_id || !period_start || !period_end || !line_items?.length) {
-      return res.status(400).json({ error: "project_id, period_start, period_end, line_items[] required" });
+    const { client_id, po_number, period_start, period_end, line_items, notes, timesheet_ids } = req.body;
+    if (!client_id || !period_start || !period_end || !line_items?.length) {
+      return res.status(400).json({ error: "client_id, period_start, period_end, line_items[] required" });
     }
 
-    // Load project
-    const projectDoc = await db.collection("projects").doc(project_id).get();
-    if (!projectDoc.exists) return res.status(404).json({ error: "Project not found" });
-    const project = projectDoc.data();
+    // Load client to get name
+    const clientDoc = await db.collection("clients").doc(client_id).get();
+    let clientName = client_id; // fallback
+    if (clientDoc.exists) {
+      clientName = clientDoc.data().name || clientDoc.data().client_name || client_id;
+    }
 
     // Generate invoice number: INV-YYYY-NNN
     const year = new Date().getFullYear();
@@ -93,15 +95,20 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
     const vatRate = 0.15;
     
     const processedLineItems = line_items.map(item => {
-      const q = Number(item.quantity);
-      const p = Number(item.unit_price);
-      const lineTotal = Math.round(q * p * 100) / 100;
+      // Handle either hours/rate or quantity/unit_price, and amount
+      const qty = Number(item.hours || item.quantity || 1);
+      const price = Number(item.rate || item.unit_price || item.amount || 0);
+      const lineTotal = item.amount ? Number(item.amount) : Math.round(qty * price * 100) / 100;
       subtotal += lineTotal;
       return {
+        employee_id: item.employee_id || null,
         description: item.description,
-        quantity: q,
-        unit_price: p,
-        total: lineTotal
+        hours: item.hours || null,
+        rate: item.rate || null,
+        quantity: qty,
+        unit_price: price,
+        total: lineTotal,
+        manual: item.manual || false
       };
     });
 
@@ -115,11 +122,10 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
       invoice_id: invoiceId,
       invoice_number: invoiceNumber,
       year,
-      project_id,
-      project_name: project.project_name,
-      client_id: project.client_id || "",
-      client_name: project.client_name,
-      timesheet_id: timesheet_id || null, // For 3-way reconciliation
+      client_id,
+      client_name: clientName,
+      po_number: po_number || null,
+      timesheet_ids: timesheet_ids || [], // Array from composed payload
       period_start,
       period_end,
       line_items: processedLineItems,
@@ -144,7 +150,7 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
     // Audit
     await db.collection("task_audit_log").add({
       event: "INVOICE_GENERATED", action_by: profile.email, action_at: now,
-      details: { invoice_id: invoiceId, invoice_number: invoiceNumber, total, client: project.client_name },
+      details: { invoice_id: invoiceId, invoice_number: invoiceNumber, total, client: clientName },
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
@@ -168,28 +174,26 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
 // ═══════════════════════════════════════════════════════════════════
 // 2. syncToZohoBooks — CEO only
 // ═══════════════════════════════════════════════════════════════════
-async function syncToZohoBooksHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function syncToZohoBooksHandler(event) {
+  console.log("[Controller AI] Starting syncToZohoBooks...");
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
-
-    const { invoice_id } = req.body;
-    if (!invoice_id) return res.status(400).json({ error: "invoice_id required" });
+    const { invoice_id } = event.data.message.json;
+    if (!invoice_id) throw new Error("invoice_id required in event payload");
 
     const invoiceDoc = await db.collection("invoices").doc(invoice_id).get();
-    if (!invoiceDoc.exists) return res.status(404).json({ error: "Invoice not found" });
+    if (!invoiceDoc.exists) throw new Error(`Invoice ${invoice_id} not found`);
     const invoice = invoiceDoc.data();
 
-    if (invoice.zoho_synced) return res.status(409).json({ error: "Already synced to Zoho" });
+    // Check if it's actually approved (assuming the event fires on approval)
+    if (invoice.status !== "APPROVED" && invoice.status !== "SENT") {
+      console.warn(`[Controller AI] Invoice ${invoice_id} is ${invoice.status}, not APPROVED. Skipping sync.`);
+      return;
+    }
+
+    if (invoice.zoho_synced) {
+      console.log(`[Controller AI] Invoice ${invoice_id} already synced to Zoho.`);
+      return;
+    }
 
     const zohoConfig = await getZohoConfig();
     const accessToken = await getZohoAccessToken(zohoConfig);
@@ -210,7 +214,7 @@ async function syncToZohoBooksHandler(req, res, { verifyAuth, getUserAccessProfi
       notes: invoice.notes,
       reference_number: invoice.invoice_id,
       custom_fields: [
-        { label: "Timesheet ID", value: invoice.timesheet_id || "" }
+        { label: "Timesheet ID", value: invoice.timesheet_ids ? invoice.timesheet_ids.join(", ") : "" }
       ]
     };
 
@@ -241,19 +245,14 @@ async function syncToZohoBooksHandler(req, res, { verifyAuth, getUserAccessProfi
     });
 
     await db.collection("task_audit_log").add({
-      event: "INVOICE_SYNCED_ZOHO", action_by: profile.email, action_at: now,
-      details: { invoice_id, zoho_id: createData.invoice?.invoice_id, client: invoice.client_name },
-      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+      event: "INVOICE_SYNCED_ZOHO", action_by: "system:controllerAI", action_at: now,
+      details: { invoice_id, zoho_id: createData.invoice?.invoice_id, client: invoice.client_name }
     });
 
-    return res.status(200).json({
-      success: true,
-      zoho_invoice_id: createData.invoice?.invoice_id,
-      message: `Invoice ${invoice.invoice_number} synced to Zoho Books`,
-    });
+    console.log(`[Controller AI] Invoice ${invoice.invoice_number} synced to Zoho Books.`);
   } catch (err) {
-    console.error("syncToZohoBooks error:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("[Controller AI] syncToZohoBooks error:", err);
+    throw err;
   }
 }
 
@@ -314,26 +313,25 @@ function generateCryptographicStamp(xmlString) {
   return { hash, signature: "SIGNATURE_PLACEHOLDER" };
 }
 
-async function generateZatcaXmlHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+async function generateZatcaXmlHandler(event) {
+  console.log("[Controller AI] Starting generateZatcaXml...");
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
-
-    const { invoice_id } = req.body;
-    if (!invoice_id) return res.status(400).json({ error: "invoice_id required" });
+    const { invoice_id } = event.data.message.json;
+    if (!invoice_id) throw new Error("invoice_id required in event payload");
 
     const invoiceDoc = await db.collection("invoices").doc(invoice_id).get();
-    if (!invoiceDoc.exists) return res.status(404).json({ error: "Invoice not found" });
+    if (!invoiceDoc.exists) throw new Error(`Invoice ${invoice_id} not found`);
     const invoice = invoiceDoc.data();
+
+    if (invoice.status !== "APPROVED" && invoice.status !== "SENT") {
+      console.warn(`[Controller AI] Invoice ${invoice_id} is ${invoice.status}, not APPROVED. Skipping ZATCA generation.`);
+      return;
+    }
+
+    if (invoice.zatca_generated) {
+      console.log(`[Controller AI] Invoice ${invoice_id} already has ZATCA XML generated.`);
+      return;
+    }
 
     const timestampIso = new Date().toISOString();
     const qrBase64 = generateZatcaQR(invoice.seller_name, invoice.seller_vat, timestampIso, invoice.total, invoice.vat_amount);
@@ -345,8 +343,8 @@ async function generateZatcaXmlHandler(req, res, { verifyAuth, getUserAccessProf
     const cryptoData = generateCryptographicStamp(xml);
     
     // Store in WORM
-    const wormBucket = admin.storage().bucket("datalake-worm-hr");
-    const xmlPath = `invoices/${invoice.invoice_number}/zatca_einvoice_${invoice.invoice_number}.xml`;
+    const wormBucket = admin.storage().bucket("datalake-worm-finance");
+    const xmlPath = `zatca/${invoice.invoice_id}.xml`;
     await wormBucket.file(xmlPath).save(xml, {
       metadata: { 
         contentType: "application/xml", 
@@ -365,18 +363,18 @@ async function generateZatcaXmlHandler(req, res, { verifyAuth, getUserAccessProf
       zatca_qr_code: qrBase64,
       zatca_invoice_hash: cryptoData.hash,
       zatca_generated_at: now,
+      zatca_status: "SUBMITTED"
     });
 
     await db.collection("task_audit_log").add({
-      event: "ZATCA_XML_GENERATED", action_by: profile.email, action_at: now,
-      details: { invoice_id, invoice_number: invoice.invoice_number, xml_path: xmlPath, hash: cryptoData.hash },
-      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+      event: "ZATCA_XML_GENERATED", action_by: "system:controllerAI", action_at: now,
+      details: { invoice_id, invoice_number: invoice.invoice_number, xml_path: xmlPath, hash: cryptoData.hash }
     });
 
-    return res.status(200).json({ success: true, xml_path: xmlPath, qr_code: qrBase64, message: "ZATCA XML generated and archived" });
+    console.log(`[Controller AI] ZATCA XML generated and archived for invoice ${invoice.invoice_number}`);
   } catch (err) {
-    console.error("generateZatcaXml error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    console.error("[Controller AI] generateZatcaXml error:", err);
+    throw err;
   }
 }
 
