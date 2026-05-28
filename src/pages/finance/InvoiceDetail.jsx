@@ -4,6 +4,7 @@ import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { ArrowLeft, FileText, Loader, CheckCircle2, ShieldCheck } from 'lucide-react'
 import ApprovalButton from '../../components/ApprovalButton'
+import { SignedBadgeList } from '../../components/SignedBadge'
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -111,6 +112,10 @@ export default function InvoiceDetail() {
             )}
           </div>
           <span className={`badge ${STATUS_BADGE[status] || 'badge-neutral'}`} style={{ fontSize: '0.85rem' }}>{status}</span>
+        </div>
+        {/* Historical approvals on this invoice — click any to see the full evidence trail. */}
+        <div style={{ marginTop: 10 }}>
+          <SignedBadgeList parentCollection="invoices" parentId={invoice.id} compact />
         </div>
       </div>
 

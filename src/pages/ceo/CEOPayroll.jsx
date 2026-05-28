@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp }
 import { db } from '../../lib/firebase'
 import { AlertTriangle, CheckCircle, Clock, ShieldCheck } from 'lucide-react'
 import ApprovalButton from '../../components/ApprovalButton'
+import { SignedBadgeList } from '../../components/SignedBadge'
 
 export default function CEOPayroll() {
   const [timesheets, setTimesheets] = useState([])
@@ -140,6 +141,9 @@ export default function CEOPayroll() {
                     })
                   }}
                 />
+                <div style={{ marginTop: 10 }}>
+                  <SignedBadgeList parentCollection="payroll_runs" parentId={run.id} compact />
+                </div>
               </div>
             ))}
           </div>

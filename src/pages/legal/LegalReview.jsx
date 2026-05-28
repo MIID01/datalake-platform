@@ -10,6 +10,7 @@ import {
   MessageSquare, ShieldCheck,
 } from 'lucide-react'
 import ApprovalButton from '../../components/ApprovalButton'
+import { SignedBadgeList } from '../../components/SignedBadge'
 
 // Mirrors HRContracts.jsx FIELD_SPECS — keep in sync.
 const FIELD_SPECS = [
@@ -158,9 +159,12 @@ export default function LegalReview() {
       <div style={{ ...card, textAlign: 'center' }}>
         <CheckCircle2 size={56} color={BRAND.green} style={{ marginBottom: 14 }} />
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 8 }}>Contract Approved</h1>
-        <p style={{ color: 'rgba(255,255,255,0.65)' }}>
+        <p style={{ color: 'rgba(255,255,255,0.65)', marginBottom: 14 }}>
           Datalake HR has been notified. The employee record will be provisioned automatically.
         </p>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {contractId && <SignedBadgeList parentCollection="contracts" parentId={contractId} />}
+        </div>
       </div>
     </div>
   )

@@ -3,6 +3,8 @@ import {
   Upload, CheckCircle2, Loader, AlertCircle, X, Paperclip, ShieldCheck,
 } from 'lucide-react'
 import { recordApproval } from '../lib/approval-evidence'
+import SignatureModal from './SignatureModal'
+import { SignedBadge, EvidenceTrailModal } from './SignedBadge'
 
 // Universal approval button.
 //
@@ -64,10 +66,15 @@ export default function ApprovalButton({
   const [error, setError] = useState('')
   const [done, setDone] = useState(null)   // the evidence record after success
   const [dragActive, setDragActive] = useState(false)
+  const [showSign, setShowSign] = useState(false)
+  const [showEvidence, setShowEvidence] = useState(false)
   const fileInputRef = useRef(null)
 
   const v = VARIANT_STYLES[variant] || VARIANT_STYLES.primary
 
+  // The Approve button now opens the signature modal first; signing inside
+  // the modal triggers the actual record-approval call. So "canClick" just
+  // gates whether we are ready to open the modal.
   const canClick = !disabled && !working && !done && (!requiresDocument || !!file)
 
   const pickFile = (f) => {
@@ -90,46 +97,65 @@ export default function ApprovalButton({
     else if (e.type === 'dragleave') setDragActive(false)
   }
 
-  const handleClick = async () => {
+  const handleClick = () => {
     if (!canClick) return
+    setError('')
+    setShowSign(true)
+  }
+
+  // Called from inside SignatureModal with { blob, method, dataUrl, typedName }.
+  // Uploads everything (PDF if required + signature PNG) and writes the evidence
+  // row in one transaction. The modal stays open with its own working state so
+  // the user sees the spinner there; we surface errors back to it via throw.
+  const handleSigned = async ({ blob, method, typedName }) => {
     setWorking(true); setError('')
     try {
       const evidence = await recordApproval({
         parentCollection, parentId,
         requiresDocument, file,
+        signatureBlob: blob,
+        signatureMethod: method,
+        signatureTypedName: typedName || null,
         identity, storagePathPrefix,
         label, extra,
       })
       setDone(evidence)
+      setShowSign(false)
       if (onApproved) await onApproved(evidence)
     } catch (e) {
       setError(e.message || 'Failed to record approval')
+      throw e   // bubble back to SignatureModal so it stops the spinner and shows the message
     } finally {
       setWorking(false)
     }
   }
 
-  // Render — happy path: already done.
+  // Render — happy path: already done. Shows the signed badge with the
+  // signature thumbnail; clicking expands the full evidence trail.
   if (done) {
     return (
-      <div style={{ ...cardBase, borderColor: 'rgba(52,191,58,0.3)', background: 'rgba(52,191,58,0.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: done.evidence_filename ? 6 : 0 }}>
-          <CheckCircle2 size={16} color="#34BF3A" />
-          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            {label} — recorded
-          </span>
-        </div>
-        {done.evidence_filename && (
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <span><Paperclip size={11} style={{ verticalAlign: -1, marginRight: 3 }} />{done.evidence_filename}</span>
-            {done.evidence_sha256 && (
-              <span style={{ fontFamily: 'var(--font-mono)' }}>
-                sha256: {done.evidence_sha256.slice(0, 12)}…
-              </span>
-            )}
+      <>
+        <div style={{ ...cardBase, borderColor: 'rgba(52,191,58,0.3)', background: 'rgba(52,191,58,0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <CheckCircle2 size={16} color="#34BF3A" />
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {label} — recorded
+            </span>
           </div>
-        )}
-      </div>
+          <SignedBadge evidence={done} onClick={() => setShowEvidence(true)} />
+          {done.evidence_filename && (
+            <div style={{ marginTop: 10, fontSize: '0.74rem', color: 'var(--text-tertiary)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <span><Paperclip size={11} style={{ verticalAlign: -1, marginRight: 3 }} />{done.evidence_filename}</span>
+              {done.evidence_sha256 && (
+                <span style={{ fontFamily: 'var(--font-mono)' }}>
+                  sha256: {done.evidence_sha256.slice(0, 12)}…
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        {showEvidence && <EvidenceTrailModal evidence={done} onClose={() => setShowEvidence(false)} />}
+      </>
     )
   }
 
@@ -204,7 +230,7 @@ export default function ApprovalButton({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 6 }}>
           <ShieldCheck size={12} />
-          Evidence is recorded with approver, timestamp, IP, user agent
+          Evidence captures your signature, identity, timestamp, IP, user agent
           {requiresDocument && ' + SHA-256 of the file'}.
         </div>
         <button
@@ -226,9 +252,16 @@ export default function ApprovalButton({
           }}
         >
           {working ? <Loader size={13} className="spin" /> : <CheckCircle2 size={13} />}
-          {working ? 'Recording…' : label}
+          {working ? 'Recording…' : (requiresDocument && !file ? 'Upload PDF to continue' : `Sign & ${label}`)}
         </button>
       </div>
+
+      <SignatureModal
+        isOpen={showSign}
+        onClose={() => { if (!working) setShowSign(false) }}
+        signerName={identity?.name || ''}
+        onSign={handleSigned}
+      />
 
       {error && (
         <div style={{

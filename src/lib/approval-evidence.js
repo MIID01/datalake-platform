@@ -82,6 +82,12 @@ export async function recordApproval({
   parentId,
   requiresDocument = false,
   file = null,
+  // Signature payload — every approval ships with a signature
+  // (drawn / uploaded / typed). signatureBlob is a PNG Blob; signatureMethod
+  // is one of 'draw' | 'upload' | 'type'.
+  signatureBlob = null,
+  signatureMethod = null,
+  signatureTypedName = null,
   identity: explicitIdentity = null,
   label = 'Approve',
   action = 'approved',
@@ -93,6 +99,9 @@ export async function recordApproval({
   }
   if (requiresDocument && !file) {
     throw new Error('A document is required for this approval — upload one first.')
+  }
+  if (!signatureBlob) {
+    throw new Error('A signature is required — draw, upload, or type your signature first.')
   }
 
   const identity = await resolveIdentity(explicitIdentity)
@@ -133,6 +142,27 @@ export async function recordApproval({
     }
   }
 
+  // Signature upload — separate object so it can be displayed independently
+  // (we want the signature thumbnail without forcing a download of the full PDF).
+  const sig_ts = Date.now()
+  const signature_storage_path = `${storagePathPrefix}/${parentCollection}/${parentId}/${sig_ts}_signature.png`
+  const signature_size_bytes = signatureBlob.size || null
+  await uploadBytes(ref(storage, signature_storage_path), signatureBlob, {
+    contentType: signatureBlob.type || 'image/png',
+    customMetadata: {
+      parent_collection: parentCollection,
+      parent_id: parentId,
+      approver_email: identity.email || 'anonymous',
+      signature_method: signatureMethod || 'unknown',
+    },
+  })
+  let signature_url = null
+  try {
+    signature_url = await getDownloadURL(ref(storage, signature_storage_path))
+  } catch {
+    signature_url = null
+  }
+
   const ip = await tryGetIp()
   const user_agent = typeof navigator !== 'undefined' ? navigator.userAgent : null
 
@@ -150,6 +180,11 @@ export async function recordApproval({
     evidence_mime_type,
     evidence_sha256,
     evidence_storage_path,
+    signature_url,
+    signature_storage_path,
+    signature_method: signatureMethod,
+    signature_size_bytes,
+    signature_typed_name: signatureTypedName,
     requires_document: !!requiresDocument,
     label,
     action,
