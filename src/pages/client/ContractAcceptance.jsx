@@ -59,7 +59,7 @@ export default function ContractAcceptance() {
         <div style={{fontSize:'3rem',marginBottom:16}}>✅</div>
         <h2 style={{color:BRAND.green,fontSize:'1.5rem',marginBottom:8}}>Contract Accepted</h2>
         <p style={{color:'rgba(255,255,255,0.7)',maxWidth:400,margin:'0 auto',lineHeight:1.6}}>
-          Welcome to Datalake Information Technology. Your account will be provisioned shortly and you will receive a welcome email.
+          Welcome to Datalake Saudi Arabia LLC. Your account will be provisioned shortly and you will receive a welcome email.
         </p>
       </div>
     </div>
@@ -118,8 +118,14 @@ export default function ContractAcceptance() {
             {state==='submitting'?'Submitting...':'✓ Accept Contract'}
           </button>
         </div>
-        <p style={{textAlign:'center',fontSize:'0.68rem',color:'rgba(255,255,255,0.25)',marginBottom:32}}>
-          PDPL Art. 5 · IP address logged · DTLK-FORM-HRM-001 · Datalake IT · CR: 109194773
+        <p style={{textAlign:'center',fontSize:'0.68rem',color:'rgba(255,255,255,0.25)',marginBottom:8}}>
+          PDPL Art. 5 · IP address logged · DTLK-FORM-HRM-001
+        </p>
+        <p style={{textAlign:'center',fontSize:'0.68rem',color:'rgba(255,255,255,0.3)',marginBottom:4}}>
+          Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952
+        </p>
+        <p style={{textAlign:'center',fontSize:'0.68rem',color:'rgba(255,255,255,0.25)',marginBottom:32,direction:'rtl'}} lang="ar">
+          شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات · شركة ذات مسؤولية محدودة (LLC)
         </p>
       </form>
     </div>

@@ -114,5 +114,5 @@
 
 **Version:** 1.0
 **Effective:** April 27, 2026
-**Owner:** CEO, Datalake Saudi Arabia
+**Owner:** CEO, Datalake Saudi Arabia LLC
 **Classification:** Internal — Operations Plan

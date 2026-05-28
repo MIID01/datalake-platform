@@ -284,8 +284,14 @@ export default function LegalReview() {
         />
       </div>
 
-      <p style={{ textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginBottom: 24 }}>
-        Token-based access · IP &amp; user agent logged · Datalake IT · CR: 109194773
+      <p style={{ textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>
+        Token-based access · IP &amp; user agent logged
+      </p>
+      <p style={{ textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>
+        Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952
+      </p>
+      <p style={{ textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginBottom: 24, direction: 'rtl' }} lang="ar">
+        شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات · شركة ذات مسؤولية محدودة (LLC)
       </p>
 
       <style>{`

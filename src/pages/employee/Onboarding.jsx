@@ -35,10 +35,10 @@ const ITEMS = [
     title: 'Privacy Policy — Data Processing Notice',
     ack: `I confirm that I have read and understood the Datalake Privacy Policy. I understand that my personal data is processed on Google Cloud Platform (me-central2, Dammam) for the purposes described above.`,
     blocks: [
-      { h: `Datalake Saudi Arabia — Privacy Notice for Employees` },
+      { h: `Datalake Saudi Arabia LLC — Privacy Notice for Employees` },
       { p: `Document: DTLK-POL-PRI-001 | Version: 1.0 | Classification: Public` },
-      { h: `1. About Datalake Saudi Arabia` },
-      { p: `Datalake Saudi Arabia ("Datalake," "the Company") is a specialist data infrastructure and staff augmentation firm registered in Riyadh (CR: 109194773). Our primary business is identifying, deploying, and managing engineers at client sites.` },
+      { h: `1. About Datalake Saudi Arabia LLC` },
+      { p: `Datalake Saudi Arabia LLC ("Datalake," "the Company"), a limited liability company (شركة ذات مسؤولية محدودة), is a specialist data infrastructure and staff augmentation firm registered in Riyadh (CR: 1009194773, NUN: 7048904952). Arabic legal name: شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات. Our primary business is identifying, deploying, and managing engineers at client sites.` },
       { h: `2. What personal data we collect` },
       { p: `To fulfill our employment obligations, we collect:` },
       { ul: [
@@ -89,18 +89,18 @@ const ITEMS = [
       ] },
       { p: `To exercise these rights, contact: m.alqumri@datalake.sa` },
       { h: `8. Approval` },
-      { p: `This notice was approved by Mohammed Alqumri, CEO, Datalake Saudi Arabia.` },
+      { p: `This notice was approved by Mohammed Alqumri, CEO, Datalake Saudi Arabia LLC.` },
       { p: `Effective Date: 22 May 2026` },
     ],
   },
   {
     item_id: 'pdpl_consent',
     title: 'Consent to Personal Data Processing (PDPL Article 5)',
-    ack: `I freely and explicitly consent to the processing of my personal data by Datalake Saudi Arabia for the purposes described above, pursuant to PDPL Article 5. I understand that I may withdraw this consent at any time.`,
+    ack: `I freely and explicitly consent to the processing of my personal data by Datalake Saudi Arabia LLC for the purposes described above, pursuant to PDPL Article 5. I understand that I may withdraw this consent at any time.`,
     blocks: [
       { h: `Consent Form — Personal Data Processing` },
-      { p: `Pursuant to the Saudi Personal Data Protection Law (PDPL), Datalake Saudi Arabia requests your explicit consent for the processing of your personal data.` },
-      { p: `Data Controller: Datalake Saudi Arabia, CR: 109194773, Riyadh 13243 Rajeeh Street` },
+      { p: `Pursuant to the Saudi Personal Data Protection Law (PDPL), Datalake Saudi Arabia LLC requests your explicit consent for the processing of your personal data.` },
+      { p: `Data Controller: Datalake Saudi Arabia LLC (شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات), CR: 1009194773, NUN: 7048904952, Riyadh Al-Yarmouk 13243` },
       { h: `Categories of personal data processed:` },
       { ul: [
         `Full name, National ID/Iqama number, contact details`,
@@ -131,7 +131,7 @@ const ITEMS = [
     blocks: [
       { h: `DTLK-POL-HRM-002 | Employee Code of Conduct | Version 1.0` },
       { h: `Preamble` },
-      { p: `The purpose of this Code is to define the ethical and professional standards expected of every person representing Datalake Saudi Arabia ('the Company'). It sets out the conduct principles that govern our work relationships, client interactions, and decision-making processes.` },
+      { p: `The purpose of this Code is to define the ethical and professional standards expected of every person representing Datalake Saudi Arabia LLC ('the Company'). It sets out the conduct principles that govern our work relationships, client interactions, and decision-making processes.` },
       { p: `This Code applies equally to all employees, contractors, and consultants whether working onsite, offshore, or at client premises. It is rooted in Saudi Labour Law, the PDPL, and Datalake's corporate values of Integrity, Reliability, Innovation, and Respect.` },
       { h: `1. Commitment to Ethical Behaviour` },
       { p: `Datalake expects employees to conduct themselves with honesty, fairness, and professionalism. Every action must uphold the reputation of the Company and the trust of our clients and partners. Corruption, bribery, fraud, misrepresentation, or conflicts of interest are strictly prohibited.` },
@@ -139,7 +139,7 @@ const ITEMS = [
       { h: `2. Professional Conduct and Respect` },
       { p: `All employees must treat colleagues, clients, and partners with dignity and respect. Harassment, discrimination, or any form of abusive behaviour is unacceptable. Professional appearance, communication, and punctuality are mandatory across all work environments, whether physical or digital. Conflicts or disagreements must be handled through constructive dialogue or escalation to line management. Retaliation against anyone who raises a concern in good faith will not be tolerated.` },
       { h: `2.1 Employee Representation and Dress Code` },
-      { p: `As representatives of Datalake Saudi Arabia, employees are expected to present a professional, respectful, and culturally appropriate image reflecting both Company standards and the traditions of the Kingdom of Saudi Arabia.` },
+      { p: `As representatives of Datalake Saudi Arabia LLC, employees are expected to present a professional, respectful, and culturally appropriate image reflecting both Company standards and the traditions of the Kingdom of Saudi Arabia.` },
       { h: `General Appearance:` },
       { ul: [
         `Employees shall maintain a clean, professional appearance during working hours, whether on-site, off-site, or at client locations.`,
@@ -202,7 +202,7 @@ const ITEMS = [
     ack: `I confirm that I have read and understand my information security obligations. I agree to comply with the Company's security requirements and to report any security incidents immediately.`,
     blocks: [
       { h: `Your Information Security Obligations` },
-      { p: `As an employee of Datalake Saudi Arabia, you are required to comply with the National Cybersecurity Authority (NCA) Essential Cybersecurity Controls (ECC) and the Company's information security requirements.` },
+      { p: `As an employee of Datalake Saudi Arabia LLC, you are required to comply with the National Cybersecurity Authority (NCA) Essential Cybersecurity Controls (ECC) and the Company's information security requirements.` },
       { h: `1. Access and Authentication` },
       { ul: [
         `Use only your authorized @datalake.sa Google Workspace account to access company systems`,

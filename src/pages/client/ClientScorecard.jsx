@@ -386,7 +386,7 @@ export default function ClientScorecard() {
             PRIVATE & CONFIDENTIAL — PDPL Art. 5 · DTLK-ADR-002
           </p>
           <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.2)', marginTop: '4px' }}>
-            Datalake Information Technology · CR: 109194773 · www.datalake.sa
+            Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952
           </p>
         </div>
       </form>

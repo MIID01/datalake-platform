@@ -539,7 +539,7 @@ export default function Careers() {
           <a href="#">Terms of Service</a>
           <a href="mailto:privacy@datalake.sa">Contact</a>
         </div>
-        <div>Datalake Saudi Arabia, Riyadh 13243 Rajeh Street, CR:109194773</div>
+        <div>Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952</div>
       </footer>
 
       {/* Success Modal */}

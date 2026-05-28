@@ -719,7 +719,7 @@ export default function ClientTimesheetApproval() {
                 padding: '16px 32px', borderTop: '1px solid #eee',
                 textAlign: 'center', fontSize: '0.72rem', color: '#64748b',
               }}>
-                Datalake Saudi Arabia, Riyadh 13243 Rajeh Street, CR:109194773 UEN:7048904952
+                Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952
               </div>
               </>
               )}
