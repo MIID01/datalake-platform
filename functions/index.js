@@ -1,7 +1,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { onMessagePublished } = require("firebase-functions/v2/pubsub");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
 const Busboy = require("busboy");
@@ -3073,4 +3073,39 @@ exports.validateHireBudget = onDocumentCreated(
   { document: "hire_requests/{docId}", region: "me-central2", memory: "256MiB" },
   async (event) => { await validateHireBudgetHandler(event); }
 );
+
+exports.mirrorContractExtraction = onDocumentUpdated(
+  { document: 'pending_hires/{hireId}', region: "me-central2", memory: "256MiB" },
+  async (event) => {
+    const after = event.data.after.data();
+    if (after.contract_extracted_fields && after.contract_extraction_status === 'EXTRACTED') {
+      await db.collection('contracts').doc(event.params.hireId).update({
+        contract_extracted_fields: after.contract_extracted_fields,
+        contract_extraction_status: 'EXTRACTED',
+        contract_extracted_at: after.contract_extracted_at
+      });
+    }
+  }
+);
+
+const enforceEvidence = async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+  if (before.status !== 'APPROVED' && after.status === 'APPROVED') {
+    const snap = await event.data.after.ref.collection('approval_evidence').get();
+    const hasEvidence = snap.docs.some(doc => doc.data().evidence_url);
+    if (!hasEvidence) {
+      console.log(`[Evidence] Rejected APPROVED status for ${event.data.after.ref.path}`);
+      await event.data.after.ref.update({ 
+        status: before.status, 
+        approval_error: 'Missing required approval evidence document' 
+      });
+    }
+  }
+};
+
+exports.enforceEvidenceInvoices = onDocumentUpdated({ document: 'invoices/{docId}', region: "me-central2" }, enforceEvidence);
+exports.enforceEvidencePayroll = onDocumentUpdated({ document: 'payroll/{docId}', region: "me-central2" }, enforceEvidence);
+exports.enforceEvidenceContracts = onDocumentUpdated({ document: 'contracts/{docId}', region: "me-central2" }, enforceEvidence);
+exports.enforceEvidenceVendorAgreements = onDocumentUpdated({ document: 'vendor_agreements/{docId}', region: "me-central2" }, enforceEvidence);
 
