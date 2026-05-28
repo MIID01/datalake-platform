@@ -13,6 +13,19 @@ async function validateExpenseHandler(event) {
     const expense = expenseDoc.data();
 
     // Call routing engine
+    if (expense.receipt_url && !expense.ocr_data) {
+      try {
+        const { callOCR } = require("./lib/ai-client");
+        const ocrResult = await callOCR({ image_url: expense.receipt_url });
+        if (ocrResult) {
+          await expenseDoc.ref.update({ ocr_data: ocrResult });
+          expense.ocr_data = ocrResult;
+        }
+      } catch (ocrErr) {
+        console.warn("OCR failed:", ocrErr);
+      }
+    }
+
     const route = await routeForApproval("expense", expense.engineer_email, { amount: expense.amount || 0, category: expense.category });
     
     await expenseDoc.ref.update({ route });

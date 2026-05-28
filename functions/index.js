@@ -3019,6 +3019,7 @@ exports.whatsappWebhook = onRequest(
 // ==============================================================================
 const { validateLeaveRequestHandler, clientApproveLeaveHandler, approveLeaveHandler, controllerAdjustPayrollHandler } = require("./leave");
 const { validateExpenseHandler, routeTicketHandler } = require("./requests");
+const { resetLeaveBalancesHandler, pdplCandidatePurgeHandler, scanContractExpiryHandler, validateHireBudgetHandler } = require("./hr");
 
 exports.clientApproveLeave = onRequest(
   { region: "me-central2", memory: "256MiB" },
@@ -3048,5 +3049,28 @@ exports.validateExpense = onDocumentCreated(
 exports.routeTicket = onDocumentCreated(
   { document: "support_tickets/{docId}", region: "me-central2", memory: "256MiB" },
   async (event) => { await routeTicketHandler(event); }
+);
+
+// ==============================================================================
+// GATEKEEPER HR CHAIN (PHASE 6)
+// ==============================================================================
+exports.resetLeaveBalances = onSchedule(
+  { schedule: "0 0 1 1 *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await resetLeaveBalancesHandler(); }
+);
+
+exports.pdplCandidatePurge = onSchedule(
+  { schedule: "0 3 * * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await pdplCandidatePurgeHandler(); }
+);
+
+exports.scanContractExpiry = onSchedule(
+  { schedule: "0 9 1 * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await scanContractExpiryHandler(); }
+);
+
+exports.validateHireBudget = onDocumentCreated(
+  { document: "hire_requests/{docId}", region: "me-central2", memory: "256MiB" },
+  async (event) => { await validateHireBudgetHandler(event); }
 );
 
