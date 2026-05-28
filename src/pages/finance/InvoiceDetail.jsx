@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useOutletContext } from 'react-router-dom'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
-import { ArrowLeft, FileText, Loader, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, FileText, Loader, CheckCircle2, ShieldCheck } from 'lucide-react'
+import ApprovalButton from '../../components/ApprovalButton'
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 const STATUS_BADGE = {
   DRAFT: 'badge-info',
+  APPROVED: 'badge-warning',
   SENT: 'badge-warning',
   PAID: 'badge-success',
   OVERDUE: 'badge-critical',
@@ -171,6 +173,45 @@ export default function InvoiceDetail() {
         <div className="card" style={{ marginBottom: 20 }}>
           <h3 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: 8 }}>Notes</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{invoice.notes}</p>
+        </div>
+      )}
+
+      {/* Approval — only shown for DRAFT invoices. requires a signed PDF
+          (the printed-and-signed invoice). On evidence write, flip the invoice
+          to APPROVED so the Pub/Sub chain (Zoho sync, ZATCA XML) fires. */}
+      {status === 'DRAFT' && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <ShieldCheck size={16} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>CEO / Finance Approval</h3>
+          </div>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)', marginBottom: 14 }}>
+            Upload the countersigned invoice PDF. The file is hashed (SHA-256), stored
+            in the evidence bucket, and a row is written under
+            <code style={{ fontFamily: 'var(--font-mono)', marginLeft: 4 }}>invoices/{invoice.id}/approval_evidence</code>.
+          </p>
+          <ApprovalButton
+            parentCollection="invoices"
+            parentId={invoice.id}
+            requiresDocument={true}
+            label="Approve Invoice"
+            variant="success"
+            extra={{
+              invoice_number: invoice.invoice_number || invoice.id,
+              total: invoice.total || null,
+              client_name: invoice.client_name || null,
+            }}
+            onApproved={async (evidence) => {
+              await updateDoc(doc(db, 'invoices', invoice.id), {
+                status: 'APPROVED',
+                approved_at: serverTimestamp(),
+                approved_by: evidence.approver_email,
+                approval_evidence_id: evidence.id,
+                approval_evidence_sha256: evidence.evidence_sha256,
+                updated_at: serverTimestamp(),
+              })
+            }}
+          />
         </div>
       )}
 

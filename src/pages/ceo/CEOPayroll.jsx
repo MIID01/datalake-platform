@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
-import { DollarSign, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Clock, ShieldCheck } from 'lucide-react'
+import ApprovalButton from '../../components/ApprovalButton'
 
 export default function CEOPayroll() {
   const [timesheets, setTimesheets] = useState([])
   const [projects, setProjects] = useState([])
   const [employees, setEmployees] = useState([])
+  const [draftRuns, setDraftRuns] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -28,7 +30,14 @@ export default function CEOPayroll() {
       checkLoaded()
     }, err => console.warn(err))
 
-    return () => { unsubTs(); unsubProj(); unsubEmp(); }
+    // DRAFT payroll runs awaiting CEO sign-off.
+    const unsubRuns = onSnapshot(
+      query(collection(db, 'payroll_runs'), where('status', '==', 'DRAFT')),
+      snap => setDraftRuns(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      err => console.warn(err),
+    )
+
+    return () => { unsubTs(); unsubProj(); unsubEmp(); unsubRuns(); }
   }, [])
 
   const { payrollData, summary } = useMemo(() => {
@@ -78,7 +87,65 @@ export default function CEOPayroll() {
   return (
     <div>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 24 }}>Payroll & WPS Management</h1>
-      
+
+      {/* DRAFT payroll runs — CEO approval section. requires a signed payroll
+          authorization PDF (so we have countersigned evidence the run was
+          authorised before WPS transmission). */}
+      {draftRuns.length > 0 && (
+        <div className="card" style={{ marginBottom: 24, borderLeft: '3px solid var(--amber)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <ShieldCheck size={16} color="var(--amber)" />
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>
+              Payroll Runs Awaiting CEO Approval
+              <span style={{ marginLeft: 8, fontSize: '0.78rem', color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                ({draftRuns.length})
+              </span>
+            </h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {draftRuns.map(run => (
+              <div key={run.id} style={{ padding: 16, border: '1px solid var(--border-primary)', borderRadius: 10, background: 'var(--bg-surface)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>
+                      {run.period || run.month || run.id}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 3 }}>
+                      {(run.employee_count != null ? `${run.employee_count} employees · ` : '')}
+                      SAR {Number(run.total_gross || run.total || 0).toLocaleString()} gross
+                      {run.total_net != null ? ` · SAR ${Number(run.total_net).toLocaleString()} net` : ''}
+                    </div>
+                  </div>
+                  <span className="badge badge-info">DRAFT</span>
+                </div>
+                <ApprovalButton
+                  parentCollection="payroll_runs"
+                  parentId={run.id}
+                  requiresDocument={true}
+                  label="Approve Payroll Run"
+                  variant="ceo"
+                  extra={{
+                    period: run.period || run.month || null,
+                    employee_count: run.employee_count || null,
+                    total_gross: run.total_gross || run.total || null,
+                  }}
+                  onApproved={async (evidence) => {
+                    await updateDoc(doc(db, 'payroll_runs', run.id), {
+                      status: 'APPROVED',
+                      approved_at: serverTimestamp(),
+                      approved_by: evidence.approver_email,
+                      approval_evidence_id: evidence.id,
+                      approval_evidence_sha256: evidence.evidence_sha256,
+                      updated_at: serverTimestamp(),
+                    })
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid-3" style={{ marginBottom: 28 }}>
         <div className="stat-card" style={{ '--stat-accent': 'var(--sky-blue)' }}>
           <div className="stat-label">Total Gross Pay</div>

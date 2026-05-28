@@ -9,6 +9,7 @@ import {
   ScaleIcon, CheckCircle2, XCircle, Loader, AlertTriangle, FileText,
   MessageSquare, ShieldCheck,
 } from 'lucide-react'
+import ApprovalButton from '../../components/ApprovalButton'
 
 // Mirrors HRContracts.jsx FIELD_SPECS — keep in sync.
 const FIELD_SPECS = [
@@ -254,19 +255,29 @@ export default function LegalReview() {
           >
             {state === 'submitting' ? <Loader size={14} className="spin" /> : <XCircle size={14} />} Flag Issues
           </button>
-          <button
-            onClick={() => decide('approve')}
-            disabled={state === 'submitting'}
-            style={{
-              padding: '12px 26px', borderRadius: 8, border: 'none',
-              background: BRAND.green, color: '#fff', fontSize: '0.95rem', fontWeight: 700,
-              fontFamily: 'inherit', cursor: state === 'submitting' ? 'not-allowed' : 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-            }}
-          >
-            {state === 'submitting' ? <Loader size={14} className="spin" /> : <CheckCircle2 size={14} />} Approve Contract
-          </button>
         </div>
+      </div>
+
+      {/* Approval evidence — captures approver identity + signed timestamp.
+          The contract PDF is already in the WORM bucket from the HR upload step,
+          so requiresDocument is false here; an evidence row is still recorded under
+          contracts/{id}/approval_evidence so the audit chain is complete. */}
+      <div style={{ ...card, padding: 22 }}>
+        <ApprovalButton
+          parentCollection="contracts"
+          parentId={contractId}
+          requiresDocument={false}
+          label="Approve Contract"
+          variant="success"
+          identity={{
+            email: 'legal@external',
+            name: 'External Legal Counsel',
+            role: 'legal:external',
+          }}
+          extra={{ comment: comment.trim() || null, review_token_used: true }}
+          onApproved={async () => { await decide('approve') }}
+          disabled={state === 'submitting'}
+        />
       </div>
 
       <p style={{ textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', marginBottom: 24 }}>
