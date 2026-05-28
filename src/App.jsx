@@ -14,6 +14,8 @@ import FinanceLayout, {
   FinanceDashboardPage, FinanceInvoicesPage, FinanceExpensesPage,
   FinanceReportsPage, FinancePayrollPage,
 } from './layouts/FinanceLayout'
+import InvoiceBuilder from './pages/finance/InvoiceBuilder'
+import InvoiceDetail from './pages/finance/InvoiceDetail'
 
 // IT Administration portal
 import AdminCredentials from './pages/admin/Credentials'
@@ -128,6 +130,8 @@ export default function App() {
         <Route path="/finance" element={<FinanceLayout />}>
           <Route index element={<FinanceDashboardPage />} />
           <Route path="invoices" element={<FinanceInvoicesPage />} />
+          <Route path="invoices/new" element={<InvoiceBuilder />} />
+          <Route path="invoices/:invoiceId" element={<InvoiceDetail />} />
           <Route path="payroll" element={<FinancePayrollPage />} />
           <Route path="expenses" element={<FinanceExpensesPage />} />
           <Route path="reports" element={<FinanceReportsPage />} />

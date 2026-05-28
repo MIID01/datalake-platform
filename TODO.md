@@ -4,12 +4,6 @@ Priority order. "Active" = work on these now; "Parked" = blocked on a dependency
 
 ## Active Tasks (work on these)
 
-### T1: Invoice Builder Page
-Build `/finance/invoices` composition flow (or `/ceo/finance/new-invoice`) with manual line-item composition.
-Finance/CEO sees `CLIENT_SIGNED` timesheets, can add/remove engineers, adjust descriptions, select PO.
-Auto-calculates subtotal + 15% VAT. Calls `generateInvoice` on submit.
-Branch `parked/finance-invoice-wiring` has the auto-generation code — redesign with a composition step.
-
 ### T2: Remaining mock-data cleanup (most done — see Done)
 - **Finance Cash Flow** — replace `baseCash=0` with a real forecast from the `recalculateForecast` function. ⏸ deferred: overlaps the in-flight finance backend work on `feature/controller-finance`.
 - **AI Operations** — replace the `setTimeout` fake "Running" status with real Cloud Run health pings. ⏸ deferred: browser→Cloud Run health pings need an unauthenticated health endpoint + CORS; random errorCount already removed.
@@ -39,3 +33,4 @@ Needs the Payroll Procedure document (Phase 6) first. Build the WPS file format 
 - **Docs**: `docs/rollback.md` (hosting / Cloud Run / rules / git-tag rollback)
 - **Storage scoping**: `employee-photos` writes scoped to the owning employee (filename `{employee_id}` must match the caller's record; CEO/HR override)
 - **More mock removed**: Compliance "Upcoming Deadlines" → real `compliance.deadlines` field + empty state; Contracts "Proposal Audit Trail" → real `proposal_reviews` collection (rules added) + empty state
+- **T1 — Invoice Builder**: `/finance/invoices/new` composition page (timesheet picker → editable line items, live 15% VAT) calling `generateInvoice` with the Phase-5 composed payload (`client_id`, `po_number`, `timesheet_ids[]`); new `/finance/invoices/:invoiceId` detail page with live Firestore subscription and Zoho/ZATCA status badges (those fire automatically via Pub/Sub on `datalake.invoice.approved` — T5/T6 wiring lives in `11a7f0f`). FinanceInvoices "New Invoice" button + row click route to the real pages; placeholder modals removed. Backend role check is still CEO-only — Finance role gets a clear 403 message until the check widens.
