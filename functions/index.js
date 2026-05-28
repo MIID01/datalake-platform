@@ -2942,4 +2942,74 @@ exports.generateGOSIReport = onMessagePublished(
   async (event) => { await generateGOSIReportHandler(event); }
 );
 
+// ═══════════════════════════════════════════════════════════════════
+// Phase 9: INTELLIGENCE PLATFORM (Multi-Tenant Integrations)
+// ═══════════════════════════════════════════════════════════════════
+const { saveIntegrationConfigHandler, getIntegrationConfigHandler } = require("./integrations");
+
+exports.saveIntegrationConfig = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => saveIntegrationConfigHandler(req, res, hireHelpers)
+);
+
+exports.getIntegrationConfig = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => getIntegrationConfigHandler(req, res, hireHelpers)
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 9: TELEPHONY ENGINE
+// ═══════════════════════════════════════════════════════════════════
+const { handleIncomingCallHandler, handleCallCompletedHandler, transcribeCallHandler, analyzeCallHandler } = require("./telephony");
+
+exports.handleIncomingCall = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true }, // Webhooks need open cors
+  (req, res) => handleIncomingCallHandler(req, res)
+);
+
+exports.handleCallCompleted = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
+  (req, res) => handleCallCompletedHandler(req, res)
+);
+
+exports.transcribeCall = onMessagePublished(
+  { topic: "datalake.call.completed", region: "me-central2", memory: "1GiB" },
+  async (event) => { await transcribeCallHandler(event); }
+);
+
+exports.analyzeCall = onMessagePublished(
+  { topic: "datalake.call.transcribed", region: "me-central2", memory: "512MiB" },
+  async (event) => { await analyzeCallHandler(event); }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 9: EMAIL SYNC ENGINE
+// ═══════════════════════════════════════════════════════════════════
+const { syncEmailsHandler, analyzeEmailHandler } = require("./email");
+
+exports.syncEmails = onSchedule(
+  {
+    schedule: "every 5 minutes",
+    region: "me-central2",
+    memory: "512MiB",
+    timeoutSeconds: 300,
+  },
+  async () => { await syncEmailsHandler(); }
+);
+
+exports.analyzeEmail = onMessagePublished(
+  { topic: "datalake.email.synced", region: "me-central2", memory: "512MiB" },
+  async (event) => { await analyzeEmailHandler(event); }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 9: WHATSAPP ENGINE
+// ═══════════════════════════════════════════════════════════════════
+const { whatsappWebhookHandler } = require("./whatsapp");
+
+exports.whatsappWebhook = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true }, // Open cors for Meta
+  (req, res) => whatsappWebhookHandler(req, res)
+);
+
 
