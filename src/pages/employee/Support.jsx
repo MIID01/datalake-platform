@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
-import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, serverTimestamp, orderBy, arrayUnion } from 'firebase/firestore'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, serverTimestamp, arrayUnion } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../../lib/firebase'
-import { Plus, Send, CheckCircle, Clock, MessageSquare, X, AlertTriangle, Loader, Inbox, Paperclip } from 'lucide-react'
+import { loadApprovalContext, describeTicketAssignee } from '../../lib/approval-routing'
+import { Plus, Send, CheckCircle, Clock, X, AlertTriangle, Loader, Inbox, Paperclip, Users } from 'lucide-react'
 
 const CATEGORIES = ['Payroll / Salary', 'IT / Access Issues', 'Leave / HR', 'Contract / Legal', 'Client Conflict', 'Housing / Travel', 'Health & Safety', 'Other']
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
@@ -22,6 +23,7 @@ export default function Support() {
   const [attachment, setAttachment] = useState(null)
   const [userEmail, setUserEmail] = useState(null)
   const [userName, setUserName] = useState('')
+  const [approvalContext, setApprovalContext] = useState(null)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -30,6 +32,20 @@ export default function Support() {
     })
     return () => unsub()
   }, [])
+
+  useEffect(() => {
+    if (!userEmail) return
+    let cancelled = false
+    loadApprovalContext({ email: userEmail })
+      .then(ctx => { if (!cancelled) setApprovalContext(ctx) })
+      .catch(() => { if (!cancelled) setApprovalContext(null) })
+    return () => { cancelled = true }
+  }, [userEmail])
+
+  const assigneeInfo = useMemo(
+    () => describeTicketAssignee(approvalContext, { category: form.category }),
+    [approvalContext, form.category],
+  )
 
   useEffect(() => {
     if (!userEmail) return
@@ -81,7 +97,9 @@ export default function Support() {
         engineer_name: userName,
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
-        assigned_to: null,
+        assigned_to: assigneeInfo.assignee?.name || null,
+        assigned_role: assigneeInfo.role || null,
+        routing: { role: assigneeInfo.role || null, assignee: assigneeInfo.assignee || null },
         resolved_at: null,
         thread: [{
           sender: 'user',
@@ -206,6 +224,19 @@ export default function Support() {
               {attachment && <button className="btn-icon" onClick={() => setAttachment(null)}><X size={16} /></button>}
             </div>
           </div>
+          {/* Assignee hint — derived from category */}
+          {approvalContext && assigneeInfo.message && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 8, marginBottom: 16,
+              background: 'rgba(21,152,204,0.08)',
+              border: '1px solid rgba(21,152,204,0.2)',
+              fontSize: '0.82rem', color: '#1598CC',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <Users size={15} />
+              <span>{assigneeInfo.message}</span>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
             <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>

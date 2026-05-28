@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth } from '../../lib/firebase'
-import { Plus, CheckCircle, AlertTriangle, Loader, Receipt, DollarSign } from 'lucide-react'
+import { loadApprovalContext, describeExpenseApprover } from '../../lib/approval-routing'
+import { Plus, CheckCircle, AlertTriangle, Loader, Receipt, Users } from 'lucide-react'
 
 const CATEGORIES = ['Transportation', 'Meals', 'Accommodation', 'Office Supplies', 'Communication', 'Client Entertainment', 'Equipment', 'Training', 'Other']
 const STATUS_CONFIG = {
@@ -24,7 +25,6 @@ export default function Expenses() {
     date: new Date().toISOString().slice(0, 10),
     category: CATEGORIES[0],
     amount: '',
-    amount: '',
     description: '',
     billable: false,
   })
@@ -32,6 +32,7 @@ export default function Expenses() {
 
   const [userEmail, setUserEmail] = useState(null)
   const [userName, setUserName] = useState('')
+  const [approvalContext, setApprovalContext] = useState(null)
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(user => {
@@ -39,6 +40,15 @@ export default function Expenses() {
     })
     return () => unsub()
   }, [])
+
+  useEffect(() => {
+    if (!userEmail) return
+    let cancelled = false
+    loadApprovalContext({ email: userEmail })
+      .then(ctx => { if (!cancelled) setApprovalContext(ctx) })
+      .catch(() => { if (!cancelled) setApprovalContext(null) })
+    return () => { cancelled = true }
+  }, [userEmail])
 
   useEffect(() => {
     if (!userEmail) return
@@ -66,6 +76,11 @@ export default function Expenses() {
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
   [expenses])
 
+  const approverInfo = useMemo(
+    () => describeExpenseApprover(approvalContext, { amount: form.amount, category: form.category }),
+    [approvalContext, form.amount, form.category],
+  )
+
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 4000)
   }
@@ -88,6 +103,7 @@ export default function Expenses() {
         receiptUrl = await getDownloadURL(fileRef)
       }
 
+      const isAuto = approverInfo.level === 'auto'
       await addDoc(collection(db, 'expenses'), {
         expense_id: expId,
         date: form.date,
@@ -95,14 +111,23 @@ export default function Expenses() {
         amount,
         description: form.description,
         billable: form.billable,
-        status: 'SUBMITTED',
-        approval_level: amount > 500 ? 'CEO' : 'PM',
+        status: isAuto ? 'APPROVED' : 'SUBMITTED',
+        approval_level: (approverInfo.level || 'pm').toUpperCase(),
+        routing: {
+          level: approverInfo.level || null,
+          approver: approverInfo.approver || null,
+          project_id: approvalContext?.project?.project_id || null,
+          datalake_pm: approvalContext?.datalakePm
+            ? { name: approvalContext.datalakePm.name, email: approvalContext.datalakePm.email, uid: approvalContext.datalakePm.uid || null }
+            : null,
+        },
+        approval_history: [],
         engineer_email: userEmail,
         engineer_name: userName,
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
-        approved_by: null,
-        approved_at: null,
+        approved_by: isAuto ? 'system:auto' : null,
+        approved_at: isAuto ? serverTimestamp() : null,
         reimbursed_at: null,
         receipt_url: receiptUrl,
         rejection_reason: null,
@@ -214,13 +239,32 @@ export default function Expenses() {
               </div>
             </div>
           </div>
-          {form.amount && Number(form.amount) > 500 && (
+          {/* Live approver hint — updates as user types the amount */}
+          {approvalContext && approverInfo.message && (
             <div style={{
-              padding: '8px 14px', borderRadius: 8, marginBottom: 16,
-              background: 'rgba(243,156,18,0.08)', border: '1px solid rgba(243,156,18,0.2)',
-              fontSize: '0.82rem', color: '#F39C12',
+              padding: '10px 14px', borderRadius: 8, marginBottom: 16,
+              background: approverInfo.level === 'auto'
+                ? 'rgba(52,191,58,0.08)'
+                : approverInfo.level === 'ceo'
+                  ? 'rgba(192,57,43,0.08)'
+                  : 'rgba(21,152,204,0.08)',
+              border: `1px solid ${
+                approverInfo.level === 'auto'
+                  ? 'rgba(52,191,58,0.25)'
+                  : approverInfo.level === 'ceo'
+                    ? 'rgba(192,57,43,0.25)'
+                    : 'rgba(21,152,204,0.2)'
+              }`,
+              fontSize: '0.82rem',
+              color: approverInfo.level === 'auto'
+                ? '#1f7a2a'
+                : approverInfo.level === 'ceo'
+                  ? '#C0392B'
+                  : '#1598CC',
+              display: 'flex', alignItems: 'center', gap: 8,
             }}>
-              ⚠️ Expenses over SAR 500 require Management approval
+              <Users size={15} />
+              <span>{approverInfo.message}</span>
             </div>
           )}
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>

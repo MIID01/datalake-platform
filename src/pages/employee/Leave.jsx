@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, orderBy } from 'firebase/firestore'
 import { db, auth } from '../../lib/firebase'
-import { Plus, Calendar, CheckCircle, X, Clock, AlertTriangle, FileText, Loader } from 'lucide-react'
+import { loadApprovalContext, describeLeaveApprover } from '../../lib/approval-routing'
+import { Plus, Calendar, CheckCircle, AlertTriangle, FileText, Loader, Users } from 'lucide-react'
 
 // Saudi Labor Law leave entitlements (defaults)
 const LEAVE_TYPES = [
@@ -52,6 +53,10 @@ function calcWorkingDays(startDate, endDate) {
 
 const STATUS_COLORS = {
   PENDING: { bg: 'rgba(243,156,18,0.12)', color: '#F39C12', label: 'Pending' },
+  SUBMITTED: { bg: 'rgba(243,156,18,0.12)', color: '#F39C12', label: 'Submitted' },
+  CLIENT_PENDING: { bg: 'rgba(21,152,204,0.12)', color: '#1598CC', label: 'Awaiting Client PM' },
+  CLIENT_APPROVED: { bg: 'rgba(21,152,204,0.18)', color: '#0e6b8f', label: 'Awaiting Datalake PM' },
+  PM_APPROVED: { bg: 'rgba(21,152,204,0.22)', color: '#0e6b8f', label: 'Awaiting HR' },
   APPROVED: { bg: 'rgba(52,191,58,0.12)', color: '#34BF3A', label: 'Approved' },
   REJECTED: { bg: 'rgba(192,57,43,0.12)', color: '#C0392B', label: 'Rejected' },
   CANCELLED: { bg: 'rgba(120,144,156,0.12)', color: '#78909C', label: 'Cancelled' },
@@ -66,6 +71,7 @@ export default function Leave() {
   const [toast, setToast] = useState(null)
   const [userEmail, setUserEmail] = useState(null)
   const [userName, setUserName] = useState('')
+  const [approvalContext, setApprovalContext] = useState(null)
   const [form, setForm] = useState({
     type: 'annual', start_date: '', end_date: '', reason: '', handover_notes: '',
   })
@@ -77,6 +83,16 @@ export default function Leave() {
     })
     return () => unsub()
   }, [])
+
+  // Resolve approver chain for this user (their current project's PMs, or HR/CEO fallback)
+  useEffect(() => {
+    if (!userEmail) return
+    let cancelled = false
+    loadApprovalContext({ email: userEmail })
+      .then(ctx => { if (!cancelled) setApprovalContext(ctx) })
+      .catch(() => { if (!cancelled) setApprovalContext(null) })
+    return () => { cancelled = true }
+  }, [userEmail])
 
   // Load leave requests for this user
   useEffect(() => {
@@ -119,6 +135,10 @@ export default function Leave() {
   }, [requests])
 
   const workingDays = useMemo(() => calcWorkingDays(form.start_date, form.end_date), [form.start_date, form.end_date])
+  const approverInfo = useMemo(
+    () => describeLeaveApprover(approvalContext, { type: form.type, workingDays }),
+    [approvalContext, form.type, workingDays],
+  )
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -150,14 +170,19 @@ export default function Leave() {
     }
 
     // Determine approval flow
-    let approvalNote = ''
-    if (form.type === 'emergency') approvalNote = 'Auto-approved. Management notified.'
-    else if (form.type === 'sick' && workingDays <= 2) approvalNote = 'Sick ≤2 days — auto-approved with medical certificate.'
+    const isAutoApproved = approverInfo.autoApproved === true
+    const approvalNote = isAutoApproved ? approverInfo.message : null
+    // Initial status by routing path:
+    //   deployed engineer (chain starts with client_pm) → CLIENT_PENDING
+    //   internal (chain starts with HR) or CEO-only types → SUBMITTED
+    const firstStep = approverInfo.chain?.[0]?.role
+    const initialStatus = isAutoApproved
+      ? 'APPROVED'
+      : firstStep === 'client_pm' ? 'CLIENT_PENDING' : 'SUBMITTED'
 
     setSubmitting(true)
     try {
       const leaveId = `LR-${Date.now()}-${Math.floor(Math.random() * 1000)}`
-      const isAutoApproved = form.type === 'emergency' || (form.type === 'sick' && workingDays <= 2)
 
       await addDoc(collection(db, 'leave_requests'), {
         leave_id: leaveId,
@@ -170,8 +195,18 @@ export default function Leave() {
         working_days: workingDays,
         reason: form.reason,
         handover_notes: form.handover_notes || null,
-        status: isAutoApproved ? 'APPROVED' : 'PENDING',
+        status: initialStatus,
         approval_note: approvalNote || null,
+        // Snapshot of who this is being routed to — backend uses this to drive notifications + UI shows it back to the engineer
+        routing: {
+          chain: approverInfo.chain || [],
+          client_pm: approvalContext?.clientPm || null,
+          datalake_pm: approvalContext?.datalakePm
+            ? { name: approvalContext.datalakePm.name, email: approvalContext.datalakePm.email, uid: approvalContext.datalakePm.uid || null }
+            : null,
+          project_id: approvalContext?.project?.project_id || null,
+        },
+        approval_history: [],
         approved_by: isAutoApproved ? 'system:auto' : null,
         approved_at: isAutoApproved ? serverTimestamp() : null,
         created_at: serverTimestamp(),
@@ -319,6 +354,20 @@ export default function Leave() {
               onChange={e => setForm(p => ({ ...p, handover_notes: e.target.value }))}
               placeholder="Who covers your responsibilities during absence?" />
           </div>
+
+          {/* Approver hint — explains who will see this request */}
+          {approvalContext && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 8, marginBottom: 16,
+              background: approverInfo.autoApproved ? 'rgba(52,191,58,0.08)' : 'rgba(21,152,204,0.08)',
+              border: `1px solid ${approverInfo.autoApproved ? 'rgba(52,191,58,0.25)' : 'rgba(21,152,204,0.2)'}`,
+              fontSize: '0.82rem', color: approverInfo.autoApproved ? '#1f7a2a' : '#1598CC',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <Users size={15} />
+              <span>{approverInfo.message}</span>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
             <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
