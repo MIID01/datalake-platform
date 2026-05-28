@@ -3017,13 +3017,8 @@ exports.whatsappWebhook = onRequest(
 // ==============================================================================
 // APPROVAL ROUTING AND NOTIFICATIONS
 // ==============================================================================
-const { submitLeaveRequestHandler, validateLeaveRequestHandler, clientApproveLeaveHandler, approveLeaveHandler, controllerAdjustPayrollHandler } = require("./leave");
-const { validateExpenseHandler, submitTicketHandler } = require("./requests");
-
-exports.submitLeaveRequest = onRequest(
-  { region: "me-central2", memory: "256MiB" },
-  (req, res) => submitLeaveRequestHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
-);
+const { validateLeaveRequestHandler, clientApproveLeaveHandler, approveLeaveHandler, controllerAdjustPayrollHandler } = require("./leave");
+const { validateExpenseHandler, routeTicketHandler } = require("./requests");
 
 exports.clientApproveLeave = onRequest(
   { region: "me-central2", memory: "256MiB" },
@@ -3035,8 +3030,8 @@ exports.approveLeave = onRequest(
   (req, res) => approveLeaveHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
 );
 
-exports.validateLeaveRequest = onMessagePublished(
-  { topic: "datalake.leave.requested", region: "me-central2", memory: "256MiB" },
+exports.validateLeaveRequest = onDocumentCreated(
+  { document: "leave_requests/{docId}", region: "me-central2", memory: "256MiB" },
   async (event) => { await validateLeaveRequestHandler(event); }
 );
 
@@ -3045,13 +3040,13 @@ exports.controllerAdjustPayroll = onMessagePublished(
   async (event) => { await controllerAdjustPayrollHandler(event); }
 );
 
-exports.validateExpense = onRequest(
-  { region: "me-central2", memory: "256MiB" },
-  (req, res) => validateExpenseHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
+exports.validateExpense = onDocumentCreated(
+  { document: "expenses/{docId}", region: "me-central2", memory: "256MiB" },
+  async (event) => { await validateExpenseHandler(event); }
 );
 
-exports.submitTicket = onRequest(
-  { region: "me-central2", memory: "256MiB" },
-  (req, res) => submitTicketHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
+exports.routeTicket = onDocumentCreated(
+  { document: "support_tickets/{docId}", region: "me-central2", memory: "256MiB" },
+  async (event) => { await routeTicketHandler(event); }
 );
 

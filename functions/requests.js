@@ -4,27 +4,16 @@ const { notify } = require("./notifications");
 
 const db = admin.firestore();
 
-// 1. validateExpense — HTTP
-async function validateExpenseHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+// 1. validateExpense ?" Firestore Trigger onDocumentCreated
+async function validateExpenseHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const { expense_id } = req.body;
-    if (!expense_id) return res.status(400).json({ error: "expense_id required" });
-
-    const expenseDoc = await db.collection("expenses").doc(expense_id).get();
-    if (!expenseDoc.exists) return res.status(404).json({ error: "Not found" });
+    const expenseDoc = event.data;
+    if (!expenseDoc) return;
+    const expense_id = event.params.docId;
     const expense = expenseDoc.data();
 
     // Call routing engine
-    const route = await routeForApproval("expense", expense.employee_id, { amount: expense.amount || 0, category: expense.category });
+    const route = await routeForApproval("expense", expense.engineer_email, { amount: expense.amount || 0, category: expense.category });
     
     await expenseDoc.ref.update({ route });
 
@@ -36,67 +25,44 @@ async function validateExpenseHandler(req, res, { verifyAuth, getUserAccessProfi
       await expenseDoc.ref.update({ status: "PENDING_APPROVAL", current_approver: approver });
       await notify(approver, "expense_requires_approval", { expense_id });
     }
-    return res.status(200).json({ success: true, route });
   } catch (err) {
     console.error("validateExpense error:", err);
-    return res.status(500).json({ error: "Internal server error" });
   }
 }
 
-// 2. submitTicket — HTTP
-async function submitTicketHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(204).send("");
-  }
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
+// 2. routeTicket ?" Firestore Trigger onDocumentCreated
+async function routeTicketHandler(event) {
   try {
-    const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
-    const { title, category, description } = req.body;
-    if (!title || !category) return res.status(400).json({ error: "Missing fields" });
-
-    const ticketRef = db.collection("tickets").doc();
-    const ticketData = {
-      emp_id: profile.uid,
-      emp_email: profile.email,
-      title,
-      category,
-      description,
-      status: "OPEN",
-      created_at: admin.firestore.FieldValue.serverTimestamp()
-    };
+    const ticketDoc = event.data;
+    if (!ticketDoc) return;
+    const ticket_id = event.params.docId;
+    const ticket = ticketDoc.data();
 
     // Call routing engine
-    const route = await routeForApproval("ticket", profile.uid, { category });
-    ticketData.route = route;
-
+    const route = await routeForApproval("ticket", ticket.engineer_email, { category: ticket.category });
+    
     const assigned_to = route.assign_to || route.fallback || "it_admin";
-    ticketData.assigned_to = assigned_to;
 
-    await ticketRef.set(ticketData);
+    await ticketDoc.ref.update({
+      route,
+      assigned_to
+    });
 
-    await notify(assigned_to, "ticket_assigned", { ticket_id: ticketRef.id });
+    await notify(assigned_to, "ticket_assigned", { ticket_id, subject: ticket.subject });
     
     if (route.escalate_to) {
-      await notify(route.escalate_to, "ticket_escalated", { ticket_id: ticketRef.id });
+      await notify(route.escalate_to, "ticket_escalated", { ticket_id, subject: ticket.subject });
     }
 
     if (route.notify) {
-      for (const n of route.notify) await notify(n, "ticket_created", { ticket_id: ticketRef.id });
+      for (const n of route.notify) await notify(n, "ticket_created", { ticket_id, subject: ticket.subject });
     }
-
-    return res.status(200).json({ success: true, ticket_id: ticketRef.id });
   } catch (err) {
-    console.error("submitTicket error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error("routeTicket error:", err);
   }
 }
 
 module.exports = {
   validateExpenseHandler,
-  submitTicketHandler
+  routeTicketHandler
 };

@@ -1,12 +1,22 @@
 const admin = require("firebase-admin");
+const { google } = require("googleapis");
 const { logToBigQuery } = require("./lib/bigquery");
 const db = admin.firestore();
+
+async function getGmailClient() {
+  const auth = new google.auth.GoogleAuth({
+    scopes: ["https://www.googleapis.com/auth/gmail.send"],
+    clientOptions: { subject: "hr@datalake.sa" }
+  });
+  const client = await auth.getClient();
+  return google.gmail({ version: "v1", auth: client });
+}
 
 async function getUsersWithRole(roleId) {
   // Common roles: 'ceo', 'hr', 'finance', 'it_admin'
   const snap = await db.collection("users")
     .where("role_id", "==", roleId)
-    .where("active", "==", true)
+    .where("status", "==", "active")
     .get();
   
   return snap.empty ? [] : snap.docs.map(doc => ({ id: doc.id, email: doc.data().email }));
@@ -56,12 +66,40 @@ async function notify(recipientRoleOrId, notificationType, data) {
       // 2. Urgent / Email / SMS routing
       const priority = data.priority || "NORMAL";
       if (priority === "CRITICAL" || recipientRoleOrId.includes("@")) {
-        // Mock sending email
-        console.log(`[NotificationEngine] Sending EMAIL to ${recipient.email}: [${notificationType}]`);
+        try {
+          const gmail = await getGmailClient();
+          const subject = `Datalake Notification: ${notificationType}`;
+          const body = `You have a new notification: ${notificationType}\nDetails: ${JSON.stringify(data, null, 2)}`;
+          
+          const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+          const messageParts = [
+            `From: hr@datalake.sa`,
+            `To: ${recipient.email}`,
+            `Subject: ${utf8Subject}`,
+            `MIME-Version: 1.0`,
+            `Content-Type: text/plain; charset=utf-8`,
+            '',
+            body
+          ];
+          const rawMessage = messageParts.join('\n');
+          const encodedMessage = Buffer.from(rawMessage)
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+            
+          await gmail.users.messages.send({
+            userId: "me",
+            requestBody: { raw: encodedMessage }
+          });
+          console.log(`[NotificationEngine] Sent EMAIL to ${recipient.email}`);
+        } catch (emailErr) {
+          console.error(`[NotificationEngine] Failed to send EMAIL to ${recipient.email}:`, emailErr);
+        }
         
-        // Mock sending SMS if critical
         if (priority === "CRITICAL") {
-          console.log(`[NotificationEngine] Sending SMS to ${recipient.email} (via profile phone)`);
+          // TODO: Implement actual SMS sending
+          console.log(`[NotificationEngine] [TODO: SMS] Send SMS to ${recipient.email}`);
         }
       }
 
