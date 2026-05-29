@@ -26,8 +26,17 @@ export default function Talent() {
 
   useEffect(() => {
     try {
+      // Read every employee, then filter out only the terminated / archived ones in
+      // the join below. The previous filter required `e.status === 'active'`, but
+      // the employees collection uses `employment_status`, so Section A was empty.
       const unsubEmp = onSnapshot(collection(db, 'employees'), snap => {
-        setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.status === 'active'))
+        setEmployees(
+          snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => {
+            if (e.archived) return false
+            const st = (e.employment_status || e.status || '').toString().toUpperCase()
+            return st !== 'TERMINATED' && st !== 'PENDING_OFFBOARDING'
+          })
+        )
       })
       const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
         const m = {}; snap.docs.forEach(d => m[d.id] = d.data()); setUsersMap(m)
@@ -43,10 +52,21 @@ export default function Talent() {
   }, [])
 
   const currentEmployees = useMemo(() => {
+    // The users collection key is the uid. employees rows can be keyed by uid OR
+    // by employee_id (DLSA1003-style). Walk users once to build a by-email map so
+    // we can match employees that aren't keyed by uid.
+    const byEmail = {}
+    Object.entries(usersMap).forEach(([uid, u]) => {
+      if (u.email) byEmail[String(u.email).toLowerCase()] = { uid, ...u }
+    })
+
     return employees.map(emp => {
-      const u = usersMap[emp.id] || {}
+      const u = usersMap[emp.id]
+        || (emp.uid && usersMap[emp.uid])
+        || (emp.email && byEmail[String(emp.email).toLowerCase()])
+        || {}
       const p = projMap[emp.id] || []
-      
+
       let daysLeft = 0;
       let contractEndStr = '';
       if (emp.contract_end) {
@@ -54,10 +74,14 @@ export default function Talent() {
         daysLeft = Math.max(0, Math.floor((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
         contractEndStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       }
-      
+
       return {
         ...emp,
-        onboardingComplete: u.onboarding_complete === true,
+        // Prefer the employees-side flag (Issue 5 backfill + new write target)
+        // and fall back to the users-side flag so older records still report
+        // correctly.
+        onboardingComplete: emp.onboarding_complete === true || u.onboarding_complete === true,
+        roleId: u.role_id || emp.role_id || null,
         pdplConsent: u.pdpl_consent_state || 'Unknown',
         projects: p.map(x => x.project_id).join(', ') || 'Unassigned',
         contractEndStr,

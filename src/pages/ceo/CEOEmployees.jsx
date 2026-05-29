@@ -16,6 +16,8 @@ const STATUS_COLORS = {
 
 export default function CEOEmployees() {
   const [employees, setEmployees] = useState([])
+  // Same join as HREmployees so the two directories show the exact same shape.
+  const [usersMap, setUsersMap] = useState({})
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('ALL')
@@ -29,8 +31,22 @@ export default function CEOEmployees() {
       setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setLoading(false)
     }, err => { console.warn(err); setLoading(false) })
-    return () => unsub()
+    const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
+      const m = {}
+      snap.docs.forEach(d => {
+        const data = d.data()
+        m[d.id] = data
+        if (data.email) m[`email:${String(data.email).toLowerCase()}`] = data
+      })
+      setUsersMap(m)
+    })
+    return () => { unsub(); unsubUsers() }
   }, [])
+
+  const userFor = (e) =>
+    usersMap[e.uid] || usersMap[e.id] || usersMap[e.employee_id]
+    || (e.email && usersMap[`email:${String(e.email).toLowerCase()}`])
+    || {}
 
   const handleDelete = async (id) => {
     if(window.confirm('Delete this employee completely?')) {
@@ -121,21 +137,24 @@ export default function CEOEmployees() {
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Employee</th>
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Type & Dept</th>
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Status</th>
+              <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Role / Onboarding</th>
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Project</th>
               <th style={{ padding: '14px 20px', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}><Loader size={24} className="spin" style={{ margin: '0 auto 12px' }}/>Loading directory...</td></tr>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}><Loader size={24} className="spin" style={{ margin: '0 auto 12px' }}/>Loading directory...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>No employees found.</td></tr>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>No employees found.</td></tr>
             ) : filtered.map(e => {
               const st = STATUS_COLORS[e.employment_status] || STATUS_COLORS.ACTIVE
               const isPending = e.employment_status === 'PENDING_APPROVAL' || e.employment_status === 'ONBOARDING'
               const isTerminated = e.employment_status === 'TERMINATED'
               const isPendingOffboard = e.employment_status === 'PENDING_OFFBOARDING'
               const isActive = !isPending && !isTerminated && !isPendingOffboard
+              const u = userFor(e)
+              const onboardingDone = e.onboarding_complete === true || u.onboarding_complete === true
               
               return (
                 <tr key={e.id} style={{ borderBottom: '1px solid #1e3050' }} className="table-row-hover">
@@ -151,6 +170,12 @@ export default function CEOEmployees() {
                     <span style={{ padding: '4px 10px', borderRadius: 12, fontSize: '0.7rem', fontWeight: 700, background: st.bg, color: st.color, textTransform: 'uppercase' }}>
                       {e.employment_status?.replace('_', ' ')}
                     </span>
+                  </td>
+                  <td style={{ padding: '16px 20px' }}>
+                    <div style={{ fontSize: '0.78rem', color: '#e2e8f0', textTransform: 'capitalize' }}>{u.role_id || e.role_id || '—'}</div>
+                    <div style={{ fontSize: '0.7rem', color: onboardingDone ? '#34BF3A' : '#94a3b8', marginTop: 3 }}>
+                      {onboardingDone ? '✓ Onboarded' : 'Not onboarded'}
+                    </div>
                   </td>
                   <td style={{ padding: '16px 20px', color: '#94a3b8' }}>
                     {e.assigned_project || 'Unassigned'}
