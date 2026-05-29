@@ -197,6 +197,39 @@ function LibraryTab() {
   )
 }
 
+// Category + domain dropdowns compose the canonical doc_id format the backend
+// regex (DTLK-XXX-YYY-NNN) requires. CEO no longer has to memorise the codes.
+const DOC_CATEGORIES = [
+  { code: 'POL',  label: 'Policy' },
+  { code: 'PRO',  label: 'Procedure' },
+  { code: 'FORM', label: 'Form' },
+  { code: 'REG',  label: 'Register' },
+  { code: 'REP',  label: 'Report' },
+  { code: 'STD',  label: 'Standard' },
+  { code: 'GDL',  label: 'Guideline' },
+]
+const DOC_DOMAINS = [
+  { code: 'GRC',  label: 'GRC' },
+  { code: 'HR',   label: 'HR' },
+  { code: 'HRM',  label: 'HR Management' },
+  { code: 'PRI',  label: 'Privacy / PDPL' },
+  { code: 'SEC',  label: 'Information Security' },
+  { code: 'ITS',  label: 'IT Security' },
+  { code: 'FIN',  label: 'Finance' },
+  { code: 'RSK',  label: 'Risk' },
+  { code: 'OPS',  label: 'Operations' },
+  { code: 'LGL',  label: 'Legal' },
+]
+
+const DOC_ID_RE = /^DTLK-[A-Z]+-[A-Z]+-\d{3,}$/
+
+// Try to lift a canonical doc_id out of a filename like
+// "DTLK-POL-PRI-001_Privacy_Policy.pdf" → "DTLK-POL-PRI-001".
+function extractDocIdFromFilename(name) {
+  const m = name && name.match(/(DTLK-[A-Z]+-[A-Z]+-\d{3,})/i)
+  return m ? m[1].toUpperCase() : null
+}
+
 function UploadTab() {
   const [filesData, setFilesData] = useState([])
   const [dragOver, setDragOver] = useState(false)
@@ -214,8 +247,27 @@ function UploadTab() {
       if (!valid) err = 'Unsupported file type found. Use .pdf, .docx, .xlsx, or .md'
       else if (f.size > 25 * 1024 * 1024) err = 'File too large found (max 25 MB)'
       else {
-        const title = f.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ")
-        newFiles.push({ file: f, doc_id: '', doc_title: title, update_type: 'minor', classification: 'Internal', change_summary: '' })
+        const detectedId = extractDocIdFromFilename(f.name) || ''
+        // Title: strip extension + detected id, leftover underscores → spaces.
+        const titleRaw = f.name
+          .replace(/\.[^/.]+$/, "")
+          .replace(/DTLK-[A-Z]+-[A-Z]+-\d{3,}_?/i, '')
+          .replace(/[_-]/g, " ")
+          .trim()
+        const title = titleRaw || f.name.replace(/\.[^/.]+$/, "")
+        // Pre-fill category + domain from a detected id so the dropdowns line up.
+        const [, , detCat, detDom] = (detectedId.match(/^DTLK-([A-Z]+)-([A-Z]+)-/) || []) // weird tuple destructure to make linter happy
+        newFiles.push({
+          file: f,
+          doc_id: detectedId,
+          doc_title: title,
+          category: detCat || '',
+          domain: detDom || '',
+          sequence: detectedId ? detectedId.split('-').pop() : '001',
+          update_type: 'minor',
+          classification: 'Internal',
+          change_summary: '',
+        })
       }
     })
     if (err) setUploadError(err)
@@ -225,6 +277,22 @@ function UploadTab() {
     }
   }
 
+  // When the operator picks a category / domain / sequence, rebuild the doc_id.
+  // Only auto-composes when no doc_id has been manually typed yet OR when the
+  // existing doc_id matches the same DTLK-XXX-YYY-NNN pattern (so we don't
+  // clobber a custom override).
+  const recomposeDocId = (fd, patch) => {
+    const cat = patch.category ?? fd.category
+    const dom = patch.domain   ?? fd.domain
+    const seq = patch.sequence ?? fd.sequence
+    if (!cat || !dom) return fd.doc_id
+    const next = `DTLK-${cat}-${dom}-${String(seq || '001').padStart(3, '0')}`
+    // If user has typed a fully custom doc_id that doesn't match the pattern,
+    // leave it alone.
+    if (fd.doc_id && !DOC_ID_RE.test(fd.doc_id)) return fd.doc_id
+    return next
+  }
+
   const handleRemove = (index) => {
     setFilesData(prev => prev.filter((_, i) => i !== index))
   }
@@ -232,7 +300,13 @@ function UploadTab() {
   const updateFileData = (index, key, val) => {
     setFilesData(prev => {
       const arr = [...prev]
-      arr[index][key] = val
+      const fd = { ...arr[index], [key]: val }
+      // When category/domain/sequence change, refresh the suggested doc_id
+      // unless the operator has typed a non-standard custom value.
+      if (key === 'category' || key === 'domain' || key === 'sequence') {
+        fd.doc_id = recomposeDocId(arr[index], { [key]: val })
+      }
+      arr[index] = fd
       return arr
     })
   }
@@ -328,8 +402,31 @@ function UploadTab() {
               </div>
               <div className="grid-2" style={{ gap: 12 }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Category</label>
+                  <select className="input" value={fd.category} onChange={e => updateFileData(idx, 'category', e.target.value)}>
+                    <option value="">— Select —</option>
+                    {DOC_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.label} ({c.code})</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Domain</label>
+                  <select className="input" value={fd.domain} onChange={e => updateFileData(idx, 'domain', e.target.value)}>
+                    <option value="">— Select —</option>
+                    {DOC_DOMAINS.map(d => <option key={d.code} value={d.code}>{d.label} ({d.code})</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Sequence (NNN)</label>
+                  <input type="text" className="input" value={fd.sequence} onChange={e => updateFileData(idx, 'sequence', e.target.value.replace(/[^0-9]/g, ''))} placeholder="001" />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
                   <label>Document ID *</label>
-                  <input type="text" className="input" placeholder="e.g. DTLK-POL-SEC-001" value={fd.doc_id} onChange={e => updateFileData(idx, 'doc_id', e.target.value)} />
+                  <input type="text" className="input" placeholder="DTLK-POL-SEC-001" value={fd.doc_id} onChange={e => updateFileData(idx, 'doc_id', e.target.value.toUpperCase())} />
+                  {fd.doc_id && !DOC_ID_RE.test(fd.doc_id) && (
+                    <div style={{ fontSize: '0.74rem', color: '#F39C12', marginTop: 4 }}>
+                      Non-standard format. Backend requires DTLK-XXX-YYY-NNN.
+                    </div>
+                  )}
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label>Title *</label>
@@ -342,10 +439,14 @@ function UploadTab() {
                   </select>
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Type</label>
+                  <label>Update Type <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>(used when doc_id already exists — backend bumps version)</span></label>
                   <select className="input" value={fd.update_type} onChange={e => updateFileData(idx, 'update_type', e.target.value)}>
                     <option value="minor">Minor Update</option><option value="major">Major Update</option>
                   </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
+                  <label>Change Summary <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>(required when uploading a new version of an existing doc)</span></label>
+                  <input type="text" className="input" placeholder="e.g. Updated Section 4 — added PDPL Art. 18 deletion clause" value={fd.change_summary} onChange={e => updateFileData(idx, 'change_summary', e.target.value)} />
                 </div>
               </div>
             </div>
