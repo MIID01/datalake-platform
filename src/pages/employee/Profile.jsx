@@ -282,19 +282,19 @@ export default function Profile() {
     <pre>${JSON.stringify(bundle.records.employee_record, null, 2)}</pre>
     
     <h2>System Records & Activity</h2>
-    ${Object.entries(bundle.records).filter(([k]) => k !== 'user_account' && k !== 'employee_record').map(([k, v]) => \`
-      <h3>\${k.replace(/_/g, ' ').toUpperCase()} (\${Array.isArray(v) ? v.length : (v ? 1 : 0)} records)</h3>
-      \${Array.isArray(v) && v.length > 0 ? \`
+    ${Object.entries(bundle.records).filter(([k]) => k !== 'user_account' && k !== 'employee_record').map(([k, v]) => `
+      <h3>${k.replace(/_/g, ' ').toUpperCase()} (${Array.isArray(v) ? v.length : (v ? 1 : 0)} records)</h3>
+      ${Array.isArray(v) && v.length > 0 ? `
         <table>
           <thead>
             <tr><th style="width: 25%">Record ID / Path</th><th>Data Attributes</th></tr>
           </thead>
           <tbody>
-            \${v.map(r => \`<tr><td><code style="font-size:0.8rem;color:#022873">\${r._path || r._id || '-'}</code></td><td><pre>\${JSON.stringify(r, null, 2)}</pre></td></tr>\`).join('')}
+            ${v.map(r => `<tr><td><code style="font-size:0.8rem;color:#022873">${r._path || r._id || '-'}</code></td><td><pre>${JSON.stringify(r, null, 2)}</pre></td></tr>`).join('')}
           </tbody>
         </table>
-      \` : \`<p style="color:#64748b; font-style: italic;">No records found in this category.</p>\`}
-    \`).join('')}
+      ` : `<p style="color:#64748b; font-style: italic;">No records found in this category.</p>`}
+    `).join('')}
   </div>
 </body>
 </html>
