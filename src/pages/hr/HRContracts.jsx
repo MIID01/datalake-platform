@@ -231,6 +231,67 @@ export default function HRContracts() {
     }
   }
 
+  // Reuses an existing contracts/{id} (and its companion pending_hires/{id})
+  // and re-runs the upload + extraction. Operator has to pick the file again
+  // because the backend endpoint requires it on every call.
+  const handleRetryExtraction = async (file) => {
+    if (!file || !active) return
+    if (!['application/pdf', 'image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      showToast('Upload a PDF, PNG, JPG, or WEBP — got ' + (file.type || 'unknown'), 'error'); return
+    }
+    if (file.size > 15 * 1024 * 1024) { showToast('File too large (max 15MB).', 'error'); return }
+
+    setActioning(true)
+    try {
+      const me = auth.currentUser
+      const by = me?.displayName || me?.email || 'unknown'
+      // Flip back to PENDING so the UI shows the spinner while the backend runs.
+      await updateDoc(doc(db, 'contracts', active.id), {
+        contract_extraction_status: 'PENDING_EXTRACTION',
+        status: 'PENDING_EXTRACTION',
+        contract_extraction_error: null,
+        extraction_error: null,
+        retry_requested_at: serverTimestamp(),
+        retry_requested_by: by,
+        status_history: arrayUnion({
+          status: 'PENDING_EXTRACTION', at: new Date().toISOString(), by,
+          notes: 'Retry — operator re-uploaded the PDF',
+        }),
+        updated_at: serverTimestamp(),
+      })
+      const idToken = await me.getIdToken()
+      const fd = new FormData()
+      fd.append('hire_id', active.id)
+      fd.append('contract_pdf', file, file.name)
+      const res = await fetch(UPLOAD_CONTRACT_PDF_URL, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + idToken },
+        body: fd,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        await updateDoc(doc(db, 'contracts', active.id), {
+          contract_extraction_status: 'EXTRACTION_FAILED',
+          status: 'EXTRACTION_FAILED',
+          contract_extraction_error: data.error || ('HTTP ' + res.status),
+          updated_at: serverTimestamp(),
+        })
+        throw new Error(data.error || ('Retry failed (' + res.status + ')'))
+      }
+      if (data.storage_path) {
+        await updateDoc(doc(db, 'contracts', active.id), {
+          pdf_storage_path: data.storage_path,
+          updated_at: serverTimestamp(),
+        })
+      }
+      showToast('Retry started. AI extraction is running again.')
+    } catch (e) {
+      showToast('Retry failed: ' + e.message, 'error')
+    } finally {
+      setActioning(false)
+    }
+  }
+
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false)
     handleFiles(e.dataTransfer.files)
@@ -504,7 +565,37 @@ export default function HRContracts() {
           )}
           {(active.contract_extraction_status === 'EXTRACTION_FAILED' || active.contract_extraction_status === 'OCR_FAILED' || active.contract_extraction_status === 'LLM_FAILED' || active.contract_extraction_status === 'PARSE_FAILED') && (
             <div style={{ padding: '12px 14px', borderRadius: 8, background: 'rgba(192,57,43,0.12)', border: '1px solid rgba(192,57,43,0.3)', color: '#fca5a5', fontSize: '0.82rem', marginBottom: 14 }}>
-              Extraction failed: {active.contract_extraction_error || 'see audit log'}. You can still fill the fields manually and proceed.
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                Extraction failed ({active.contract_extraction_status})
+              </div>
+              <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
+                {active.extraction_error || active.contract_extraction_error || active.contract_extraction_error_detail || 'No error detail was recorded. Check the Cloud Functions logs for gatekeeperContractExtract.'}
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  id="retry-file-input"
+                  style={{ display: 'none' }}
+                  onChange={e => handleRetryExtraction(e.target.files?.[0])}
+                />
+                <button
+                  onClick={() => document.getElementById('retry-file-input').click()}
+                  disabled={actioning}
+                  style={{
+                    padding: '7px 14px', borderRadius: 8,
+                    border: '1px solid rgba(192,57,43,0.5)', background: 'rgba(192,57,43,0.18)',
+                    color: '#fca5a5', cursor: actioning ? 'not-allowed' : 'pointer',
+                    fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 700,
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <RefreshCw size={12} /> Retry extraction (re-upload PDF)
+                </button>
+                <span style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.55)' }}>
+                  …or fill the fields manually below.
+                </span>
+              </div>
             </div>
           )}
 
