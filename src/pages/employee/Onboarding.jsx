@@ -389,12 +389,12 @@ function OnboardingInner() {
         </p>
 
         {/* Progress */}
-        <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: '16px 18px', marginBottom: 24 }}>
+        <div style={{ background: 'var(--bg-card, #fff)', border: '1px solid var(--border-primary, #E5E7EB)', borderRadius: 12, padding: '16px 18px', marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span style={{ fontWeight: 600, color: NAVY }}>{completedCount} of {ITEMS.length} completed</span>
+            <span style={{ fontWeight: 600, color: 'var(--text-primary, #022873)' }}>{completedCount} of {ITEMS.length} completed</span>
             {allDone && <span style={{ color: GREEN, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckCircle size={16} /> Ready</span>}
           </div>
-          <div style={{ height: 8, background: '#E5E7EB', borderRadius: 999, overflow: 'hidden' }}>
+          <div style={{ height: 8, background: 'var(--bg-surface, #E5E7EB)', borderRadius: 999, overflow: 'hidden' }}>
             <div style={{ width: `${pct}%`, height: '100%', background: GREEN, borderRadius: 999, transition: 'width 0.35s ease' }} />
           </div>
         </div>
@@ -410,7 +410,7 @@ function OnboardingInner() {
             const wasOpened = opened.has(it.item_id)
             const isChecked = checked.has(it.item_id)
             return (
-              <section key={it.item_id} style={{ background: '#fff', border: `1px solid ${isChecked ? GREEN : '#E5E7EB'}`, borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+              <section key={it.item_id} style={{ background: 'var(--bg-card, #fff)', border: `1px solid ${isChecked ? GREEN : 'var(--border-primary, #E5E7EB)'}`, borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <button
                   onClick={() => toggle(it.item_id)}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
@@ -420,7 +420,7 @@ function OnboardingInner() {
                       ? <CheckCircle className="pop" size={22} color={GREEN} />
                       : <span style={{ width: 22, height: 22, borderRadius: '50%', border: '2px solid #CBD5E1', display: 'inline-block' }} />}
                   </span>
-                  <span style={{ flex: 1, fontWeight: 700, color: NAVY }}>{it.title}</span>
+                  <span style={{ flex: 1, fontWeight: 700, color: 'var(--text-primary, #022873)' }}>{it.title}</span>
                   <ChevronDown size={18} color="#64748b" style={{ transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
                 </button>
 
