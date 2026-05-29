@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { auth, db, UPLOAD_CONTRACT_PDF_URL } from '../../lib/firebase'
 import {
-  collection, onSnapshot, doc, updateDoc, addDoc, query, orderBy,
+  collection, onSnapshot, doc, setDoc, updateDoc, addDoc, query, orderBy,
   serverTimestamp, arrayUnion,
 } from 'firebase/firestore'
 import {
@@ -76,6 +76,19 @@ function pickReviewSource(contract) {
 
 export default function HRContracts() {
   const [contracts, setContracts] = useState([])
+  // Existing-employee uploads need the employees list for the dropdown so HR
+  // can attach the contract to (e.g.) Khalid DLSA1003. The "New hire" mode
+  // doesn't use this — it relies on the pending_hires row already created by
+  // the initiateHire backend.
+  const [employees, setEmployees] = useState([])
+  // Two upload modes:
+  //   'existing' — Qiwa contract for someone already in the employees collection
+  //                (the immediate need: 12 current employees were hired before
+  //                the platform existed).
+  //   'new_hire' — contract for a candidate the CEO has just initiated. Needs
+  //                the corresponding pending_hires row to already exist.
+  const [uploadMode, setUploadMode] = useState('existing')
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -93,7 +106,10 @@ export default function HRContracts() {
       snap => { setContracts(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false) },
       err => { setLoadError(err.message); setLoading(false) },
     )
-    return () => unsub()
+    const unsubE = onSnapshot(query(collection(db, 'employees'), orderBy('employee_id')),
+      snap => setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    )
+    return () => { unsub(); unsubE() }
   }, [])
 
   const active = useMemo(() => contracts.find(c => c.id === activeId) || null, [contracts, activeId])
@@ -123,11 +139,20 @@ export default function HRContracts() {
     }
     if (file.size > 15 * 1024 * 1024) { setUploadError('File too large (max 15MB).'); return }
 
+    // Existing-employee mode requires HR to pick which employee this contract
+    // belongs to BEFORE uploading — otherwise the extracted fields have nowhere
+    // to land.
+    if (uploadMode === 'existing' && !selectedEmployeeId) {
+      setUploadError('Pick which employee this contract belongs to before uploading.')
+      return
+    }
+    const linkedEmp = uploadMode === 'existing'
+      ? employees.find(e => e.id === selectedEmployeeId)
+      : null
+
     setUploading(true)
     try {
-      // Create the contract shell first so we have an ID to use as hire_id with the upload endpoint.
-      // We also persist a contracts/ row so the UI has a single source of truth distinct from
-      // the backend's pending_hires (the backend hire_id we send IS this contracts doc id).
+      // 1. Create the contracts/{id} shell. It's the UI's source of truth.
       const me = auth.currentUser
       const uploader = me?.displayName || me?.email || 'unknown'
       const ref = await addDoc(collection(db, 'contracts'), {
@@ -137,13 +162,38 @@ export default function HRContracts() {
         contract_extraction_status: 'PENDING_EXTRACTION',
         legal_status: 'NONE',
         status: 'PENDING_EXTRACTION',
+        upload_mode: uploadMode,
+        linked_employee_id: linkedEmp?.id || null,
+        linked_employee_employee_id: linkedEmp?.employee_id || null,
+        linked_employee_name: linkedEmp?.full_name || linkedEmp?.name || null,
         uploaded_by: uploader,
         uploaded_at: serverTimestamp(),
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
-        status_history: [{ status: 'PENDING_EXTRACTION', at: new Date().toISOString(), by: uploader, notes: 'PDF uploaded — Gatekeeper extraction started' }],
+        status_history: [{
+          status: 'PENDING_EXTRACTION', at: new Date().toISOString(), by: uploader,
+          notes: linkedEmp
+            ? `PDF uploaded for existing employee ${linkedEmp.employee_id || linkedEmp.id}`
+            : 'PDF uploaded — Gatekeeper extraction started',
+        }],
       })
 
+      // 2. The backend uploadContractPDF expects a matching pending_hires/{hireId}
+      //    row to exist (it 404s otherwise). For existing-employee uploads no such
+      //    row exists, so we pre-create a shell — kind: 'EXISTING_EMPLOYEE',
+      //    linked_employee_id — to keep the backend happy. The mirror trigger then
+      //    copies contract_extracted_fields back onto contracts/{id} as usual.
+      await setDoc(doc(db, 'pending_hires', ref.id), {
+        _kind: uploadMode === 'existing' ? 'EXISTING_EMPLOYEE' : 'NEW_HIRE',
+        linked_employee_id: linkedEmp?.id || null,
+        linked_contract_id: ref.id,
+        contract_extraction_status: 'PENDING',
+        created_at: serverTimestamp(),
+        created_by: uploader,
+      }, { merge: true })
+
+      // 3. Hand the file off to the backend so it goes to the WORM bucket and
+      //    fires the Gatekeeper Pub/Sub extraction.
       const idToken = await me.getIdToken()
       const fd = new FormData()
       fd.append('hire_id', ref.id)
@@ -155,7 +205,6 @@ export default function HRContracts() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        // Roll the doc into a failure state so the operator sees what went wrong.
         await updateDoc(doc(db, 'contracts', ref.id), {
           contract_extraction_status: 'EXTRACTION_FAILED',
           status: 'EXTRACTION_FAILED',
@@ -164,15 +213,17 @@ export default function HRContracts() {
         })
         throw new Error(data.error || ('Upload failed (' + res.status + ')'))
       }
-      // Backend stores the storage path on pending_hires/{hire_id}; copy it onto our doc.
       if (data.storage_path) {
         await updateDoc(doc(db, 'contracts', ref.id), {
           pdf_storage_path: data.storage_path,
           updated_at: serverTimestamp(),
         })
       }
-      showToast('Contract uploaded. AI extraction in progress.')
+      showToast(linkedEmp
+        ? `Contract uploaded for ${linkedEmp.full_name || linkedEmp.employee_id}. AI extraction in progress.`
+        : 'Contract uploaded. AI extraction in progress.')
       setActiveId(ref.id)
+      setSelectedEmployeeId('')
     } catch (err) {
       setUploadError(err.message)
     } finally {
@@ -203,7 +254,37 @@ export default function HRContracts() {
         reviewed_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       })
-      showToast('Reviewed fields saved.')
+      // Existing-employee path: the reviewed fields ARE the employee's HR record.
+      // Project the 15 Gatekeeper keys onto the employees doc so the directory,
+      // payroll, and profile pages immediately reflect the contract.
+      if (active.linked_employee_id) {
+        const f = reviewFields || {}
+        const num = (v) => (v === '' || v == null ? null : Number(v))
+        const patch = {
+          job_title: f.job_title || null,
+          full_name_ar: f.employee_name_ar || null,
+          iqama_national_id: f.iqama_national_id || null,
+          contract_start: f.contract_start_date || null,
+          contract_end:   f.contract_end_date || null,
+          salary_monthly_sar:    num(f.salary_monthly_sar),
+          housing_allowance_sar: num(f.housing_allowance_sar),
+          transport_allowance_sar: num(f.transport_allowance_sar),
+          probation_period_months: num(f.probation_period_months),
+          notice_period_days:    num(f.notice_period_days),
+          work_location: f.work_location || null,
+          // Convenience for payroll calcs that want the total wage in one number.
+          salary: num(f.salary_monthly_sar),
+          contract_synced_from: active.id,
+          contract_synced_at: serverTimestamp(),
+          updated_at: serverTimestamp(),
+        }
+        // Drop null keys so we don't overwrite existing data with nulls.
+        Object.keys(patch).forEach(k => patch[k] == null && delete patch[k])
+        await updateDoc(doc(db, 'employees', active.linked_employee_id), patch)
+      }
+      showToast(active.linked_employee_id
+        ? 'Saved. Employee record updated with contract fields.'
+        : 'Reviewed fields saved.')
     } catch (e) {
       showToast('Save failed: ' + e.message, 'error')
     } finally {
@@ -267,6 +348,50 @@ export default function HRContracts() {
 
       {/* ── Upload area ───────────────────────────────────── */}
       <div style={styles.card}>
+        {/* Mode toggle: new hire vs existing employee */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          {[
+            { id: 'existing', label: 'Existing employee', hint: 'Pre-platform hire — attach contract to a current employee.' },
+            { id: 'new_hire', label: 'New hire',         hint: 'Use the hire_id from the talent pipeline (initiateHire).' },
+          ].map(m => {
+            const isOn = uploadMode === m.id
+            return (
+              <button
+                key={m.id}
+                onClick={() => { setUploadMode(m.id); setSelectedEmployeeId('') }}
+                style={{
+                  flex: '1 1 240px', textAlign: 'left',
+                  padding: '10px 14px', borderRadius: 10,
+                  border: `1px solid ${isOn ? '#1598CC' : 'rgba(255,255,255,0.15)'}`,
+                  background: isOn ? 'rgba(21,152,204,0.10)' : 'rgba(255,255,255,0.03)',
+                  color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{m.label}</div>
+                <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.55)', marginTop: 3 }}>{m.hint}</div>
+              </button>
+            )
+          })}
+        </div>
+
+        {uploadMode === 'existing' && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={styles.label}>Which employee is this contract for?</label>
+            <select
+              style={styles.input}
+              value={selectedEmployeeId}
+              onChange={e => setSelectedEmployeeId(e.target.value)}
+            >
+              <option value="">— Select employee —</option>
+              {employees.map(emp => (
+                <option key={emp.id} value={emp.id}>
+                  {(emp.full_name || emp.name || emp.id)} {emp.employee_id ? `· ${emp.employee_id}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <input
           ref={fileInputRef}
           type="file"
