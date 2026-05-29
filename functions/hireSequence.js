@@ -653,10 +653,12 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
     let fileName = null;
     let fileMimeType = null;
     let hireId = null;
+    let employeeId = null;
 
     await new Promise((resolve, reject) => {
       busboy.on("field", (name, val) => {
         if (name === "hire_id") hireId = val;
+        if (name === "employee_id") employeeId = val;
       });
       busboy.on("file", (name, stream, info) => {
         if (name !== "contract_pdf") { stream.resume(); return; }
@@ -670,7 +672,7 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
       busboy.end(req.rawBody || req.body);
     });
 
-    if (!hireId) return res.status(400).json({ error: "hire_id field required" });
+    if (!hireId && !employeeId) return res.status(400).json({ error: "hire_id or employee_id field required" });
     if (fileBuffers.length === 0) return res.status(400).json({ error: "No contract_pdf file received" });
 
     const pdfBuffer = Buffer.concat(fileBuffers);
@@ -681,12 +683,56 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
       return res.status(400).json({ error: `Unsupported file type: ${fileMimeType}. Upload PDF, PNG, or JPG.` });
     }
 
-    // Verify hire exists
+    const bucket = admin.storage().bucket("datalake-worm-hr");
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    if (employeeId) {
+      // Direct employee upload flow
+      const contractId = db.collection("contracts").doc().id;
+      const storagePath = `contracts/employees/${employeeId}/${Date.now()}_${fileName}`;
+      const file = bucket.file(storagePath);
+      await file.save(pdfBuffer, {
+        contentType: fileMimeType,
+        metadata: {
+          cacheControl: "private, max-age=0",
+          metadata: { employee_id: employeeId, contract_id: contractId, uploaded_by: profile.email },
+        },
+      });
+
+      await db.collection("contracts").doc(contractId).set({
+        contract_id: contractId,
+        employee_id: employeeId,
+        contract_pdf_storage_path: storagePath,
+        contract_pdf_filename: fileName,
+        contract_pdf_size_bytes: pdfBuffer.length,
+        contract_pdf_uploaded_at: now,
+        contract_pdf_uploaded_by: profile.email,
+        contract_extraction_status: "PENDING",
+      });
+
+      await db.collection("task_audit_log").add({
+        event: "CONTRACT_PDF_UPLOADED",
+        action_by: profile.email,
+        action_at: now,
+        details: { employee_id: employeeId, contract_id: contractId, file_name: fileName, size_bytes: pdfBuffer.length, storage_path: storagePath },
+        ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+      });
+
+      await pubsub.topic("datalake.contract.uploaded").publishMessage({ json: { contract_id: contractId, employee_id: employeeId } });
+
+      return res.status(200).json({
+        success: true,
+        contract_id: contractId,
+        employee_id: employeeId,
+        storage_path: storagePath,
+        message: "Contract PDF uploaded. Gatekeeper AI extraction started.",
+      });
+    }
+
+    // Hire upload flow
     const hireDoc = await db.collection("pending_hires").doc(hireId).get();
     if (!hireDoc.exists) return res.status(404).json({ error: "Hire record not found" });
 
-    // Upload to Cloud Storage
-    const bucket = admin.storage().bucket("datalake-worm-hr");
     const storagePath = `contracts/${hireId}/${Date.now()}_${fileName}`;
     const file = bucket.file(storagePath);
     await file.save(pdfBuffer, {
@@ -697,7 +743,6 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
       },
     });
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
     await db.collection("pending_hires").doc(hireId).update({
       contract_pdf_storage_path: storagePath,
       contract_pdf_filename: fileName,
@@ -707,7 +752,6 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
       contract_extraction_status: "PENDING",
     });
 
-    // Audit
     await db.collection("task_audit_log").add({
       event: "CONTRACT_PDF_UPLOADED",
       action_by: profile.email,
@@ -716,7 +760,6 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
-    // Publish for Gatekeeper extraction
     await pubsub.topic("datalake.contract.uploaded").publishMessage({ json: { hire_id: hireId } });
 
     return res.status(200).json({
@@ -738,22 +781,37 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
 // ═══════════════════════════════════════════════════════════════════
 async function gatekeeperContractExtractHandler(event) {
   try {
-    const { hire_id } = event.data.message.json;
-    if (!hire_id) throw new Error("hire_id required in Pub/Sub message");
+    const { hire_id, contract_id, employee_id } = event.data.message.json;
+    if (!hire_id && (!contract_id || !employee_id)) {
+      throw new Error("hire_id or contract_id/employee_id required in Pub/Sub message");
+    }
 
-    const hireDoc = await db.collection("pending_hires").doc(hire_id).get();
-    if (!hireDoc.exists) throw new Error(`Hire not found: ${hire_id}`);
-    const hire = hireDoc.data();
+    let docRef;
+    let targetDoc;
+    let storagePath;
 
-    const storagePath = hire.contract_pdf_storage_path;
-    if (!storagePath) throw new Error(`No contract PDF on hire: ${hire_id}`);
+    if (contract_id) {
+      docRef = db.collection("contracts").doc(contract_id);
+      const doc = await docRef.get();
+      if (!doc.exists) throw new Error(`Contract not found: ${contract_id}`);
+      targetDoc = doc.data();
+      storagePath = targetDoc.contract_pdf_storage_path;
+    } else {
+      docRef = db.collection("pending_hires").doc(hire_id);
+      const doc = await docRef.get();
+      if (!doc.exists) throw new Error(`Hire not found: ${hire_id}`);
+      targetDoc = doc.data();
+      storagePath = targetDoc.contract_pdf_storage_path;
+    }
+
+    if (!storagePath) throw new Error(`No contract PDF on document`);
 
     // Step 1: Download PDF from Cloud Storage
     const bucket = admin.storage().bucket("datalake-worm-hr");
     const [pdfBuffer] = await bucket.file(storagePath).download();
     console.log(`[Gatekeeper] Downloaded contract PDF: ${storagePath} (${pdfBuffer.length} bytes)`);
 
-    // Step 2: OCR — extract text via PaddleOCR (self-hosted, me-central2)
+    // Step 2: OCR
     const ocrResult = await callOCR({
       fileBase64: pdfBuffer.toString("base64"),
       lang: "en",
@@ -763,17 +821,17 @@ async function gatekeeperContractExtractHandler(event) {
     });
 
     if (!ocrResult.success || !ocrResult.lines?.length) {
-      await db.collection("pending_hires").doc(hire_id).update({
+      await docRef.update({
         contract_extraction_status: "OCR_FAILED",
-        contract_extraction_error: ocrResult.error || "No text extracted",
+        extraction_error: `OCR error: ${ocrResult.error || "No text extracted"}`,
       });
-      throw new Error(`OCR failed for hire ${hire_id}: ${ocrResult.error || "no text"}`);
+      throw new Error(`OCR failed: ${ocrResult.error || "no text"}`);
     }
 
     const fullText = ocrResult.lines.map((l) => l.text).join("\n");
     console.log(`[Gatekeeper] OCR extracted ${ocrResult.lines.length} lines from contract`);
 
-    // Step 3: LLM — extract structured fields via Qwen 2.5 (self-hosted, me-central2)
+    // Step 3: LLM
     const llmResult = await callLLM({
       agent: "gatekeeper",
       type: "contract_extract",
@@ -808,39 +866,66 @@ Rules:
     });
 
     if (!llmResult.success) {
-      await db.collection("pending_hires").doc(hire_id).update({
+      await docRef.update({
         contract_extraction_status: "LLM_FAILED",
-        contract_extraction_error: llmResult.error,
+        extraction_error: `LLM error: ${llmResult.error}`,
       });
-      throw new Error(`LLM extraction failed for hire ${hire_id}: ${llmResult.error}`);
+      throw new Error(`LLM extraction failed: ${llmResult.error}`);
     }
 
     // Step 4: Parse and store extracted fields
     const parsed = parseJsonOutput(llmResult.output);
-    const fields = parsed.success ? parsed.data : {};
+    if (!parsed.success) {
+      await docRef.update({
+        contract_extraction_status: "PARSE_FAILED",
+        extraction_error: `Parsing error: AI output was not valid JSON`,
+      });
+      throw new Error("Parse failed");
+    }
+
+    const fields = parsed.data;
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // Build update — merge extracted fields onto hire record
     const update = {
       contract_extracted_fields: fields,
-      contract_extraction_status: parsed.success ? "EXTRACTED" : "PARSE_FAILED",
+      contract_extraction_status: "EXTRACTED",
       contract_extracted_at: now,
       contract_ocr_lines: ocrResult.lines.length,
       contract_extraction_model: "qwen2.5-7b-instruct-q4_K_M",
+      extraction_error: null,
     };
 
-    // Overwrite key fields on the hire record so provisionEngineer picks them up
-    if (fields.salary_monthly_sar) update.salary_monthly = Number(fields.salary_monthly_sar);
-    if (fields.contract_start_date) update.start_date = fields.contract_start_date;
-    if (fields.job_title) update.job_title = fields.job_title;
-    if (fields.po_number) update.po_number = fields.po_number;
-    if (fields.po_value_sar) update.po_value_sar = Number(fields.po_value_sar);
-    if (fields.contract_end_date) update.contract_end_date = fields.contract_end_date;
-    if (fields.housing_allowance_sar) update.housing_allowance_sar = Number(fields.housing_allowance_sar);
-    if (fields.transport_allowance_sar) update.transport_allowance_sar = Number(fields.transport_allowance_sar);
-    if (fields.work_location) update.work_location = fields.work_location;
+    if (hire_id) {
+      if (fields.salary_monthly_sar) update.salary_monthly = Number(fields.salary_monthly_sar);
+      if (fields.contract_start_date) update.start_date = fields.contract_start_date;
+      if (fields.job_title) update.job_title = fields.job_title;
+      if (fields.po_number) update.po_number = fields.po_number;
+      if (fields.po_value_sar) update.po_value_sar = Number(fields.po_value_sar);
+      if (fields.contract_end_date) update.contract_end_date = fields.contract_end_date;
+      if (fields.housing_allowance_sar) update.housing_allowance_sar = Number(fields.housing_allowance_sar);
+      if (fields.transport_allowance_sar) update.transport_allowance_sar = Number(fields.transport_allowance_sar);
+      if (fields.work_location) update.work_location = fields.work_location;
+      await docRef.update(update);
+    } else {
+      await docRef.update(update);
+      // Write extracted fields directly to employees/{employee_id}
+      const employeeUpdate = {};
+      if (fields.employee_name) employeeUpdate.full_name = fields.employee_name;
+      if (fields.employee_name_ar) employeeUpdate.full_name_ar = fields.employee_name_ar;
+      if (fields.job_title) employeeUpdate.job_title = fields.job_title;
+      if (fields.client_name) employeeUpdate.client_name = fields.client_name;
+      if (fields.po_number) employeeUpdate.po_number = fields.po_number;
+      if (fields.po_value_sar) employeeUpdate.po_value_sar = Number(fields.po_value_sar);
+      if (fields.contract_start_date) employeeUpdate.contract_start = fields.contract_start_date;
+      if (fields.contract_end_date) employeeUpdate.contract_end = fields.contract_end_date;
+      if (fields.salary_monthly_sar) employeeUpdate.salary_monthly = Number(fields.salary_monthly_sar);
+      if (fields.housing_allowance_sar) employeeUpdate.housing_allowance_sar = Number(fields.housing_allowance_sar);
+      if (fields.transport_allowance_sar) employeeUpdate.transport_allowance_sar = Number(fields.transport_allowance_sar);
+      if (fields.work_location) employeeUpdate.work_location = fields.work_location;
+      if (fields.iqama_national_id) employeeUpdate.national_id = fields.iqama_national_id;
 
-    await db.collection("pending_hires").doc(hire_id).update(update);
+      await db.collection("employees").doc(employee_id).set(employeeUpdate, { merge: true });
+    }
 
     // Step 5: Audit log
     await db.collection("task_audit_log").add({
@@ -848,7 +933,7 @@ Rules:
       action_by: "system:gatekeeperContractExtract",
       action_at: now,
       details: {
-        hire_id,
+        target_id: contract_id || hire_id,
         fields_extracted: Object.keys(fields).filter((k) => fields[k] != null),
         fields_null: Object.keys(fields).filter((k) => fields[k] == null),
         ocr_lines: ocrResult.lines.length,
@@ -857,7 +942,7 @@ Rules:
       },
     });
 
-    console.log(`[Gatekeeper] Contract extraction complete for hire ${hire_id}: ${Object.keys(fields).filter((k) => fields[k] != null).length}/15 fields extracted`);
+    console.log(`[Gatekeeper] Contract extraction complete for ${contract_id || hire_id}: ${Object.keys(fields).filter((k) => fields[k] != null).length}/15 fields extracted`);
   } catch (err) {
     console.error("gatekeeperContractExtract error:", err);
     throw err;
@@ -914,6 +999,49 @@ function buildRawEmail({ from, to, subject, body }) {
   return Buffer.from(mimeMessage).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 8. syncContractToEmployee — onDocumentUpdated trigger (contracts/{contractId})
+// ═══════════════════════════════════════════════════════════════════
+async function syncContractToEmployeeHandler(event) {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+
+  // We only want to sync when the status changes to REVIEWED (or APPROVED),
+  // OR when it is already REVIEWED/APPROVED and the fields are updated.
+  // The user says: "After extraction succeeds and HR saves the reviewed fields: the system must write ALL extracted fields to employees/{employee_id}"
+  // We'll watch for when contract_extraction_status becomes REVIEWED, or if HR edits fields while it's REVIEWED.
+  
+  if (after.contract_extraction_status === "REVIEWED" || after.contract_extraction_status === "APPROVED") {
+    // Check if the extracted fields changed or status just changed to REVIEWED
+    const statusChangedToReviewed = (after.contract_extraction_status !== before.contract_extraction_status);
+    const fieldsChanged = JSON.stringify(after.contract_extracted_fields) !== JSON.stringify(before.contract_extracted_fields);
+
+    if ((statusChangedToReviewed || fieldsChanged) && after.contract_extracted_fields && after.employee_id) {
+      const fields = after.contract_extracted_fields;
+      const employeeUpdate = {};
+
+      if (fields.employee_name) employeeUpdate.full_name = fields.employee_name;
+      if (fields.employee_name_ar) employeeUpdate.full_name_ar = fields.employee_name_ar;
+      if (fields.job_title) employeeUpdate.job_title = fields.job_title;
+      if (fields.client_name) employeeUpdate.client_name = fields.client_name;
+      if (fields.po_number) employeeUpdate.po_number = fields.po_number;
+      if (fields.po_value_sar) employeeUpdate.po_value_sar = Number(fields.po_value_sar);
+      if (fields.contract_start_date) employeeUpdate.contract_start = fields.contract_start_date;
+      if (fields.contract_end_date) employeeUpdate.contract_end = fields.contract_end_date;
+      if (fields.salary_monthly_sar) employeeUpdate.salary_monthly = Number(fields.salary_monthly_sar);
+      if (fields.housing_allowance_sar) employeeUpdate.housing_allowance_sar = Number(fields.housing_allowance_sar);
+      if (fields.transport_allowance_sar) employeeUpdate.transport_allowance_sar = Number(fields.transport_allowance_sar);
+      if (fields.work_location) employeeUpdate.work_location = fields.work_location;
+      if (fields.iqama_national_id) employeeUpdate.national_id = fields.iqama_national_id;
+
+      if (Object.keys(employeeUpdate).length > 0) {
+        await db.collection("employees").doc(after.employee_id).set(employeeUpdate, { merge: true });
+        console.log(`[Contract Sync] Synced ${Object.keys(employeeUpdate).length} fields to employee ${after.employee_id}`);
+      }
+    }
+  }
+}
+
 module.exports = {
   initiateHireHandler,
   generateContractHandler,
@@ -923,4 +1051,5 @@ module.exports = {
   provisionEngineerHandler,
   uploadContractPDFHandler,
   gatekeeperContractExtractHandler,
+  syncContractToEmployeeHandler,
 };
