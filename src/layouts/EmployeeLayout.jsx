@@ -144,7 +144,13 @@ export default function EmployeeLayout() {
             <Bell size={20} />
             <span className="notif-badge">2</span>
           </div>
-          <div className="topbar-avatar" id="eng-avatar">MA</div>
+          <div className="topbar-avatar" id="eng-avatar" title={userData?.email || auth.currentUser?.email}>
+            {userData?.full_name 
+              ? userData.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+              : userData?.display_name
+              ? userData.display_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+              : (auth.currentUser?.email || 'U').substring(0, 2).toUpperCase()}
+          </div>
         </div>
       </header>
 

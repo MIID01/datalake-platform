@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { auth } from '../lib/firebase'
 import { useRiyadhTime } from '../hooks/useUtils'
 import {
   LayoutDashboard, Users, Clock, FileText, CreditCard,
@@ -21,6 +22,8 @@ export default function ClientLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const time = useRiyadhTime()
   const location = useLocation()
+  const [user, setUser] = useState(null)
+  useEffect(() => auth.onAuthStateChanged(u => setUser(u)), [])
 
   return (
     <div className="app-layout" data-portal="engineer" data-theme="light">
@@ -73,7 +76,9 @@ export default function ClientLayout() {
             <Bell size={20} />
             <span className="notif-badge">2</span>
           </div>
-          <div className="topbar-avatar">KD</div>
+          <div className="topbar-avatar" title={user?.email}>
+            {user?.email ? user.email.substring(0, 2).toUpperCase() : 'C'}
+          </div>
         </div>
       </header>
 
