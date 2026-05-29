@@ -3089,3 +3089,13 @@ exports.generateMonthlyReport = onMessagePublished(
   async (event) => { await generateMonthlyReportHandler(event); }
 );
 
+// ==============================================================================
+// BUILD 1: PDF Generation Engine
+// ==============================================================================
+const { generatePDFHandler } = require("./pdfEngine");
+
+exports.generatePDF = onRequest(
+  { region: "me-central2", memory: "1GiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
+  async (req, res) => { await generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }); }
+);
+
