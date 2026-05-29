@@ -47,6 +47,7 @@ import CEOProjects from './pages/ceo/Projects'
 import CEOAdmin from './pages/ceo/Admin'
 import CEODelegation from './pages/ceo/Delegation'
 import CEOEmployees from './pages/ceo/CEOEmployees'
+import CEOClients from './pages/ceo/CEOClients'
 import CEOMonthlyReports from './pages/ceo/MonthlyReports'
 
 // CTO Pages
@@ -98,6 +99,7 @@ export default function App() {
           <Route index element={<CEOCommandCenter />} />
           <Route path="pipeline" element={<CEOPipeline />} />
           <Route path="projects" element={<CEOProjects />} />
+          <Route path="clients" element={<CEOClients />} />
           <Route path="employees" element={<CEOEmployees />} />
           <Route path="talent" element={<CEOTalent />} />
           <Route path="finance" element={<CEOFinance />} />

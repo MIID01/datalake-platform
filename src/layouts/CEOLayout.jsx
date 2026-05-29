@@ -4,7 +4,7 @@ import { useRiyadhTime } from '../hooks/useUtils'
 import {
   Zap, BarChart3, Users, DollarSign, FileText, CheckSquare,
   Shield, TrendingUp, Bell, Settings, ChevronLeft, ChevronRight,
-  Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock, Library
+  Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock, Library, Building2,
 } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
@@ -15,6 +15,7 @@ const navItems = [
   { icon: Inbox, label: 'Task Inbox', path: '/ceo/tasks', badge: 10, glow: true },
   { icon: BarChart3, label: 'Revenue Pipeline', path: '/ceo/pipeline', badge: null, info: 'SAR 11.2M' },
   { icon: FolderKanban, label: 'Projects', path: '/ceo/projects' },
+  { icon: Building2, label: 'Clients', path: '/ceo/clients' },
   { icon: Users, label: 'Employee Directory', path: '/ceo/employees' },
   { icon: Users, label: 'Talent & HR', path: '/ceo/talent', badge: 3 },
   { icon: DollarSign, label: 'Finance', path: '/ceo/finance', badge: 2 },
