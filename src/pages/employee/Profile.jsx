@@ -306,7 +306,7 @@ export default function Profile() {
       const a = document.createElement('a')
       const safeName = (profile.full_name || profile.name || email).replace(/[^A-Za-z0-9_-]+/g, '_')
       a.href = url
-      a.download = \`PDPL_Data_Export_\${safeName}_\${new Date().toISOString().slice(0,10)}.html\`
+      a.download = `PDPL_Data_Export_${safeName}_${new Date().toISOString().slice(0,10)}.html`
       document.body.appendChild(a)
       a.click()
       a.remove()
