@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { auth } from '../lib/firebase'
+import { auth, db } from '../lib/firebase'
 import { CEO_EMAIL } from '../lib/auth'
 
 // Shared CEO-only "Switch Portal" dropdown. Renders nothing for non-CEO users
