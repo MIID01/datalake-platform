@@ -4,6 +4,7 @@ import ErrorBoundary from '../components/ErrorBoundary'
 import { useRiyadhTime } from '../hooks/useUtils'
 import { auth } from '../lib/firebase'
 import { signOut } from '../lib/auth'
+import PortalSwitcher from '../components/PortalSwitcher'
 import { KeyRound, ShieldCheck, ScrollText, UserCog, Plug, ChevronLeft, ChevronRight, LogOut, Lock } from 'lucide-react'
 import '../styles/ceo.css'
 
@@ -35,6 +36,8 @@ export default function AdminLayout() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Lock size={11} /> IT Administration</span>
           </div>
         </div>
+
+        <PortalSwitcher collapsed={collapsed} theme="dark" />
 
         <nav className="sidebar-nav">
           {navItems.map((item) => {

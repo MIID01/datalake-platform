@@ -10,6 +10,7 @@ import {
   Search, Bell, ChevronLeft, ChevronRight, Sun, Moon, Lock
 } from 'lucide-react'
 import '../styles/engineer.css'
+import PortalSwitcher from '../components/PortalSwitcher'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/employee', badge: null, end: true },
@@ -82,6 +83,8 @@ export default function EmployeeLayout() {
             <span>Employee Portal</span>
           </div>
         </div>
+
+        <PortalSwitcher collapsed={collapsed} theme="light" />
 
         <nav className="sidebar-nav">
           {!isFullyOnboarded && (

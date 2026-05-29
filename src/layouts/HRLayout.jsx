@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { ClipboardCheck, FileText, LogOut, ChevronLeft, ChevronRight, Scale } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
+import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
 
 import { Users, Briefcase } from 'lucide-react'
@@ -72,6 +73,7 @@ export default function HRLayout() {
             <span>HR Portal</span>
           </div>
         </div>
+        <PortalSwitcher collapsed={collapsed} theme="dark" />
         <nav className="sidebar-nav">
           {navItems.map((item) => {
             const Icon = item.icon

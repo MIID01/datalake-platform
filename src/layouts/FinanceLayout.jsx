@@ -7,6 +7,7 @@ import {
   LogOut, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import '../styles/ceo.css'
+import PortalSwitcher from '../components/PortalSwitcher'
 
 // Reuse the existing CEO finance components inside the Finance portal.
 import FinanceDashboard from '../pages/ceo/finance/FinanceDashboard'
@@ -64,6 +65,7 @@ export default function FinanceLayout() {
             <span>Finance Portal</span>
           </div>
         </div>
+        <PortalSwitcher collapsed={collapsed} theme="dark" />
         <nav className="sidebar-nav">
           {navItems.map((item) => {
             const Icon = item.icon
