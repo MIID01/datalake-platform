@@ -159,15 +159,26 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       }
       userData = userData || {};
 
-      // Onboarding acknowledgment subcollection
-      const ackSnap = await db.collection("employees").doc(docId).collection("onboarding").get();
+      // Onboarding evidence subcollection. New rows live at
+      // employees/{id}/onboarding_evidence/{policy_id} with the spec shape:
+      // { policy_id, policy_name, acknowledged_at, ip_address, user_agent }.
+      // Fall back to the legacy `onboarding` collection so historical rows
+      // (pre-rename) still surface on the certificate.
+      let ackSnap = await db.collection("employees").doc(docId).collection("onboarding_evidence").get();
+      if (ackSnap.empty) {
+        ackSnap = await db.collection("employees").doc(docId).collection("onboarding").get();
+      }
       const acks = ackSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => String(a.item_id || a.id).localeCompare(String(b.item_id || b.id)));
+        .sort((a, b) => String(a.policy_id || a.item_id || a.id).localeCompare(String(b.policy_id || b.item_id || b.id)));
 
       const granted = userData.onboarding_complete === true || emp.onboarding_complete === true;
-      const consentState = userData.pdpl_consent_state || (granted ? "GRANTED" : "NOT_GRANTED");
-      const consentAt = userData.onboarding_completed_at || emp.onboarding_completed_at || null;
+      const consentState = userData.pdpl_consent_state || emp.pdpl_consent_state || (granted ? "GRANTED" : "NOT_GRANTED");
+      const consentAt = userData.pdpl_consent_at
+        || emp.pdpl_consent_at
+        || userData.onboarding_completed_at
+        || emp.onboarding_completed_at
+        || null;
       const consentIp = userData.pdpl_consent_ip || userData.last_login_ip || "not captured (network policy)";
       const fullName = emp.full_name || emp.name || userData.display_name || docId;
 
@@ -195,14 +206,17 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
         doc.fontSize(11).fillColor('#999').text("No acknowledgment rows were found for this employee.");
       } else {
         for (const a of acks) {
-          const item = a.item_id || a.id;
-          const at = a.completed_at && a.completed_at.toDate ? a.completed_at.toDate().toISOString() : (a.completed_at || '—');
+          const item = a.policy_name || a.policy_id || a.item_id || a.id;
+          const atRaw = a.acknowledged_at || a.completed_at;
+          const at = atRaw && atRaw.toDate ? atRaw.toDate().toISOString() : (atRaw || '—');
           const by = a.acknowledged_by || a.employee_email || '—';
+          const ip = a.ip_address || '—';
           doc.fontSize(11).fillColor('black')
             .text(`  • ${item}`)
             .fillColor('#555').fontSize(10)
             .text(`     acknowledged_by: ${by}`)
             .text(`     at:              ${at}`)
+            .text(`     ip_address:      ${ip}`)
             .moveDown(0.3)
             .fillColor('black');
         }
@@ -211,7 +225,7 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       doc.moveDown(1);
       doc.fontSize(9).fillColor('#666').text(
         "This certificate is generated from the Datalake platform's onboarding ledger at the moment of download. " +
-        "Consent rows are stored append-only at employees/{employee_id}/onboarding/ and cannot be backdated. " +
+        "Consent rows are stored append-only at employees/{employee_id}/onboarding_evidence/ and cannot be backdated. " +
         "If this employee has not actually clicked through the four onboarding policies, the Consent state will be NOT_GRANTED.",
         { align: 'justify' }
       );

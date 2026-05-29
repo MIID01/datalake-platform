@@ -337,18 +337,19 @@ function OnboardingInner() {
 
       const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : null
 
-      // One acknowledgment doc per item under the employee's onboarding subcollection.
-      // Each row also captures who acknowledged it, when, and from what IP+UA for
-      // the regulator audit trail (PDPL Art. 5 — proof of consent).
+      // One evidence doc per policy under employees/{id}/onboarding_evidence/{policy_id}.
+      // Shape matches the platform spec: { policy_id, policy_name, acknowledged_at,
+      // ip_address, user_agent }. Append-only — these rows back the
+      // PDPL Consent Certificate the CEO downloads for SDAIA audits.
       await Promise.all(ITEMS.map(it =>
-        setDoc(doc(db, 'employees', profile.emp_id, 'onboarding', it.item_id), {
-          item_id: it.item_id,
-          status: 'completed',
-          completed_at: serverTimestamp(),
-          acknowledged_by: profile.email,
-          employee_email: profile.email,
+        setDoc(doc(db, 'employees', profile.emp_id, 'onboarding_evidence', it.item_id), {
+          policy_id: it.item_id,
+          policy_name: it.title,
+          acknowledged_at: serverTimestamp(),
           ip_address: consentIp,
           user_agent: userAgent,
+          acknowledged_by: profile.email,
+          employee_email: profile.email,
         })
       ))
       // Flip the gate flag on the user's own record (AuthGate reads this).
@@ -356,6 +357,7 @@ function OnboardingInner() {
         onboarding_complete: true,
         onboarding_completed_at: serverTimestamp(),
         pdpl_consent_state: 'GRANTED',
+        pdpl_consent_at: serverTimestamp(),
         pdpl_consent_ip: consentIp,
         pdpl_consent_user_agent: userAgent,
         training_completed: true,
@@ -367,6 +369,8 @@ function OnboardingInner() {
         await updateDoc(doc(db, 'employees', profile.emp_id), {
           onboarding_complete: true,
           onboarding_completed_at: serverTimestamp(),
+          pdpl_consent_state: 'GRANTED',
+          pdpl_consent_at: serverTimestamp(),
         })
       } catch (e) {
         // Best-effort — if no employees doc exists for this user yet (engineer was

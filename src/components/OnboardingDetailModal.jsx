@@ -12,7 +12,7 @@ import {
 // What it shows:
 //   - employee identity (name, employee_id, email, job_title)
 //   - users-side consent state (pdpl_consent_state, IP, UA, timestamp)
-//   - the onboarding subcollection rows (one per policy acknowledgment)
+//   - the onboarding_evidence subcollection rows (one per policy acknowledgment)
 // What it does:
 //   - Download PDPL Consent Certificate as PDF (calls /generatePDF with
 //     template=pdpl_consent, docId=employee_id)
@@ -38,9 +38,17 @@ export default function OnboardingDetailModal({ employee, onClose }) {
     const run = async () => {
       setLoading(true); setError('')
       try {
-        const ackSnap = await getDocs(query(collection(db, 'employees', employee.id, 'onboarding')))
+        // Prefer the new onboarding_evidence subcollection. Fall back to the legacy
+        // `onboarding` rows so existing records keep rendering until they're
+        // re-acknowledged.
+        const ev = await getDocs(query(collection(db, 'employees', employee.id, 'onboarding_evidence')))
+        let rows = ev.docs.map(d => ({ id: d.id, ...d.data() }))
+        if (rows.length === 0) {
+          const legacy = await getDocs(query(collection(db, 'employees', employee.id, 'onboarding')))
+          rows = legacy.docs.map(d => ({ id: d.id, ...d.data() }))
+        }
         if (cancelled) return
-        setAcks(ackSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+        setAcks(rows)
 
         // Best-effort: find the linked users row to surface consent state + IP.
         let userData = null
@@ -140,7 +148,7 @@ export default function OnboardingDetailModal({ employee, onClose }) {
                 Onboarding status — {employee.full_name || employee.name || employee.id}
               </div>
               <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
-                Source of truth: <code style={{ fontFamily: "'JetBrains Mono', monospace" }}>employees/{employee.id}/onboarding</code>
+                Source of truth: <code style={{ fontFamily: "'JetBrains Mono', monospace" }}>employees/{employee.id}/onboarding_evidence</code>
               </div>
             </div>
           </div>
@@ -190,10 +198,10 @@ export default function OnboardingDetailModal({ employee, onClose }) {
                     <div key={a.id} style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 700 }}>
                         <CheckCircle2 size={13} color="#34BF3A" />
-                        {a.item_id || a.id}
+                        {a.policy_name || a.policy_id || a.item_id || a.id}
                       </div>
                       <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.55)', marginTop: 4 }}>
-                        acknowledged_by {a.acknowledged_by || a.employee_email || '—'} · at {fmtTs(a.completed_at)}
+                        acknowledged_by {a.acknowledged_by || a.employee_email || '—'} · at {fmtTs(a.acknowledged_at || a.completed_at)}
                         {a.ip_address ? <> · from {a.ip_address}</> : null}
                       </div>
                     </div>
