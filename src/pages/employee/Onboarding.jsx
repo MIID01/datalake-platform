@@ -321,8 +321,25 @@ function OnboardingInner() {
     setSubmitting(true)
     setError('')
     try {
+      // Best-effort IP capture — for the PDPL consent certificate. ipify is the
+      // only client-readable source; fails open with null if blocked.
+      let consentIp = null
+      try {
+        const ctrl = new AbortController()
+        const t = setTimeout(() => ctrl.abort(), 2000)
+        const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal })
+        clearTimeout(t)
+        if (r.ok) {
+          const j = await r.json()
+          consentIp = j.ip || null
+        }
+      } catch { consentIp = null }
+
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : null
+
       // One acknowledgment doc per item under the employee's onboarding subcollection.
-      // Each row also captures who acknowledged it and when for the regulator audit trail.
+      // Each row also captures who acknowledged it, when, and from what IP+UA for
+      // the regulator audit trail (PDPL Art. 5 — proof of consent).
       await Promise.all(ITEMS.map(it =>
         setDoc(doc(db, 'employees', profile.emp_id, 'onboarding', it.item_id), {
           item_id: it.item_id,
@@ -330,6 +347,8 @@ function OnboardingInner() {
           completed_at: serverTimestamp(),
           acknowledged_by: profile.email,
           employee_email: profile.email,
+          ip_address: consentIp,
+          user_agent: userAgent,
         })
       ))
       // Flip the gate flag on the user's own record (AuthGate reads this).
@@ -337,6 +356,8 @@ function OnboardingInner() {
         onboarding_complete: true,
         onboarding_completed_at: serverTimestamp(),
         pdpl_consent_state: 'GRANTED',
+        pdpl_consent_ip: consentIp,
+        pdpl_consent_user_agent: userAgent,
         training_completed: true,
         contract_signed: true,
       })

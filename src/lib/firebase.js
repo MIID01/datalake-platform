@@ -114,6 +114,10 @@ export const GENERATE_ZATCA_XML_URL =
 export const UPLOAD_CONTRACT_PDF_URL =
   "https://uploadcontractpdf-ifzodp5svq-wx.a.run.app";
 
+// PDF engine (templates: invoice, payslip, timesheet, monthly_report, contract_summary, pdpl_consent)
+export const GENERATE_PDF_URL =
+  "https://generatepdf-ifzodp5svq-wx.a.run.app";
+
 // Multi-Tenant Integration Config (Phase 9)
 export const SAVE_INTEGRATION_CONFIG_URL =
   "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";

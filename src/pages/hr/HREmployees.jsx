@@ -4,6 +4,8 @@ import { db } from '../../lib/firebase'
 import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, CheckCircle, Trash2, Edit2, Send, Archive, UserMinus, Eye } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import AddEmployeeModal from '../../components/AddEmployeeModal'
+import OnboardingDetailModal from '../../components/OnboardingDetailModal'
+import { ShieldCheck } from 'lucide-react'
 
 const STATUS_COLORS = {
   ACTIVE: { bg: 'rgba(52,191,58,0.12)', color: '#34BF3A' },
@@ -27,6 +29,7 @@ export default function HREmployees() {
   const [showModal, setShowModal] = useState(false)
   const [editEmployee, setEditEmployee] = useState(null)
   const [viewEmployee, setViewEmployee] = useState(null)
+  const [consentEmployee, setConsentEmployee] = useState(null)  // → OnboardingDetailModal
   const [toast, setToast] = useState(null)
   
   const location = useLocation()
@@ -202,8 +205,10 @@ export default function HREmployees() {
                     {e.assigned_project || 'Unassigned'}
                   </td>
                   <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 300, marginLeft: 'auto' }}>
-                      
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 340, marginLeft: 'auto' }}>
+                      <button onClick={() => setConsentEmployee(e)} className="btn-action" title="Onboarding status + PDPL consent certificate" style={{ background: 'rgba(21,152,204,0.1)', color: '#1598CC', border: '1px solid rgba(21,152,204,0.3)' }}>
+                        <ShieldCheck size={12} /> Consent
+                      </button>
                       {isActive && (
                         <>
                           <button onClick={() => handleOffboard(e.id)} className="btn-action" style={{ background: 'rgba(239,88,41,0.1)', color: '#EF5829', border: '1px solid rgba(239,88,41,0.3)' }} title="Offboard">
@@ -262,6 +267,7 @@ export default function HREmployees() {
       {showModal && <AddEmployeeModal onClose={handleModalClose} initialData={location.state?.candidate} />}
       {editEmployee && <AddEmployeeModal onClose={() => setEditEmployee(null)} initialData={editEmployee} isEdit={true} />}
       {viewEmployee && <AddEmployeeModal onClose={() => setViewEmployee(null)} initialData={viewEmployee} isEdit={true} />}
+      {consentEmployee && <OnboardingDetailModal employee={consentEmployee} onClose={() => setConsentEmployee(null)} />}
 
       <style>{`
         .spin { animation: spin 1s linear infinite; } 

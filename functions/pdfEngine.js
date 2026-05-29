@@ -132,6 +132,89 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       doc.fontSize(16).fillColor(primaryColor).text("EXPENSE REPORT", { align: 'center' });
       doc.moveDown();
       doc.fontSize(12).fillColor('black').text(`Document ID: ${docId}`);
+
+    } else if (template === "pdpl_consent") {
+      // PDPL Article 5 / Article 18 — proof that consent was given.
+      // docId is the employees/{employee_id} doc id (e.g. "DLSA1003").
+      // Loads the employee record, the onboarding subcollection (one row per
+      // policy acknowledgment), and the matching users row (IP, role).
+      const empSnap = await db.collection("employees").doc(docId).get();
+      if (!empSnap.exists) throw new Error(`Employee ${docId} not found`);
+      const emp = empSnap.data();
+
+      // Find the linked users row by employee_id, uid, or email — same shape as the directory join.
+      let userData = null;
+      if (emp.uid) {
+        const u = await db.collection("users").doc(emp.uid).get();
+        if (u.exists) userData = u.data();
+      }
+      if (!userData) {
+        const q = await db.collection("users").where("employee_id", "==", docId).limit(1).get();
+        if (!q.empty) userData = q.docs[0].data();
+      }
+      if (!userData && emp.email) {
+        const q = await db.collection("users")
+          .where("email", "==", String(emp.email).toLowerCase()).limit(1).get();
+        if (!q.empty) userData = q.docs[0].data();
+      }
+      userData = userData || {};
+
+      // Onboarding acknowledgment subcollection
+      const ackSnap = await db.collection("employees").doc(docId).collection("onboarding").get();
+      const acks = ackSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => String(a.item_id || a.id).localeCompare(String(b.item_id || b.id)));
+
+      const granted = userData.onboarding_complete === true || emp.onboarding_complete === true;
+      const consentState = userData.pdpl_consent_state || (granted ? "GRANTED" : "NOT_GRANTED");
+      const consentAt = userData.onboarding_completed_at || emp.onboarding_completed_at || null;
+      const consentIp = userData.pdpl_consent_ip || userData.last_login_ip || "not captured (network policy)";
+      const fullName = emp.full_name || emp.name || userData.display_name || docId;
+
+      doc.fontSize(18).fillColor(primaryColor).text("PDPL Consent Certificate", { align: 'center' });
+      doc.moveDown(0.4);
+      doc.fontSize(10).fillColor('#555').text("Saudi Personal Data Protection Law (PDPL) — Article 5 record of consent", { align: 'center' });
+      doc.moveDown(1.2);
+
+      doc.fontSize(12).fillColor('black')
+        .text(`Employee:           ${fullName}`)
+        .text(`Employee ID:        ${docId}`)
+        .text(`Email:              ${emp.email || userData.email || '—'}`)
+        .text(`Job Title:          ${emp.job_title || '—'}`)
+        .moveDown(0.6)
+        .text(`Consent state:      ${consentState}`)
+        .text(`Granted at:         ${consentAt && consentAt.toDate ? consentAt.toDate().toISOString() : (consentAt || '—')}`)
+        .text(`From IP address:    ${consentIp}`)
+        .text(`Captured on:        Datalake Platform (datalake.sa)`);
+
+      doc.moveDown(1);
+      doc.fontSize(13).fillColor(primaryColor).text("Policies acknowledged");
+      doc.moveDown(0.3);
+
+      if (acks.length === 0) {
+        doc.fontSize(11).fillColor('#999').text("No acknowledgment rows were found for this employee.");
+      } else {
+        for (const a of acks) {
+          const item = a.item_id || a.id;
+          const at = a.completed_at && a.completed_at.toDate ? a.completed_at.toDate().toISOString() : (a.completed_at || '—');
+          const by = a.acknowledged_by || a.employee_email || '—';
+          doc.fontSize(11).fillColor('black')
+            .text(`  • ${item}`)
+            .fillColor('#555').fontSize(10)
+            .text(`     acknowledged_by: ${by}`)
+            .text(`     at:              ${at}`)
+            .moveDown(0.3)
+            .fillColor('black');
+        }
+      }
+
+      doc.moveDown(1);
+      doc.fontSize(9).fillColor('#666').text(
+        "This certificate is generated from the Datalake platform's onboarding ledger at the moment of download. " +
+        "Consent rows are stored append-only at employees/{employee_id}/onboarding/ and cannot be backdated. " +
+        "If this employee has not actually clicked through the four onboarding policies, the Consent state will be NOT_GRANTED.",
+        { align: 'justify' }
+      );
     } else {
       throw new Error(`Unknown template: ${template}`);
     }
