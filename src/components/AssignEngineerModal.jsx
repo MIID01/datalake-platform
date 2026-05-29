@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { X, Loader, UserPlus, ChevronDown } from 'lucide-react'
+import { X, Loader, UserPlus } from 'lucide-react'
 import { auth, db, ASSIGN_ENGINEER_URL } from '../lib/firebase'
 import { collection, query, where, getDocs } from 'firebase/firestore'
+import SearchablePicker from './SearchablePicker'
 
 export default function AssignEngineerModal({ project, onClose, onAssigned }) {
   const startDefault = project.start_date?.toDate ? project.start_date.toDate().toISOString().split('T')[0] : ''
@@ -90,13 +91,18 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
         <div style={{padding:'24px 28px'}}>
           <div style={st.field}>
             <label style={st.label}>Engineer *</label>
-            <div style={{position:'relative'}}>
-              <select style={{...st.input,appearance:'none',cursor:'pointer',color:'#333333'}} value={form.engineer_id} onChange={e=>u('engineer_id',e.target.value)}>
-                <option value="" style={{color:'#333333'}}>{loadingEngs ? 'Loading employees...' : 'Select engineer...'}</option>
-                {engineers.map(e=><option key={e.id} value={e.id} style={{color:'#333333'}}>{e.full_name} ({e.employee_id})</option>)}
-              </select>
-              <ChevronDown size={16} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',color:'#8898aa',pointerEvents:'none'}} />
-            </div>
+            <SearchablePicker
+              items={engineers}
+              selectedId={form.engineer_id}
+              onSelect={(id) => u('engineer_id', id)}
+              getLabel={e => e.full_name || e.name || e.id}
+              getSubtitle={e => [e.employee_id, e.job_title, e.email].filter(Boolean).join(' · ')}
+              searchFields={e => [e.full_name, e.name, e.employee_id, e.email, e.job_title]}
+              placeholder={loadingEngs ? 'Loading employees…' : 'Type to search: name, DLSA id, email, job title…'}
+              theme="light"
+              disabled={loadingEngs}
+              emptyText="No engineers available."
+            />
           </div>
           <div style={st.field}><label style={st.label}>Role on Project</label><input style={{...st.input, background: 'rgba(255,255,255,0.05)', color: 'var(--text-tertiary)', cursor: 'not-allowed'}} value={selectedEng ? selectedEng.job_title || 'Engineer' : ''} disabled placeholder="Auto-filled from employee profile" /></div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,...st.field}}>

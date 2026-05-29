@@ -8,6 +8,7 @@ import {
   Upload, FileText, Loader, CheckCircle2, AlertTriangle, AlertCircle,
   Send, RefreshCw, X, Eye, Pencil, Scale, Inbox, ShieldCheck,
 } from 'lucide-react'
+import SearchablePicker from '../../components/SearchablePicker'
 
 // Status the contract goes through:
 //   PENDING_EXTRACTION → EXTRACTED → LEGAL_PENDING → LEGAL_APPROVED → ACTIVE
@@ -69,93 +70,6 @@ function emptyExtracted() {
   return o
 }
 
-// Type-to-filter combobox. Pulled out so the same searchable employee picker
-// can be reused on any other page that needs one (Issue 4 requirement).
-function EmployeeSearchPicker({ employees, selectedId, onSelect }) {
-  const [q, setQ] = useState('')
-  const [open, setOpen] = useState(false)
-  const selected = employees.find(e => e.id === selectedId)
-  const norm = (s) => String(s || '').toLowerCase()
-  const matches = q.trim()
-    ? employees.filter(e => {
-        const t = norm(q.trim())
-        return norm(e.full_name).includes(t)
-          || norm(e.name).includes(t)
-          || norm(e.email).includes(t)
-          || norm(e.employee_id).includes(t)
-          || norm(e.job_title).includes(t)
-      })
-    : employees
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <input
-        type="text"
-        style={{
-          width: '100%', padding: '9px 12px', borderRadius: 8,
-          border: '1px solid rgba(255,255,255,0.15)',
-          background: 'rgba(0,0,0,0.25)', color: '#fff',
-          fontSize: '0.88rem', fontFamily: 'inherit', boxSizing: 'border-box',
-          outline: 'none',
-        }}
-        placeholder={selected
-          ? `${selected.full_name || selected.name || selected.id}${selected.employee_id ? ' · ' + selected.employee_id : ''}`
-          : 'Type to search: name, DLSA id, email, job title…'}
-        value={q}
-        onChange={e => { setQ(e.target.value); setOpen(true) }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-      />
-      {selected && !q && (
-        <button
-          type="button"
-          onClick={(e) => { e.preventDefault(); onSelect(''); setQ('') }}
-          style={{
-            position: 'absolute', right: 8, top: 7, background: 'transparent', border: 'none',
-            color: 'rgba(255,255,255,0.55)', cursor: 'pointer', padding: 4,
-          }}
-          title="Clear selection"
-        ><X size={13} /></button>
-      )}
-      {open && (
-        <div
-          style={{
-            position: 'absolute', top: '100%', left: 0, right: 0,
-            marginTop: 4, maxHeight: 240, overflowY: 'auto',
-            background: '#0f1d36', border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 8, zIndex: 50,
-          }}
-        >
-          {matches.length === 0 ? (
-            <div style={{ padding: '12px 14px', color: 'rgba(255,255,255,0.55)', fontSize: '0.82rem' }}>
-              No employees match "{q}".
-            </div>
-          ) : matches.map(emp => (
-            <button
-              key={emp.id}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onSelect(emp.id); setQ(''); setOpen(false) }}
-              style={{
-                width: '100%', textAlign: 'left', padding: '10px 14px',
-                border: 'none', background: emp.id === selectedId ? 'rgba(21,152,204,0.15)' : 'transparent',
-                color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
-                borderBottom: '1px solid rgba(255,255,255,0.05)',
-              }}
-            >
-              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                {emp.full_name || emp.name || emp.id}
-              </div>
-              <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
-                {[emp.employee_id, emp.job_title, emp.email].filter(Boolean).join(' · ')}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 function pickReviewSource(contract) {
   // Prefer human-edited fields, fall back to AI extraction.
@@ -526,10 +440,16 @@ export default function HRContracts() {
         {uploadMode === 'existing' && (
           <div style={{ marginBottom: 12 }}>
             <label style={styles.label}>Which employee is this contract for?</label>
-            <EmployeeSearchPicker
-              employees={employees}
+            <SearchablePicker
+              items={employees}
               selectedId={selectedEmployeeId}
               onSelect={(id) => setSelectedEmployeeId(id)}
+              getLabel={e => e.full_name || e.name || e.id}
+              getSubtitle={e => [e.employee_id, e.job_title, e.email].filter(Boolean).join(' · ')}
+              searchFields={e => [e.full_name, e.name, e.employee_id, e.email, e.job_title]}
+              placeholder="Type to search: name, DLSA id, email, job title…"
+              theme="dark"
+              emptyText="No employees yet."
             />
           </div>
         )}
