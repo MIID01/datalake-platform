@@ -66,3 +66,35 @@ Needs the Payroll Procedure document (Phase 6) first. Build the WPS file format 
   - **Signature → evidence**: `recordApproval` now requires a signatureBlob, uploads it separately to `approval-evidence/<col>/<id>/<ts>_signature.png`, and records `signature_url`, `signature_storage_path`, `signature_method`, `signature_typed_name` on the evidence row.
   - **`SignedBadge` / `SignedBadgeList` / `EvidenceTrailModal`** (`src/components/SignedBadge.jsx`) — reusable signed pill showing signature thumbnail + signer name + role + timestamp; click opens a full evidence trail modal (signature image, approver, IP, UA, document link with SHA-256, storage paths, extras). Wired into InvoiceDetail, CEOPayroll DRAFT panel, and the LegalReview success page so every approved doc carries its audit chain on the surface.
 
+### 2026-05-29 shipped
+
+- **Legal-details fix across the entire platform** (`fix/company-legal-details` → main, commit `ee972e0`):
+  - CR `109194773` → **`1009194773`** everywhere
+  - District `Rajeh Street` / `Rajeeh Street` → **`Al-Yarmouk`** (both spellings caught)
+  - Entity name `Datalake Saudi Arabia` / `Datalake Information Technology` / `Datalake IT` (footer context) → **`Datalake Saudi Arabia LLC`**
+  - Footer field `UEN:7048904952` → **`NUN:7048904952`**
+  - Canonical English footer (now used on every public/legal page): `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952`
+  - Arabic legal name + entity type added to legal-document surfaces (`ContractAcceptance`, `LegalReview`, `Onboarding` PDPL consent + Privacy Notice "About" + Data Controller line) — RTL block with `lang="ar"`.
+  - New `src/lib/company-legal.js` — `COMPANY` const, `LEGAL_FOOTER_EN`, `LEGAL_FOOTER_AR`, `DATA_CONTROLLER_LINE_EN`. Header comment lists every place that must be updated when the canonical values change.
+  - Files touched: `Careers.jsx`, `ClientDashboard.jsx`, `ClientScorecard.jsx`, `ContractAcceptance.jsx`, `LegalReview.jsx`, `Onboarding.jsx` (10 occurrences), `docs/DTLK-OPS-PLN-001-fix-plan.md`.
+  - Verified clean: `CLAUDE.md`, `firestore.rules`, `storage.rules` only reference the `@datalake.sa` email domain — no legal-detail strings.
+
+### 2026-05-29 — Antigravity Phase 7-8 audit (no fixes applied, findings only)
+
+`feature/monthly-ops`: commits `0439316` (Phase 7 Auditor) + `f228024` (Phase 8 Monthly Ops). Same pattern as the Phase-5 audit — code is real, Pub/Sub wiring is correct, but **field/collection names drift from what the frontend actually writes**.
+
+Pub/Sub fan-out is sound: `monthlyOperationsTrigger` (cron `0 0 1 * *` Asia/Riyadh) publishes `datalake.monthly.trigger` to 5 consumers: `generateMonthlyReport`, `gatekeeperMonthlyOps`, `controllerMonthlyOps`, `aiAuditorMonthlyCron`, `checkEvidenceIntegrityMonthly` — all topic strings match.
+
+Per-handler issues to fix before any of this hits production:
+
+- **`checkEvidenceIntegrityHandler` (CRITICAL)** — parses `gs://…` out of `data.evidence_url`, but my helper writes the `evidence_url` as a Firebase Storage **download URL** (`https://firebasestorage.googleapis.com/…`). The `gs://` path is in **`evidence_storage_path`**. Result: the WORM-bucket file-existence scan silently reports "PASS" on every row. **Swap to iterate `evidence_storage_path` and split on `/` from there.**
+- **`aiAuditorMonthlyCronHandler`** — `u.onboarding_completed` is wrong; frontend writes `onboarding_complete`. `u.last_password_change` is never written by the frontend at all. Every active user gets flagged for both. `talent_pool.where('status', '==', 'REJECTED')` uses the wrong field — frontend uses `state`. `timesheets where t.status` ditto — CLAUDE.md mandates `state` on the timesheet chain.
+- **`generateMonthlyReportHandler`** — `invoices where period == year_month` (frontend has `period_start` + `period_end`, no `period`), `inv.amount` (frontend uses `total`), `employees where role_id == 'engineer'` (employees collection doesn't carry `role_id` — that's on `users`), `leave_requests.days` + `leave_requests.type` (frontend writes `working_days` + `leave_type`). All four return zero/empty.
+- **`auditorComplianceCheckHandler`** — filters engineers by `role_id == 'engineer' && status == 'active'`; the `users` collection mixes `role_id` (`employee`, `pm`, `engineer`). PDPL-consent stats under-count anyone whose `role_id` isn't `engineer`.
+- **`trackCAPAStatusHandler`** — operates on `capas` collection that has no frontend writer. Dead until someone seeds it.
+
+Two cross-cutting gaps:
+1. **No `logToBigQuery` calls in any of the four files audited.** The header comment in `auditor.js` promises it; the code doesn't. Only `callOCR` / `callLLM` log themselves through `ai-client.js`.
+2. **The same `state` vs `status` drift my Phase-5 audit caught** — the schema-fix commit `834cc36` only touched leave/expense/ticket. Payroll/invoice/talent_pool/timesheet are still on the old names.
+
+Action: leave Antigravity to land their fix commit (they've followed this loop before — see `834cc36` "fix schema names" and `d9d46eb` "contract mirror"). When that lands, re-grep for any remaining `gs://` URL parsing.

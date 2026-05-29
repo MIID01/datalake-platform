@@ -88,6 +88,38 @@ VACANT. CEO acts as CTO for timesheet approval. CTO portal stays built but unuse
 ### Design System
 Navy #022873, Sky Blue #1598CC, Orange #EF5829, Green #34BF3A. Background #F4F6F9, Cards #FFFFFF, Border #E5E7EB. Sidebar 260px fixed left navy. Font DM Sans fallback Arial. Icons Lucide React.
 
+### Company legal details (single source of truth)
+All footers, PDPL notices, contracts, and any printed/PDF surface must read from `src/lib/company-legal.js` — never hardcode the name / CR / address inline. Canonical values:
+- Legal name (EN): **Datalake Saudi Arabia LLC**
+- Legal name (AR): **شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات**
+- Entity type (AR): **شركة ذات مسؤولية محدودة (LLC)**
+- CR: **1009194773** · NUN: **7048904952**
+- Address: **Riyadh Al-Yarmouk 13243**
+- Canonical English footer (use `LEGAL_FOOTER_EN`): `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952`
+- Wrong-and-must-never-be-reintroduced: CR `109194773` (missing leading zero), district `Rajeh Street` / `Rajeeh Street`, names `Datalake Saudi Arabia` (no LLC) / `Datalake Information Technology`, field `UEN:7048904952` (should be NUN).
+
+### Approval evidence pattern
+Every material approval (invoice, payroll, contract, …) must capture an evidence row. Use the universal components, do not roll your own:
+- `<ApprovalButton parentCollection parentId requiresDocument label onApproved variant identity? extra? />` — `requiresDocument=true` enforces a signed-PDF upload; the modal then forces a signature (Draw / Upload / Type) before `recordApproval` runs. The button's `done` state shows a `SignedBadge` with the signature thumbnail.
+- `<SignedBadgeList parentCollection parentId compact />` — drop this on any parent-doc page (invoice / payroll run / contract) to surface every prior approval on that doc with click-to-expand `EvidenceTrailModal`.
+- Evidence row shape (under `<parent>/<id>/approval_evidence/<auto-id>`): `approver_{uid,email,name,role}`, `approved_at`, `ip_address`, `user_agent`, `evidence_{url,filename,size_bytes,mime_type,sha256,storage_path}` (when `requiresDocument`), `signature_{url,storage_path,method,size_bytes,typed_name}`, `requires_document`, `label`, `action`, `parent_{collection,id}`, plus any caller-supplied `extra` keys. PDF + signature are uploaded to `approval-evidence/<col>/<id>/<ts>_…` as separate objects.
+- Token-based flows (external counsel, etc.) pass `identity={ email, name, role }` so the evidence row attributes the action correctly when there's no Firebase Auth user.
+
+### Approval routing pattern
+- Routine leave / expense / ticket flows route through PM → Finance → HR (never CEO) per the DOA matrix at `approval_routing/config` (CEO-editable at `/ceo/admin/delegation`).
+- Use the shared helpers in `src/lib/approval-routing.js`: `loadApprovalContext({ email })`, `describeLeaveApprover`, `describeExpenseApprover`, `describeTicketAssignee`, `formatApprovalChain`. They resolve the user's active project assignment → PM, fall back to CEO with `isCeoFallback: true` when no PM, and merge `approval_routing/config` over defaults.
+- Forms must show the resolved approver inline ("This will be sent to [Name]…") and stamp `routing{}` + top-level `client_pm_email` on the submitted doc so downstream filters work without nested-map queries.
+- CEO `CommandCenter` "Items Needing Your Decision" only surfaces invoices/payroll/hires/critical tickets/unpaid-or-hajj leave. Do not pipe routine items into the CEO surface.
+
+### Schema-drift watchlist (Antigravity backend has tripped on these repeatedly)
+- `leave_requests`: frontend writes `leave_type` + `working_days`. Not `type` / `days`.
+- `invoices`: frontend uses `total`, `period_start`, `period_end`. Not `amount` / `period`.
+- `employees`: has `employment_status`, NOT `role_id` (that's on `users`).
+- `talent_pool`: filter on `state` (e.g. `ACTIVE_POOL_YEAR_1`, `REJECTED`), NOT `status`.
+- `timesheets`: filter on `state` (per the chain SUBMITTED → CTO_APPROVED → CLIENT_SIGNED → INVOICED), NOT `status`.
+- `users`: `onboarding_complete` (no `-d`). `last_password_change` does not exist in the frontend write path; do not query it for "password expired" rules.
+- `approval_evidence.evidence_url`: a Firebase Storage **download URL** (https://). The `gs://`-prefixed bucket path is in `evidence_storage_path` — that's what integrity scans must read.
+
 ### Hard Rules
 - Every page: loading, error, empty states. Never blank.
 - No mock data. No hardcoded values. Read from Firestore.
