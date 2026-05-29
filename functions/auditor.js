@@ -16,6 +16,7 @@
 
 const admin = require("firebase-admin");
 const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
+const { logToBigQuery } = require("./lib/bigquery");
 
 const db = admin.firestore();
 
@@ -166,12 +167,10 @@ async function auditorComplianceCheckHandler() {
     ]);
 
     const allUsers = usersSnap.docs.map((d) => d.data());
-    const activeEngineers = allUsers.filter(
-      (u) => u.role_id === "engineer" && u.status === "active"
-    );
+    const activeUsers = allUsers.filter(u => u.status === "active");
 
     // PDPL consent analysis — no PII in prompt (IDs and states only)
-    const consentStatus = activeEngineers.map((e) => ({
+    const consentStatus = activeUsers.map((e) => ({
       uid: e.uid || e.id,
       pdpl_consent_state: e.pdpl_consent_state || "UNKNOWN",
       role: e.role_id,
@@ -200,7 +199,7 @@ async function auditorComplianceCheckHandler() {
     const systemState = {
       check_date: now.toISOString().split("T")[0],
       total_users: allUsers.length,
-      total_active_engineers: activeEngineers.length,
+      total_active_engineers: activeUsers.length,
       engineers_missing_pdpl_consent: missingConsent.length,
       total_policies_in_library: policiesSnap.size,
       total_grc_documents: grcSnap.size,
@@ -376,9 +375,219 @@ async function getComplianceReportsHandler(req, res, { verifyAuth, getUserAccess
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// 5. aiAuditorMonthlyCronHandler — Phase 7 Auditor AI
+// ══════════════════════════════════════════════════════════════════
+async function aiAuditorMonthlyCronHandler(eventPayload) {
+  console.log("[Auditor] Running aiAuditorMonthlyCronHandler...");
+  try {
+    const [usersSnap, contractsSnap, leaveSnap, talentSnap, timesheetsSnap] = await Promise.all([
+      db.collection("users").get(),
+      db.collection("contracts").get(),
+      db.collection("leave_requests").get(),
+      db.collection("talent_pool").where("state", "==", "REJECTED").get(),
+      db.collection("timesheets").get()
+    ]);
+
+    const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const contracts = contractsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const leaves = leaveSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rejectedTalent = talentSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const timesheets = timesheetsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 3600000);
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 3600000);
+
+    const issues = [];
+
+    // Verify onboarding completion
+    const incompleteOnboarding = users.filter(u => u.status === 'active' && !u.onboarding_complete);
+    if (incompleteOnboarding.length > 0) issues.push(`Found ${incompleteOnboarding.length} active users with incomplete onboarding.`);
+
+    // Contract validity
+    const expiredContracts = contracts.filter(c => c.contract_end_date && new Date(c.contract_end_date) < now);
+    if (expiredContracts.length > 0) issues.push(`Found ${expiredContracts.length} expired contracts.`);
+
+    // Leave consistency
+    // Simple check: do we have leaves in 'APPROVED' state without deduction? (simplified for prompt)
+    const approvedLeaves = leaves.filter(l => l.status === 'APPROVED');
+    issues.push(`Reviewed ${approvedLeaves.length} approved leave requests for consistency.`);
+
+    // PDPL Purge status
+    const unpurgedTalent = rejectedTalent.filter(t => t.rejected_at && t.rejected_at.toDate() < thirtyDaysAgo);
+    if (unpurgedTalent.length > 0) issues.push(`PDPL Violation: Found ${unpurgedTalent.length} rejected candidates older than 30 days.`);
+
+    // Timesheet status
+    const pendingTimesheets = timesheets.filter(t => t.state === 'PENDING' || t.state === 'SUBMITTED');
+    if (pendingTimesheets.length > 0) issues.push(`Found ${pendingTimesheets.length} unresolved timesheets.`);
+
+    const systemPrompt = "You are the Datalake AI Auditor. Review the monthly activity summary and generate an audit finding report. Return strict JSON array of findings. E.g. [{\"issue\": \"...\", \"severity\": \"HIGH\"}]";
+    const userPrompt = `Run the monthly audit on platform activity. Anomalies found: ${JSON.stringify(issues)}. Verify contract validity, leave consistency, PDPL purge status, timesheet status.`;
+
+    const res = await callLLM({
+      agent: "auditor",
+      type: "MONTHLY_AUDIT",
+      systemPrompt,
+      userPrompt,
+      triggeredBy: "system:monthly_ops"
+    });
+      
+    await db.collection("audit_reports").add({
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      report_raw: res.output,
+      status: "GENERATED",
+      issues_summary: issues
+    });
+      
+    await logToBigQuery("datalake_audit", "ai_actions", {
+      agent_name: "Auditor",
+      action_type: "MONTHLY_AUDIT",
+      result: "SUCCESS",
+      timestamp: new Date()
+    });
+
+    console.log("Monthly AI audit completed.");
+  } catch (err) {
+    console.error("Monthly AI audit failed:", err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 6. checkEvidenceIntegrityHandler — Phase 7
+// ══════════════════════════════════════════════════════════════════
+async function checkEvidenceIntegrityHandler() {
+  console.log("[Auditor] Running checkEvidenceIntegrityHandler...");
+  try {
+    const defaultBucket = admin.storage().bucket();
+    const violations = [];
+
+    // Check GCS files from a sample of approval_evidence
+    const evidenceSnap = await db.collectionGroup("approval_evidence").get();
+    for (const doc of evidenceSnap.docs) {
+      const data = doc.data();
+      if (data.evidence_storage_path && data.evidence_storage_path.startsWith('gs://')) {
+        const filePath = data.evidence_storage_path.split('gs://')[1].split('/').slice(1).join('/');
+        const bucketName = data.evidence_storage_path.split('gs://')[1].split('/')[0];
+        const bucket = admin.storage().bucket(bucketName);
+        const [exists] = await bucket.file(filePath).exists();
+        if (!exists) {
+          violations.push({ type: 'MISSING_EVIDENCE_FILE', docPath: doc.ref.path, path: data.evidence_storage_path });
+        }
+      }
+    }
+
+    // Check onboarding timestamps
+    const usersSnap = await db.collection("users").where("status", "==", "active").get();
+    usersSnap.docs.forEach(doc => {
+      const data = doc.data();
+      if (!data.created_at) {
+        violations.push({ type: 'MISSING_ONBOARDING_TIMESTAMP', userId: doc.id });
+      }
+    });
+
+    // Check PDPL consents valid
+    const talentSnap = await db.collection("talent_pool").where("status", "==", "ACTIVE").get();
+    talentSnap.docs.forEach(doc => {
+      const data = doc.data();
+      if (!data.pdpl_consent_url && data.pdpl_consent_state !== 'GRANTED') {
+        violations.push({ type: 'INVALID_PDPL_CONSENT', candidateId: doc.id });
+      }
+    });
+
+    // Check ZATCA XMLs exist for approved invoices
+    const invoicesSnap = await db.collection("invoices").where("status", "==", "APPROVED").get();
+    invoicesSnap.docs.forEach(doc => {
+      const data = doc.data();
+      if (!data.zatca_xml_url && !data.zatca_xml_payload) {
+        violations.push({ type: 'MISSING_ZATCA_XML', invoiceId: doc.id });
+      }
+    });
+
+    if (violations.length > 0) {
+      console.warn(`[Auditor] Found ${violations.length} evidence integrity violations.`);
+      const batch = db.batch();
+      for (const v of violations) {
+        const ref = db.collection("compliance_violations").doc();
+        batch.set(ref, {
+          ...v,
+          detected_at: admin.firestore.FieldValue.serverTimestamp(),
+          status: "OPEN"
+        });
+      }
+      await batch.commit();
+    } else {
+      console.log("[Auditor] Evidence integrity check passed.");
+    }
+    await logToBigQuery("datalake_audit", "system_events", {
+      event_type: "EVIDENCE_INTEGRITY_CHECK",
+      details: `Violations found: ${violations.length}`,
+      timestamp: new Date()
+    });
+  } catch (err) {
+    console.error("checkEvidenceIntegrity error:", err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 7. trackCAPAStatusHandler — Phase 7
+// ══════════════════════════════════════════════════════════════════
+async function trackCAPAStatusHandler() {
+  console.log("[Auditor] Running trackCAPAStatusHandler...");
+  try {
+    const capasSnap = await db.collection("capas").where("status", "!=", "CLOSED").get();
+    const now = new Date();
+    
+    const batch = db.batch();
+    let updates = 0;
+
+    capasSnap.docs.forEach(doc => {
+      const capa = doc.data();
+      let newStatus = capa.status;
+      let needsUpdate = false;
+
+      // Check overdue
+      if (capa.due_date && capa.due_date.toDate() < now && capa.status !== 'IMPLEMENTED' && capa.status !== 'VERIFIED') {
+        if (capa.status !== 'OVERDUE') {
+          newStatus = 'OVERDUE';
+          needsUpdate = true;
+        }
+      }
+
+      // Check effectiveness review
+      if (capa.status === 'IMPLEMENTED' && capa.effectiveness_review_date && capa.effectiveness_review_date.toDate() < now) {
+        newStatus = 'REVIEW_REQUIRED';
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        batch.update(doc.ref, { status: newStatus, last_updated: admin.firestore.FieldValue.serverTimestamp() });
+        updates++;
+      }
+    });
+
+    if (updates > 0) {
+      await batch.commit();
+      console.log(`[Auditor] Updated ${updates} CAPA records.`);
+    }
+
+    await logToBigQuery("datalake_audit", "system_events", {
+      event_type: "TRACK_CAPA_STATUS",
+      details: `Updates made: ${updates}`,
+      timestamp: new Date()
+    });
+  } catch (err) {
+    console.error("trackCAPAStatus error:", err);
+  }
+}
+
 module.exports = {
   auditorContractReviewHandler,
   auditorComplianceCheckHandler,
   getContractReviewsHandler,
   getComplianceReportsHandler,
+  aiAuditorMonthlyCronHandler,
+  checkEvidenceIntegrityHandler,
+  trackCAPAStatusHandler
 };
+

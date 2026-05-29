@@ -2615,6 +2615,9 @@ const {
   auditorComplianceCheckHandler,
   getContractReviewsHandler,
   getComplianceReportsHandler,
+  aiAuditorMonthlyCronHandler,
+  checkEvidenceIntegrityHandler,
+  trackCAPAStatusHandler
 } = require("./auditor");
 
 exports.auditorContractReview = onMessagePublished(
@@ -2851,33 +2854,24 @@ DO NOT RETURN ANY OTHER TEXT OR MARKDOWN.`;
   }
 );
 
-exports.aiAuditorMonthlyCron = onSchedule(
-  { schedule: "0 0 1 * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "512MiB" },
-  async (event) => {
-    const systemPrompt = "You are the Datalake AI Auditor. Review the monthly activity summary and generate an audit finding report. Return strict JSON array of findings.";
-    const userPrompt = "Run the monthly audit on platform activity for the previous month. Check for anomalous timesheet approvals, missing consent records, and security rule violations.";
+exports.aiAuditorMonthlyCron = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  async (event) => { await aiAuditorMonthlyCronHandler(event); }
+);
 
-    try {
-      const res = await callLLM({
-        agent: "auditor",
-        type: "MONTHLY_AUDIT",
-        systemPrompt,
-        userPrompt,
-        triggeredBy: "system:onSchedule"
-      });
-      
-      const db = admin.firestore();
-      await db.collection("audit_reports").add({
-        created_at: admin.firestore.FieldValue.serverTimestamp(),
-        report_raw: res.output,
-        status: "GENERATED"
-      });
-      
-      console.log("Monthly AI audit completed.");
-    } catch (err) {
-      console.error("Monthly AI audit failed:", err);
-    }
-  }
+exports.checkEvidenceIntegrityWeekly = onSchedule(
+  { schedule: "0 3 * * 0", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await checkEvidenceIntegrityHandler(); }
+);
+
+exports.checkEvidenceIntegrityMonthly = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "256MiB" },
+  async (event) => { await checkEvidenceIntegrityHandler(); }
+);
+
+exports.trackCAPAStatus = onSchedule(
+  { schedule: "0 4 * * 0", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await trackCAPAStatusHandler(); }
 );
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2919,7 +2913,7 @@ exports.assignrole = assignrole;
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5: CONTROLLER AI — FINANCE CHAIN
 // ═══════════════════════════════════════════════════════════════════
-const { calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler } = require("./finance");
+const { calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler, controllerMonthlyOpsHandler } = require("./finance");
 
 exports.calculatePayroll = onSchedule(
   {
@@ -3019,7 +3013,7 @@ exports.whatsappWebhook = onRequest(
 // ==============================================================================
 const { validateLeaveRequestHandler, clientApproveLeaveHandler, approveLeaveHandler, controllerAdjustPayrollHandler } = require("./leave");
 const { validateExpenseHandler, routeTicketHandler } = require("./requests");
-const { resetLeaveBalancesHandler, pdplCandidatePurgeHandler, scanContractExpiryHandler, validateHireBudgetHandler } = require("./hr");
+const { resetLeaveBalancesHandler, pdplCandidatePurgeHandler, scanContractExpiryHandler, validateHireBudgetHandler, gatekeeperMonthlyOpsHandler } = require("./hr");
 
 exports.clientApproveLeave = onRequest(
   { region: "me-central2", memory: "256MiB" },
@@ -3064,16 +3058,14 @@ exports.pdplCandidatePurge = onSchedule(
   async (event) => { await pdplCandidatePurgeHandler(); }
 );
 
-exports.scanContractExpiry = onSchedule(
-  { schedule: "0 9 1 * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
-  async (event) => { await scanContractExpiryHandler(); }
-);
-
 exports.validateHireBudget = onDocumentCreated(
   { document: "hire_requests/{docId}", region: "me-central2", memory: "256MiB" },
   async (event) => { await validateHireBudgetHandler(event); }
 );
 
+// ==============================================================================
+// CONTRACT MIRROR + UNIVERSAL EVIDENCE ENFORCEMENT (from feature/gatekeeper-hr)
+// ==============================================================================
 exports.mirrorContractExtraction = onDocumentUpdated(
   { document: 'pending_hires/{hireId}', region: "me-central2", memory: "256MiB" },
   async (event) => {
@@ -3096,9 +3088,9 @@ const enforceEvidence = async (event) => {
     const hasEvidence = snap.docs.some(doc => doc.data().evidence_url);
     if (!hasEvidence) {
       console.log(`[Evidence] Rejected APPROVED status for ${event.data.after.ref.path}`);
-      await event.data.after.ref.update({ 
-        status: before.status, 
-        approval_error: 'Missing required approval evidence document' 
+      await event.data.after.ref.update({
+        status: before.status,
+        approval_error: 'Missing required approval evidence document'
       });
     }
   }
@@ -3108,4 +3100,40 @@ exports.enforceEvidenceInvoices = onDocumentUpdated({ document: 'invoices/{docId
 exports.enforceEvidencePayroll = onDocumentUpdated({ document: 'payroll/{docId}', region: "me-central2" }, enforceEvidence);
 exports.enforceEvidenceContracts = onDocumentUpdated({ document: 'contracts/{docId}', region: "me-central2" }, enforceEvidence);
 exports.enforceEvidenceVendorAgreements = onDocumentUpdated({ document: 'vendor_agreements/{docId}', region: "me-central2" }, enforceEvidence);
+
+// ==============================================================================
+// PHASE 8: MONTHLY OPERATIONS ENGINE
+// ==============================================================================
+const { monthlyOperationsTriggerHandler } = require("./ops");
+const { generateMonthlyReportHandler } = require("./reports");
+
+exports.monthlyOperationsTrigger = onSchedule(
+  { schedule: "0 0 1 * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  async (event) => { await monthlyOperationsTriggerHandler(); }
+);
+
+exports.gatekeeperMonthlyOps = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "256MiB", timeoutSeconds: 300 },
+  async (event) => { await gatekeeperMonthlyOpsHandler(event); }
+);
+
+exports.controllerMonthlyOps = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  async (event) => { await controllerMonthlyOpsHandler(event); }
+);
+
+exports.generateMonthlyReport = onMessagePublished(
+  { topic: "datalake.monthly.trigger", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  async (event) => { await generateMonthlyReportHandler(event); }
+);
+
+// ==============================================================================
+// BUILD 1: PDF Generation Engine
+// ==============================================================================
+const { generatePDFHandler } = require("./pdfEngine");
+
+exports.generatePDF = onRequest(
+  { region: "me-central2", memory: "1GiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
+  async (req, res) => { await generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }); }
+);
 
