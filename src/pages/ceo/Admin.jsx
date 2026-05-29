@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { auth, db } from '../../lib/firebase'
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, addDoc, query, where, serverTimestamp } from 'firebase/firestore'
 import { Link } from 'react-router-dom'
-import { Users, Shield, Grid3X3, Plus, X, CheckCircle, Loader, AlertTriangle, ScrollText } from 'lucide-react'
+import { Users, Shield, Grid3X3, Plus, X, CheckCircle, Loader, AlertTriangle, ScrollText, Search } from 'lucide-react'
 
 const TABS = [
   { id: 'users', label: 'Users', icon: Users },
@@ -67,6 +67,10 @@ export default function Admin() {
   const [modalData, setModalData] = useState({})
   const [saving, setSaving] = useState(false)
   const [matrixDiffs, setMatrixDiffs] = useState({})
+  // Users tab: inline editing + search ─────────────────────────────
+  const [userSearch, setUserSearch] = useState('')
+  const [roleEdits, setRoleEdits] = useState({})       // { uid: new_role_id }
+  const [savingRowId, setSavingRowId] = useState(null) // single-row save spinner
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
@@ -216,40 +220,174 @@ export default function Admin() {
       <div style={s.tabs}>{TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={s.tab(tab === t.id)}><t.icon size={16} />{t.label}</button>)}</div>
 
       {tab === 'users' && <div style={s.card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fff' }}>Users ({state.users.length})</div>
-          <button style={s.btn()} onClick={() => { setModal('addUser'); setModalData({ role_id: state.roles[0]?.id || 'engineer' }) }}><Plus size={16} />Add User</button>
-        </div>
-        <div style={{ overflowX: 'auto' }}><table style={s.table}><thead><tr>
-          <th style={s.th}>Email</th><th style={s.th}>Name</th><th style={s.th}>Role</th><th style={s.th}>Status</th><th style={s.th}>Actions</th>
-        </tr></thead><tbody>
-          {state.users.map(u => <tr key={u.id}>
-            <td style={{...s.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '0.78rem'}}>{u.email}</td>
-            <td style={s.td}>{u.display_name}</td>
-            <td style={s.td}><span style={s.badge('system')}>{u.role_id}</span></td>
-            <td style={s.td}><span style={s.badge(u.status)}>{u.status}</span></td>
-            <td style={s.td}><div style={{ display: 'flex', gap: 6 }}>
-              {u.email === CEO_EMAIL ? (
-                <button style={{...s.btn('sm'), background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.35)', cursor: 'not-allowed'}} disabled title="Segregation of duties: the CEO cannot change their own role">Role</button>
-              ) : (
-                <button style={{...s.btn('sm'), background: 'rgba(21,152,204,0.2)', color: '#38bdf8'}} onClick={() => {
-                  const availableRoles = assignableRoles.filter(r => r.id !== u.role_id)
-                  setModal('changeRole'); setModalData({ uid: u.id, new_role_id: availableRoles[0]?.id || '', current_role: u.role_id, email: u.email })
-                }}>Role</button>
-              )}
-              <button style={{...s.btn('sm'), background: u.status === 'active' ? 'rgba(239,88,41,0.15)' : 'rgba(52,191,58,0.15)', color: u.status === 'active' ? '#fb923c' : '#4ade80'}} onClick={() => handleToggleDisable(u.id, u.status)}>{u.status === 'active' ? 'Disable' : 'Enable'}</button>
-              <button style={{...s.btn('sm'), background: 'rgba(239,88,41,0.15)', color: '#fb923c'}} onClick={async () => {
-                if(window.confirm('Delete user from database? This cannot be undone.')) {
-                  try {
-                    await deleteDoc(doc(db, 'users', u.id))
-                    showToast('User deleted')
-                    await loadState()
-                  } catch(e) { setError(e.message) }
-                }
-              }}>Delete</button>
-            </div></td>
-          </tr>)}
-        </tbody></table></div>
+        {(() => {
+          const q = userSearch.trim().toLowerCase()
+          const filteredUsers = q
+            ? state.users.filter(u =>
+                String(u.email || '').toLowerCase().includes(q) ||
+                String(u.display_name || '').toLowerCase().includes(q) ||
+                String(u.role_id || '').toLowerCase().includes(q)
+              )
+            : state.users
+          // Single-row save: writes users/{uid}.role_id directly (handleChangeRole
+          // is kept for the legacy modal but we now save inline so the CEO never
+          // has to click through a popup just to change a role).
+          const saveRoleInline = async (u) => {
+            const newRole = roleEdits[u.id]
+            if (!newRole || newRole === u.role_id) return
+            setSavingRowId(u.id)
+            try {
+              const patch = { role_id: newRole }
+              if (newRole === 'client') {
+                // Keep client_id if it was already set; clear otherwise.
+                patch.client_id = u.client_id || null
+              } else {
+                patch.client_id = null
+              }
+              await updateDoc(doc(db, 'users', u.id), patch)
+              await auditLog('USER_ROLE_CHANGED', { target_uid: u.id, new_role: newRole, previous_role: u.role_id })
+              showToast(`Role updated → ${newRole}`)
+              setRoleEdits(prev => { const next = { ...prev }; delete next[u.id]; return next })
+              await loadState()
+            } catch (err) {
+              setError(err.message)
+            } finally {
+              setSavingRowId(null)
+            }
+          }
+          return (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fff' }}>
+                  Users <span style={{ color: 'rgba(255,255,255,0.45)', fontWeight: 500, marginLeft: 6 }}>
+                    {q ? `(${filteredUsers.length} of ${state.users.length})` : `(${state.users.length})`}
+                  </span>
+                </div>
+                <button style={s.btn()} onClick={() => { setModal('addUser'); setModalData({ role_id: state.roles[0]?.id || 'engineer' }) }}><Plus size={16} />Add User</button>
+              </div>
+
+              {/* Search box — name, email, or role */}
+              <div style={{ position: 'relative', marginBottom: 16 }}>
+                <Search size={14} style={{ position: 'absolute', left: 12, top: 11, color: 'rgba(255,255,255,0.45)' }} />
+                <input
+                  value={userSearch}
+                  onChange={e => setUserSearch(e.target.value)}
+                  placeholder="Search by name, email, or role…"
+                  style={{
+                    width: '100%', padding: '9px 12px 9px 34px',
+                    borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
+                    background: 'rgba(0,0,0,0.25)', color: '#fff',
+                    fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                {userSearch && (
+                  <button
+                    onClick={() => setUserSearch('')}
+                    style={{ position: 'absolute', right: 8, top: 7, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.55)', cursor: 'pointer', padding: 4 }}
+                    title="Clear"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={s.table}>
+                  <thead>
+                    <tr>
+                      <th style={s.th}>Email</th>
+                      <th style={s.th}>Name</th>
+                      <th style={s.th}>Role</th>
+                      <th style={s.th}>Status</th>
+                      <th style={s.th}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.length === 0 && (
+                      <tr>
+                        <td colSpan={5} style={{ ...s.td, padding: 30, textAlign: 'center', color: 'rgba(255,255,255,0.45)' }}>
+                          {q ? `No users match "${userSearch}".` : 'No users yet.'}
+                        </td>
+                      </tr>
+                    )}
+                    {filteredUsers.map(u => {
+                      const isCeo = u.email === CEO_EMAIL
+                      const pendingRole = roleEdits[u.id]
+                      const dirtyRole = !!pendingRole && pendingRole !== u.role_id
+                      const rowSaving = savingRowId === u.id
+                      return (
+                        <tr key={u.id}>
+                          <td style={{ ...s.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '0.78rem' }}>{u.email}</td>
+                          <td style={s.td}>{u.display_name}</td>
+                          <td style={s.td}>
+                            {/* Inline role dropdown — single click to change, single click to save. */}
+                            <select
+                              disabled={isCeo || rowSaving}
+                              value={pendingRole ?? u.role_id ?? ''}
+                              onChange={e => setRoleEdits(prev => ({ ...prev, [u.id]: e.target.value }))}
+                              title={isCeo ? 'Segregation of duties — CEO role is locked.' : 'Change role'}
+                              style={{
+                                padding: '5px 8px', borderRadius: 6,
+                                border: dirtyRole ? '1px solid #fbbf24' : '1px solid rgba(255,255,255,0.15)',
+                                background: dirtyRole ? 'rgba(251,191,36,0.10)' : 'rgba(255,255,255,0.05)',
+                                color: '#fff', fontSize: '0.78rem', fontFamily: 'inherit',
+                                cursor: isCeo ? 'not-allowed' : 'pointer',
+                              }}
+                            >
+                              {assignableRoles.map(r => (
+                                <option key={r.id} value={r.id} style={{ background: '#1a2744', color: '#fff' }}>{r.role_name} ({r.id})</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={s.td}><span style={s.badge(u.status)}>{u.status}</span></td>
+                          <td style={s.td}>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {dirtyRole && (
+                                <button
+                                  style={{ ...s.btn('sm'), background: 'rgba(52,191,58,0.18)', color: '#4ade80' }}
+                                  disabled={rowSaving}
+                                  onClick={() => saveRoleInline(u)}
+                                >
+                                  {rowSaving ? '…' : 'Save'}
+                                </button>
+                              )}
+                              {dirtyRole && !rowSaving && (
+                                <button
+                                  style={{ ...s.btn('sm'), background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}
+                                  onClick={() => setRoleEdits(prev => { const next = { ...prev }; delete next[u.id]; return next })}
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                              <button
+                                style={{ ...s.btn('sm'), background: u.status === 'active' ? 'rgba(239,88,41,0.15)' : 'rgba(52,191,58,0.15)', color: u.status === 'active' ? '#fb923c' : '#4ade80' }}
+                                onClick={() => handleToggleDisable(u.id, u.status)}
+                              >
+                                {u.status === 'active' ? 'Disable' : 'Enable'}
+                              </button>
+                              <button
+                                style={{ ...s.btn('sm'), background: 'rgba(239,88,41,0.15)', color: '#fb923c' }}
+                                onClick={async () => {
+                                  if (window.confirm('Delete user from database? This cannot be undone.')) {
+                                    try {
+                                      await deleteDoc(doc(db, 'users', u.id))
+                                      showToast('User deleted')
+                                      await loadState()
+                                    } catch (e) { setError(e.message) }
+                                  }
+                                }}
+                              >Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )
+        })()}
       </div>}
 
       {tab === 'roles' && <div style={s.card}>
