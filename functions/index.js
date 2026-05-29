@@ -2556,6 +2556,7 @@ const {
   provisionEngineerHandler,
   uploadContractPDFHandler,
   gatekeeperContractExtractHandler,
+  syncContractToEmployeeHandler,
 } = require("./hireSequence");
 
 const hireHelpers = { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS };
@@ -2595,6 +2596,13 @@ exports.uploadContractPDF = onRequest(
 exports.gatekeeperContractExtract = onMessagePublished(
   { topic: "datalake.contract.uploaded", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
   (event) => gatekeeperContractExtractHandler(event)
+);
+
+// Sync contract extracted fields to employee document when reviewed
+const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+exports.syncContractToEmployee = onDocumentUpdated(
+  { document: "contracts/{contractId}", region: "me-central2" },
+  (event) => syncContractToEmployeeHandler(event)
 );
 
 // ═══════════════════════════════════════════════════════════════════
