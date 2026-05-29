@@ -16,6 +16,7 @@
 
 const admin = require("firebase-admin");
 const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
+const { logToBigQuery } = require("./lib/bigquery");
 
 const db = admin.firestore();
 
@@ -166,12 +167,10 @@ async function auditorComplianceCheckHandler() {
     ]);
 
     const allUsers = usersSnap.docs.map((d) => d.data());
-    const activeEngineers = allUsers.filter(
-      (u) => u.role_id === "engineer" && u.status === "active"
-    );
+    const activeUsers = allUsers.filter(u => u.status === "active");
 
     // PDPL consent analysis — no PII in prompt (IDs and states only)
-    const consentStatus = activeEngineers.map((e) => ({
+    const consentStatus = activeUsers.map((e) => ({
       uid: e.uid || e.id,
       pdpl_consent_state: e.pdpl_consent_state || "UNKNOWN",
       role: e.role_id,
@@ -200,7 +199,7 @@ async function auditorComplianceCheckHandler() {
     const systemState = {
       check_date: now.toISOString().split("T")[0],
       total_users: allUsers.length,
-      total_active_engineers: activeEngineers.length,
+      total_active_engineers: activeUsers.length,
       engineers_missing_pdpl_consent: missingConsent.length,
       total_policies_in_library: policiesSnap.size,
       total_grc_documents: grcSnap.size,
@@ -386,7 +385,7 @@ async function aiAuditorMonthlyCronHandler(eventPayload) {
       db.collection("users").get(),
       db.collection("contracts").get(),
       db.collection("leave_requests").get(),
-      db.collection("talent_pool").where("status", "==", "REJECTED").get(),
+      db.collection("talent_pool").where("state", "==", "REJECTED").get(),
       db.collection("timesheets").get()
     ]);
 
@@ -403,7 +402,7 @@ async function aiAuditorMonthlyCronHandler(eventPayload) {
     const issues = [];
 
     // Verify onboarding completion
-    const incompleteOnboarding = users.filter(u => u.status === 'active' && !u.onboarding_completed);
+    const incompleteOnboarding = users.filter(u => u.status === 'active' && !u.onboarding_complete);
     if (incompleteOnboarding.length > 0) issues.push(`Found ${incompleteOnboarding.length} active users with incomplete onboarding.`);
 
     // Contract validity
@@ -420,15 +419,11 @@ async function aiAuditorMonthlyCronHandler(eventPayload) {
     if (unpurgedTalent.length > 0) issues.push(`PDPL Violation: Found ${unpurgedTalent.length} rejected candidates older than 30 days.`);
 
     // Timesheet status
-    const pendingTimesheets = timesheets.filter(t => t.status === 'PENDING' || t.status === 'SUBMITTED');
+    const pendingTimesheets = timesheets.filter(t => t.state === 'PENDING' || t.state === 'SUBMITTED');
     if (pendingTimesheets.length > 0) issues.push(`Found ${pendingTimesheets.length} unresolved timesheets.`);
 
-    // Password expiry
-    const expiredPasswords = users.filter(u => u.status === 'active' && (!u.last_password_change || u.last_password_change.toDate() < ninetyDaysAgo));
-    if (expiredPasswords.length > 0) issues.push(`Found ${expiredPasswords.length} users with passwords older than 90 days.`);
-
     const systemPrompt = "You are the Datalake AI Auditor. Review the monthly activity summary and generate an audit finding report. Return strict JSON array of findings. E.g. [{\"issue\": \"...\", \"severity\": \"HIGH\"}]";
-    const userPrompt = `Run the monthly audit on platform activity. Anomalies found: ${JSON.stringify(issues)}. Verify contract validity, leave consistency, PDPL purge status, timesheet status, password expiry.`;
+    const userPrompt = `Run the monthly audit on platform activity. Anomalies found: ${JSON.stringify(issues)}. Verify contract validity, leave consistency, PDPL purge status, timesheet status.`;
 
     const res = await callLLM({
       agent: "auditor",
@@ -445,6 +440,13 @@ async function aiAuditorMonthlyCronHandler(eventPayload) {
       issues_summary: issues
     });
       
+    await logToBigQuery("datalake_audit", "ai_actions", {
+      agent_name: "Auditor",
+      action_type: "MONTHLY_AUDIT",
+      result: "SUCCESS",
+      timestamp: new Date()
+    });
+
     console.log("Monthly AI audit completed.");
   } catch (err) {
     console.error("Monthly AI audit failed:", err);
@@ -464,13 +466,13 @@ async function checkEvidenceIntegrityHandler() {
     const evidenceSnap = await db.collectionGroup("approval_evidence").get();
     for (const doc of evidenceSnap.docs) {
       const data = doc.data();
-      if (data.evidence_url && data.evidence_url.startsWith('gs://')) {
-        const filePath = data.evidence_url.split('gs://')[1].split('/').slice(1).join('/');
-        const bucketName = data.evidence_url.split('gs://')[1].split('/')[0];
+      if (data.evidence_storage_path && data.evidence_storage_path.startsWith('gs://')) {
+        const filePath = data.evidence_storage_path.split('gs://')[1].split('/').slice(1).join('/');
+        const bucketName = data.evidence_storage_path.split('gs://')[1].split('/')[0];
         const bucket = admin.storage().bucket(bucketName);
         const [exists] = await bucket.file(filePath).exists();
         if (!exists) {
-          violations.push({ type: 'MISSING_EVIDENCE_FILE', docPath: doc.ref.path, url: data.evidence_url });
+          violations.push({ type: 'MISSING_EVIDENCE_FILE', docPath: doc.ref.path, path: data.evidence_storage_path });
         }
       }
     }
@@ -517,6 +519,11 @@ async function checkEvidenceIntegrityHandler() {
     } else {
       console.log("[Auditor] Evidence integrity check passed.");
     }
+    await logToBigQuery("datalake_audit", "system_events", {
+      event_type: "EVIDENCE_INTEGRITY_CHECK",
+      details: `Violations found: ${violations.length}`,
+      timestamp: new Date()
+    });
   } catch (err) {
     console.error("checkEvidenceIntegrity error:", err);
   }
@@ -563,6 +570,12 @@ async function trackCAPAStatusHandler() {
       await batch.commit();
       console.log(`[Auditor] Updated ${updates} CAPA records.`);
     }
+
+    await logToBigQuery("datalake_audit", "system_events", {
+      event_type: "TRACK_CAPA_STATUS",
+      details: `Updates made: ${updates}`,
+      timestamp: new Date()
+    });
   } catch (err) {
     console.error("trackCAPAStatus error:", err);
   }
