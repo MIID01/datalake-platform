@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Upload, Calendar, Clock, CheckCircle, XCircle, Plus, FileText, ChevronLeft, ChevronRight, User, Mail, ArrowRight, Briefcase, MapPin, Send, AlertTriangle, Loader, Shield } from 'lucide-react'
 import { auth, GET_ENGINEER_PROJECT_VIEW_URL, SUBMIT_TIMESHEET_URL, GET_MY_TIMESHEETS_URL, EXTRACT_TIMESHEET_URL } from '../../lib/firebase'
 import { onAuthChange } from '../../lib/auth'
+import { getOrdinal } from '../../lib/utils'
 
 const stateColors = {
   SUBMITTED: { label: 'Submitted', cls: 'badge-info' },
@@ -162,23 +163,14 @@ export default function Timesheets() {
     return () => unsub()
   }, [])
 
-  // ── Submission Window: 18th–25th of each month ──────────
-  const WINDOW_OPEN_DAY = 1
-  const WINDOW_CLOSE_DAY = 28
+  // Submission used to be blocked outside a 1st–28th window. That blocks engineers
+  // from late submissions, which blocks the invoice, which delays revenue. Now
+  // we only WARN if the timesheet is late for its period — never disable submit.
+  const PERIOD_CLOSE_DAY = 28
 
-  const now = new Date() // In production, use server time
+  const now = new Date()
   const currentDay = now.getDate()
-  const currentMonth = now.getMonth()
-  const currentYear = now.getFullYear()
-
-  const isWindowOpen = currentDay >= WINDOW_OPEN_DAY && currentDay <= WINDOW_CLOSE_DAY
-  const daysUntilOpen = currentDay < WINDOW_OPEN_DAY
-    ? WINDOW_OPEN_DAY - currentDay
-    : (new Date(currentYear, currentMonth + 1, WINDOW_OPEN_DAY) - now) / (1000 * 60 * 60 * 24)
-  const daysUntilClose = isWindowOpen ? WINDOW_CLOSE_DAY - currentDay : 0
-
-  const windowOpenDate = `${MONTH_NAMES[currentDay < WINDOW_OPEN_DAY ? currentMonth : (currentMonth + 1) % 12]} ${WINDOW_OPEN_DAY}`
-  const windowCloseDate = `${MONTH_NAMES[currentMonth]} ${WINDOW_CLOSE_DAY}`
+  const isLate = currentDay > PERIOD_CLOSE_DAY
 
   // Generate all days in billing period (full month)
   const calendarDays = (() => {
@@ -267,59 +259,35 @@ export default function Timesheets() {
           </p>
         </div>
         <button
-          className={`btn ${isWindowOpen && hasProject ? 'btn-primary' : 'btn-ghost'}`}
-          onClick={() => isWindowOpen && hasProject && setShowForm(!showForm)}
-          disabled={!isWindowOpen || !hasProject}
-          style={(!isWindowOpen || !hasProject) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
-          title={!isWindowOpen ? `Submission window: ${WINDOW_OPEN_DAY}th — ${WINDOW_CLOSE_DAY}th of each month` : (!hasProject ? 'No project assigned' : '')}
+          className={`btn ${hasProject ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => hasProject && setShowForm(!showForm)}
+          disabled={!hasProject}
+          style={!hasProject ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+          title={!hasProject ? 'No project assigned' : ''}
         >
           <Plus size={16} /> New Timesheet
         </button>
       </div>
 
-      {/* ── Submission Window Banner ── */}
-      {isWindowOpen ? (
+      {/* ── Late warning banner — does NOT block submission ── */}
+      {isLate && (
         <div style={{
           padding: '12px 20px',
           borderRadius: 'var(--radius-md)',
-          background: 'var(--green-dim)',
-          border: '1px solid var(--green)',
+          background: 'var(--amber-dim, rgba(243,156,18,0.10))',
+          border: '1px solid var(--amber, #F39C12)',
           marginBottom: 20,
           display: 'flex',
           alignItems: 'center',
           gap: 12,
           fontSize: '0.85rem',
         }}>
-          <span style={{ fontSize: '1.2rem' }}>✅</span>
+          <AlertTriangle size={16} style={{ color: 'var(--amber)' }} />
           <div>
-            <strong style={{ color: 'var(--green)' }}>Submission window is OPEN</strong>
+            <strong style={{ color: 'var(--amber, #F39C12)' }}>Timesheet is late for this period</strong>
             <span style={{ color: 'var(--text-secondary)', marginLeft: 8 }}>
-              Closes on the <strong>{WINDOW_CLOSE_DAY}th</strong> ({daysUntilClose === 0 ? 'today!' : `${Math.ceil(daysUntilClose)} day${Math.ceil(daysUntilClose) !== 1 ? 's' : ''} remaining`})
+              The {getOrdinal(PERIOD_CLOSE_DAY)} of the month is the preferred cut-off, but you can still submit.
             </span>
-          </div>
-        </div>
-      ) : (
-        <div style={{
-          padding: '14px 20px',
-          borderRadius: 'var(--radius-md)',
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-primary)',
-          marginBottom: 20,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          fontSize: '0.85rem',
-        }}>
-          <span style={{ fontSize: '1.2rem' }}>🔒</span>
-          <div>
-            <strong style={{ color: 'var(--text-primary)' }}>Submission window is CLOSED</strong>
-            <div style={{ color: 'var(--text-tertiary)', marginTop: 4, fontSize: '0.8rem' }}>
-              Timesheets can only be submitted between the <strong>{WINDOW_OPEN_DAY}th</strong> and <strong>{WINDOW_CLOSE_DAY}th</strong> of each month.
-              {currentDay < WINDOW_OPEN_DAY
-                ? <> Opens in <strong style={{ color: 'var(--amber)' }}>{Math.ceil(daysUntilOpen)} days</strong> ({windowOpenDate})</>
-                : <> Next window opens <strong style={{ color: 'var(--amber)' }}>{windowOpenDate}</strong></>
-              }
-            </div>
           </div>
         </div>
       )}
