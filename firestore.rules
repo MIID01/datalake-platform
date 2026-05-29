@@ -30,7 +30,7 @@ service cloud.firestore {
       allow update: if isCeo() && (request.auth.uid != uid || request.resource.data.role_id == resource.data.role_id);
       // Employees may flip ONLY their own onboarding flags on their own user doc.
       allow update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['onboarding_complete', 'onboarding_completed_at']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['onboarding_complete', 'onboarding_completed_at', 'pdpl_consent_state', 'pdpl_consent_at', 'pdpl_consent_ip', 'pdpl_consent_user_agent', 'training_completed', 'contract_signed']);
     }
 
     // ── Hire Chain ──
@@ -69,7 +69,7 @@ service cloud.firestore {
         getUserRole() == "ceo" || getUserRole() == "hr" ||
         (request.auth.token.email == resource.data.email &&
          request.resource.data.diff(resource.data).affectedKeys()
-           .hasOnly(['phone', 'emergency_contact', 'photo_url', 'skills', 'certifications', 'updated_at', 'onboarding_complete', 'onboarding_completed_at']))
+           .hasOnly(['phone', 'emergency_contact', 'photo_url', 'skills', 'certifications', 'updated_at', 'onboarding_complete', 'onboarding_completed_at', 'pdpl_consent_state', 'pdpl_consent_at']))
       );
       allow delete: if request.auth != null && (getUserRole() == "ceo" || (getUserRole() == "hr" && resource.data.employment_status == "PENDING_APPROVAL"));
 
