@@ -29,7 +29,11 @@ service cloud.firestore {
       // Only the CEO assigns roles — but CANNOT change their OWN role (segregation of duties).
       allow update: if isCeo() && (request.auth.uid != uid || request.resource.data.role_id == resource.data.role_id);
       // Employees may flip ONLY their own onboarding flags on their own user doc.
-      allow update: if request.auth != null && request.auth.uid == uid
+      // We match by Firebase Auth uid OR by email — legacy users docs are keyed by
+      // employee_id (DLSA1003 etc) rather than uid, and the Onboarding flow looks
+      // them up via the email fallback.
+      allow update: if request.auth != null
+        && (request.auth.uid == uid || request.auth.token.email == resource.data.email)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['onboarding_complete', 'onboarding_completed_at', 'pdpl_consent_state', 'pdpl_consent_at', 'pdpl_consent_ip', 'pdpl_consent_user_agent', 'training_completed', 'contract_signed']);
     }
 
