@@ -33,13 +33,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [userName, setUserName] = useState('')
+  const [employee, setEmployee] = useState(null)  // employees/{*} for title + contract dates + leave entitlement
   const [dashboardStats, setDashboardStats] = useState({
     contractDaysRemaining: { value: 0, endDate: '—' },
     leaveBalance: { value: 0, total: 0 },
     pendingTimesheets: { value: 0, period: '—' },
     openTickets: { value: 0 },
   })
-  const [upcomingActions, setUpcomingActions] = useState([])
+  const [upcomingActions] = useState([])
   const [contract, setContract] = useState(null) // real active-assignment summary (PO/rates stripped server-side)
 
   useEffect(() => {
@@ -67,6 +68,47 @@ export default function Dashboard() {
               const data = snap.docs[0].data()
               setDashboardStats(prev => ({ ...prev, leaveBalance: { value: data.annual_remaining || 0, total: data.annual_total || 21 } }))
             }
+          }))
+
+          // employees/{*} is the source of truth for title + contract dates +
+          // statutory leave entitlement. The engineer is logged in with their
+          // @datalake.sa email so we look up by email (employees rows aren't
+          // necessarily keyed by uid).
+          const empQ = query(collection(db, 'employees'), where('email', '==', user.email))
+          unsubs.push(onSnapshot(empQ, snap => {
+            if (snap.empty) return
+            const e = { id: snap.docs[0].id, ...snap.docs[0].data() }
+            setEmployee(e)
+
+            // Contract days remaining — only meaningful when a Qiwa contract has
+            // been uploaded and contract_end is populated.
+            if (e.contract_end) {
+              const end = e.contract_end?.toDate ? e.contract_end.toDate() : new Date(e.contract_end)
+              if (!Number.isNaN(end.getTime())) {
+                const days = Math.max(0, Math.ceil((end - new Date()) / 86400000))
+                setDashboardStats(prev => ({
+                  ...prev,
+                  contractDaysRemaining: {
+                    value: days,
+                    endDate: end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+                  },
+                }))
+              }
+            } else {
+              setDashboardStats(prev => ({
+                ...prev,
+                contractDaysRemaining: { value: 0, endDate: 'No contract uploaded' },
+              }))
+            }
+
+            // Leave entitlement — same precedence as the leave page (Saudi
+            // Labour Law default 21 days). Only override when leave_balances
+            // didn't already populate.
+            setDashboardStats(prev => {
+              if (prev.leaveBalance.total && prev.leaveBalance.total !== 21) return prev
+              const total = Number(e.annual_leave_days) || 21
+              return { ...prev, leaveBalance: { value: total, total } }
+            })
           }))
 
           // Active project assignment for the Contract Summary (financials/PO
@@ -126,9 +168,14 @@ export default function Dashboard() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Good morning, {userName} 👋</h1>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Good morning, {employee?.full_name || userName} 👋</h1>
         <p style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem', marginTop: 4 }}>
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          {employee?.job_title ? <strong style={{ color: 'var(--text-secondary)' }}>{employee.job_title}</strong> : null}
+          {employee?.job_title ? ' · ' : ''}
+          {contract?.client
+            ? <>Deployed at <strong style={{ color: 'var(--text-secondary)' }}>{contract.client}</strong></>
+            : 'No active project assignment yet.'}
+          <span style={{ marginLeft: 10 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
         </p>
       </div>
 
