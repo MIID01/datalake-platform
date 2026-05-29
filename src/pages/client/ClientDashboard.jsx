@@ -212,9 +212,15 @@ export default function ClientTimesheetApproval() {
     return () => unsub1()
   }, [])
 
+  // All timesheets within a single signing token belong to the same project +
+  // client by construction. The PO number is the one stamped on the timesheet
+  // at submit time (which itself came from the linked project doc) — never
+  // synthesised from the project name and never a hardcoded fallback.
   const activeProject = timesheets.length > 0 ? {
-    name: timesheets[0].project_name, // Assuming all timesheets in a token are for the same project/client
-    pos: [{ number: 'PO-' + (timesheets[0].project_name || '1165') }]
+    name: timesheets[0].project_name,
+    client_name: timesheets[0].client_name,
+    client_id: timesheets[0].client_id || null,
+    pos: timesheets[0].po_number ? [{ number: timesheets[0].po_number }] : [],
   } : null
 
   const engineers = timesheets.map(ts => ({

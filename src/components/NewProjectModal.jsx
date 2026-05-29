@@ -1,6 +1,8 @@
-import { useState } from 'react'
-import { X, ChevronDown, Loader, Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { X, ChevronDown, Loader, Plus, Building2 } from 'lucide-react'
 import { auth, CREATE_PROJECT_URL } from '../lib/firebase'
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
+import SearchablePicker from './SearchablePicker'
 
 const LOCATIONS = ['CLIENT_OFFICE','DATALAKE_OFFICE','HYBRID','REMOTE_KSA','REMOTE_INTL']
 const RATES = ['HOURLY','MONTHLY','FIXED']
@@ -26,6 +28,7 @@ import { db } from '../lib/firebase'
 export default function NewProjectModal({ onClose, onCreated, editProject }) {
   const [form, setForm] = useState({
     project_name: editProject?.project_name || '',
+    client_id: editProject?.client_id || '',
     client_name: editProject?.client_name || '',
     po_number: editProject?.po_number || '',
     po_value_sar: editProject?.po_value_sar || '',
@@ -40,11 +43,22 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
     timesheet_type: editProject?.timesheet_type || 'CONSOLIDATED',
     notes: editProject?.notes || '',
   })
+  // Live clients list — the project must reference a client_id from this
+  // collection so /ceo/clients edits cascade into invoices + timesheets.
+  const [clients, setClients] = useState([])
   const [submitting,setSubmitting] = useState(false)
   const [error,setError] = useState('')
   const u = (k,v) => setForm(p=>({...p,[k]:v}))
 
-  const canSubmit = form.project_name && form.client_name && form.po_number && form.po_value_sar &&
+  useEffect(() => {
+    const unsub = onSnapshot(query(collection(db, 'clients'), orderBy('client_name')),
+      snap => setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => {},
+    )
+    return () => unsub()
+  }, [])
+
+  const canSubmit = form.project_name && form.client_id && form.client_name && form.po_number && form.po_value_sar &&
     form.start_date && form.end_date && form.client_approver_name && form.client_approver_email &&
     form.work_location_type && form.rate_structure && !submitting
 
@@ -56,9 +70,13 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
     try {
       const user = auth.currentUser
       if (!user) { setError('Please sign in'); setSubmitting(false); return }
-      
-      const payload = { ...form, po_value_sar: Number(form.po_value_sar), rate_amount_sar: Number(form.rate_amount_sar) || null }
-      
+
+      const payload = {
+        ...form,
+        po_value_sar: Number(form.po_value_sar),
+        rate_amount_sar: Number(form.rate_amount_sar) || null,
+      }
+
       if (editProject) {
         await updateDoc(doc(db, 'projects', editProject.id), payload)
         onCreated?.({ message: 'Project updated successfully' })
@@ -100,17 +118,40 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
           {/* Project Identity */}
           <div style={s.section}>
             <div style={s.secTitle}>📋 Project Identity</div>
-            <div style={s.field}><label style={s.label}>Project Name *</label><input style={s.input} value={form.project_name} onChange={e=>u('project_name',e.target.value)} placeholder="e.g. Emkan Data Platform Q2" /></div>
+            <div style={s.field}><label style={s.label}>Project Name *</label><input style={s.input} value={form.project_name} onChange={e=>u('project_name',e.target.value)} placeholder="e.g. Data Platform Q2" /></div>
             <div style={{...s.row2,...s.field}}>
-              <div><label style={s.label}>Client Name *</label><input style={s.input} value={form.client_name} onChange={e=>u('client_name',e.target.value)} placeholder="Emkan Finance" /></div>
-              <div><label style={s.label}>PO Number *</label><input style={s.input} value={form.po_number} onChange={e=>u('po_number',e.target.value)} placeholder="PO-1165" /></div>
+              <div>
+                <label style={s.label}>Client * <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(from /ceo/clients)</span></label>
+                {clients.length === 0 ? (
+                  <div style={{ ...s.input, color: 'var(--text-tertiary)', cursor: 'default', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Building2 size={13} /> No clients yet — create one at /ceo/clients first.
+                  </div>
+                ) : (
+                  <SearchablePicker
+                    items={clients}
+                    selectedId={form.client_id}
+                    onSelect={(id, item) => {
+                      // Stamp BOTH client_id and client_name so /ceo/clients edits cascade
+                      // and historical rows that match by name still resolve.
+                      setForm(p => ({ ...p, client_id: id, client_name: item?.client_name || '' }))
+                    }}
+                    getLabel={c => c.client_name || c.id}
+                    getSubtitle={c => [c.industry, c.contact_email, c.vat_number].filter(Boolean).join(' · ')}
+                    searchFields={c => [c.client_name, c.client_name_ar, c.contact_email, c.industry, c.vat_number]}
+                    placeholder="Type to search clients…"
+                    theme="light"
+                    emptyText="No clients match."
+                  />
+                )}
+              </div>
+              <div><label style={s.label}>PO Number *</label><input style={s.input} value={form.po_number} onChange={e=>u('po_number',e.target.value)} placeholder="e.g. PO-2026-001" /></div>
             </div>
           </div>
           {/* PO Details */}
           <div style={s.section}>
             <div style={s.secTitle}>💰 PO & Schedule</div>
             <div style={{...s.row2,...s.field}}>
-              <div><label style={s.label}>PO Value (SAR) *</label><input type="number" style={s.input} value={form.po_value_sar} onChange={e=>u('po_value_sar',e.target.value)} placeholder="480000" /></div>
+              <div><label style={s.label}>PO Value (SAR) *</label><input type="number" style={s.input} value={form.po_value_sar} onChange={e=>u('po_value_sar',e.target.value)} placeholder="e.g. 480000" /></div>
               <div><label style={s.label}>Rate Amount (SAR)</label><input type="number" style={s.input} value={form.rate_amount_sar} onChange={e=>u('rate_amount_sar',e.target.value)} placeholder="160000" /></div>
             </div>
             <div style={{...s.row2,...s.field}}>
@@ -126,8 +167,8 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
           <div style={s.section}>
             <div style={s.secTitle}>👤 Client Approver</div>
             <div style={{...s.row2,...s.field}}>
-              <div><label style={s.label}>Approver Name *</label><input style={s.input} value={form.client_approver_name} onChange={e=>u('client_approver_name',e.target.value)} placeholder="Ahmed Al-Ghamdi" /></div>
-              <div><label style={s.label}>Approver Email *</label><input type="email" style={s.input} value={form.client_approver_email} onChange={e=>u('client_approver_email',e.target.value)} placeholder="ahmed@emkan.sa" /></div>
+              <div><label style={s.label}>Approver Name *</label><input style={s.input} value={form.client_approver_name} onChange={e=>u('client_approver_name',e.target.value)} placeholder="Full name" /></div>
+              <div><label style={s.label}>Approver Email *</label><input type="email" style={s.input} value={form.client_approver_email} onChange={e=>u('client_approver_email',e.target.value)} placeholder="approver@client.com" /></div>
             </div>
           </div>
           {/* Location */}
@@ -135,7 +176,7 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
             <div style={s.secTitle}>📍 Work Location</div>
             <div style={{...s.row2,...s.field}}>
               <div><label style={s.label}>Location Type *</label><Sel value={form.work_location_type} onChange={v=>u('work_location_type',v)} options={LOCATIONS}/></div>
-              <div><label style={s.label}>Address (optional)</label><input style={s.input} value={form.work_location_address} onChange={e=>u('work_location_address',e.target.value)} placeholder="Emkan HQ, Riyadh" /></div>
+              <div><label style={s.label}>Address (optional)</label><input style={s.input} value={form.work_location_address} onChange={e=>u('work_location_address',e.target.value)} placeholder="Client site, City" /></div>
             </div>
           </div>
           {/* Notes */}
