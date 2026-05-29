@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, onSnapshot, query, where, getDoc, getDocs, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, onSnapshot, query, where, getDoc, getDocs, doc, updateDoc, addDoc, serverTimestamp, collectionGroup } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../../lib/firebase'
-import { Shield, Download, Trash2, Edit2, Loader, Camera, Check, X } from 'lucide-react'
+import { Shield, Download, Trash2, Edit2, Loader, Camera, Check, X, AlertCircle } from 'lucide-react'
 
 export default function Profile() {
   const [profile, setProfile] = useState({})
@@ -13,6 +13,9 @@ export default function Profile() {
   const [editing, setEditing] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [editForm, setEditForm] = useState({ phone: '', ecName: '', ecRelationship: '', ecPhone: '' })
+  // PDPL Art. 15 / Art. 18 buttons
+  const [dsrWorking, setDsrWorking] = useState(null)  // 'export' | 'delete' | null
+  const [dsrMsg, setDsrMsg] = useState({ kind: '', text: '' })
   const fileInput = useRef(null)
 
   useEffect(() => {
@@ -121,6 +124,189 @@ export default function Profile() {
       alert(`Could not save: ${err.message}`)
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  // ── PDPL Art. 15 — Download My Data ──────────────────────────────
+  // Collects every doc this employee is referenced in across the platform,
+  // bundles into a single JSON file, and writes a dsr_requests audit row.
+  async function handleDownloadMyData() {
+    setDsrWorking('export'); setDsrMsg({ kind: '', text: '' })
+    try {
+      const me = auth.currentUser
+      if (!me) throw new Error('Not signed in.')
+      const email = String(me.email || '').toLowerCase()
+      const empId = empDocId || profile.employee_id || null
+
+      // Best-effort IP for the audit row (same pattern as onboarding submit).
+      let ip = null
+      try {
+        const ctrl = new AbortController()
+        const t = setTimeout(() => ctrl.abort(), 2000)
+        const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal })
+        clearTimeout(t)
+        if (r.ok) { const j = await r.json(); ip = j.ip || null }
+      } catch { ip = null }
+
+      // Helper: run a query and return docs as plain JS objects.
+      const grab = async (q) => {
+        try {
+          const snap = await getDocs(q)
+          return snap.docs.map(d => ({ _id: d.id, _path: d.ref.path, ...d.data() }))
+        } catch (e) {
+          return { _error: e.message }
+        }
+      }
+
+      // 1. users/{uid}
+      let usersRow = null
+      try {
+        const u = await getDoc(doc(db, 'users', me.uid))
+        usersRow = u.exists() ? { _id: u.id, _path: u.ref.path, ...u.data() } : null
+      } catch { /* permission-denied */ }
+
+      // 2. employees/{empId}
+      let employeesRow = null
+      if (empId) {
+        try {
+          const e = await getDoc(doc(db, 'employees', empId))
+          employeesRow = e.exists() ? { _id: e.id, _path: e.ref.path, ...e.data() } : null
+        } catch { /* permission-denied */ }
+      }
+
+      // 3. The collections that key by engineer_email.
+      const [timesheets, leaveReqs, expenses, tickets] = await Promise.all([
+        grab(query(collection(db, 'timesheets'),       where('engineer_email', '==', email))),
+        grab(query(collection(db, 'leave_requests'),    where('engineer_email', '==', email))),
+        grab(query(collection(db, 'expenses'),          where('engineer_email', '==', email))),
+        grab(query(collection(db, 'support_tickets'),   where('engineer_email', '==', email))),
+      ])
+
+      // 4. Onboarding evidence + assignments (anchored on employees/{empId}).
+      let onboardingEvidence = []
+      let assignments = []
+      if (empId) {
+        onboardingEvidence = await grab(query(collection(db, 'employees', empId, 'onboarding_evidence')))
+        assignments = await grab(query(collection(db, 'engineer_project_assignments'), where('engineer_email', '==', email)))
+      }
+
+      // 5. Approval evidence touching this person — try a collection-group
+      // scan filtered by approver_email. May permission-deny depending on rules.
+      let approvalEvidence = []
+      try {
+        approvalEvidence = await grab(query(collectionGroup(db, 'approval_evidence'), where('approver_email', '==', email)))
+      } catch (e) {
+        approvalEvidence = { _error: e.message }
+      }
+
+      const bundle = {
+        export_id: `DSR-EXPORT-${Date.now()}`,
+        generated_at: new Date().toISOString(),
+        requested_by: { email, uid: me.uid, employee_id: empId, ip, user_agent: navigator.userAgent },
+        pdpl_article: 'Art. 15 — Right to Access',
+        company: 'Datalake Saudi Arabia LLC · CR:1009194773 · NUN:7048904952',
+        records: {
+          user_account: usersRow,
+          employee_record: employeesRow,
+          onboarding_evidence: onboardingEvidence,
+          project_assignments: assignments,
+          timesheets,
+          leave_requests: leaveReqs,
+          expenses,
+          support_tickets: tickets,
+          approval_evidence: approvalEvidence,
+        },
+      }
+
+      // Write the audit row. Failure here is non-fatal — the user still gets
+      // their data; we just log a console warning.
+      try {
+        await addDoc(collection(db, 'dsr_requests'), {
+          request_type: 'EXPORT',
+          status: 'COMPLETED',
+          employee_id: empId,
+          employee_email: email,
+          requested_at: serverTimestamp(),
+          completed_at: serverTimestamp(),
+          ip_address: ip,
+          user_agent: navigator.userAgent,
+          export_id: bundle.export_id,
+          export_row_count: Object.fromEntries(
+            Object.entries(bundle.records).map(([k, v]) => [
+              k, Array.isArray(v) ? v.length : (v ? 1 : 0),
+            ]),
+          ),
+        })
+      } catch (e) {
+        console.warn('[PDPL] dsr_requests audit row failed:', e.message)
+      }
+
+      // Trigger browser download.
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const safeName = (profile.full_name || profile.name || email).replace(/[^A-Za-z0-9_-]+/g, '_')
+      a.href = url
+      a.download = `PDPL_Data_Export_${safeName}_${new Date().toISOString().slice(0,10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 4000)
+
+      setDsrMsg({ kind: 'success', text: 'Your data was exported. The download has started.' })
+    } catch (e) {
+      setDsrMsg({ kind: 'error', text: e.message || 'Could not export your data.' })
+    } finally {
+      setDsrWorking(null)
+    }
+  }
+
+  // ── PDPL Art. 18 — Request Data Deletion ─────────────────────────
+  async function handleRequestDeletion() {
+    if (!window.confirm(
+      'This will request deletion of your personal data. This action is irreversible.\n\n' +
+      'HR will review your request within 30 days per PDPL Article 18. Financial records ' +
+      'we are legally required to retain (e.g. ZATCA) cannot be deleted.\n\nProceed?'
+    )) return
+
+    setDsrWorking('delete'); setDsrMsg({ kind: '', text: '' })
+    try {
+      const me = auth.currentUser
+      if (!me) throw new Error('Not signed in.')
+      const email = String(me.email || '').toLowerCase()
+      const empId = empDocId || profile.employee_id || null
+
+      let ip = null
+      try {
+        const ctrl = new AbortController()
+        const t = setTimeout(() => ctrl.abort(), 2000)
+        const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal })
+        clearTimeout(t)
+        if (r.ok) { const j = await r.json(); ip = j.ip || null }
+      } catch { ip = null }
+
+      await addDoc(collection(db, 'dsr_requests'), {
+        request_type: 'DELETION',
+        status: 'PENDING',
+        employee_id: empId,
+        employee_email: email,
+        requested_by_uid: me.uid,
+        requested_at: serverTimestamp(),
+        ip_address: ip,
+        user_agent: navigator.userAgent,
+        pdpl_article: 'Art. 18 — Right to Erasure',
+        notes: 'Submitted by the data subject from the employee profile page. ' +
+               'HR must review before any deletion takes place — active employees cannot be deleted.',
+      })
+
+      setDsrMsg({
+        kind: 'success',
+        text: 'Your deletion request has been submitted. HR will process it within 30 days per PDPL Article 18.',
+      })
+    } catch (e) {
+      setDsrMsg({ kind: 'error', text: e.message || 'Could not submit the deletion request.' })
+    } finally {
+      setDsrWorking(null)
     }
   }
 
@@ -263,10 +449,39 @@ export default function Profile() {
         <p style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)', marginBottom: 16, lineHeight: 1.6 }}>
           Under the Saudi Personal Data Protection Law (PDPL), you have the right to access your data and request its deletion.
         </p>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button className="btn btn-ghost btn-sm"><Download size={14} /> Download My Data (PDPL Art. 15)</button>
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}><Trash2 size={14} /> Request Data Deletion (PDPL Art. 18)</button>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={handleDownloadMyData}
+            disabled={dsrWorking !== null}
+            title="Generates a JSON file of every record about you across the platform."
+          >
+            {dsrWorking === 'export' ? <Loader size={14} className="spin" /> : <Download size={14} />}
+            {dsrWorking === 'export' ? ' Collecting…' : ' Download My Data (PDPL Art. 15)'}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ color: 'var(--red)' }}
+            onClick={handleRequestDeletion}
+            disabled={dsrWorking !== null}
+            title="Creates a deletion request that HR reviews within 30 days."
+          >
+            {dsrWorking === 'delete' ? <Loader size={14} className="spin" /> : <Trash2 size={14} />}
+            {dsrWorking === 'delete' ? ' Submitting…' : ' Request Data Deletion (PDPL Art. 18)'}
+          </button>
         </div>
+        {dsrMsg.text && (
+          <div style={{
+            marginTop: 12, padding: '10px 14px', borderRadius: 8,
+            background: dsrMsg.kind === 'error' ? 'rgba(192,57,43,0.10)' : 'rgba(52,191,58,0.10)',
+            border: '1px solid ' + (dsrMsg.kind === 'error' ? 'rgba(192,57,43,0.30)' : 'rgba(52,191,58,0.30)'),
+            color: dsrMsg.kind === 'error' ? '#C0392B' : '#1f7a2a',
+            fontSize: '0.82rem', display: 'flex', alignItems: 'flex-start', gap: 8,
+          }}>
+            {dsrMsg.kind === 'error' ? <AlertCircle size={13} /> : <Check size={13} />}
+            <span>{dsrMsg.text}</span>
+          </div>
+        )}
       </div>
     </div>
   )
