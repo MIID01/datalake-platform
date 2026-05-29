@@ -321,20 +321,38 @@ function OnboardingInner() {
     setSubmitting(true)
     setError('')
     try {
-      // One acknowledgment doc per item under the employee's onboarding subcollection
+      // One acknowledgment doc per item under the employee's onboarding subcollection.
+      // Each row also captures who acknowledged it and when for the regulator audit trail.
       await Promise.all(ITEMS.map(it =>
         setDoc(doc(db, 'employees', profile.emp_id, 'onboarding', it.item_id), {
           item_id: it.item_id,
           status: 'completed',
           completed_at: serverTimestamp(),
+          acknowledged_by: profile.email,
           employee_email: profile.email,
         })
       ))
-      // Flip the gate flag on the user's own record
+      // Flip the gate flag on the user's own record (AuthGate reads this).
       await updateDoc(doc(db, 'users', profile.docId), {
         onboarding_complete: true,
         onboarding_completed_at: serverTimestamp(),
+        pdpl_consent_state: 'GRANTED',
+        training_completed: true,
+        contract_signed: true,
       })
+      // ALSO write to employees/{emp_id} so the HR / Talent directory pages,
+      // which read from employees not users, show the completed status.
+      try {
+        await updateDoc(doc(db, 'employees', profile.emp_id), {
+          onboarding_complete: true,
+          onboarding_completed_at: serverTimestamp(),
+        })
+      } catch (e) {
+        // Best-effort — if no employees doc exists for this user yet (engineer was
+        // hired pre-platform and no record has been created), the gate still works
+        // off the users row above. Operator sees this in console only.
+        console.warn('[Onboarding] could not write employees/{id}.onboarding_complete:', e.message)
+      }
       navigate('/employee/dashboard', { replace: true })
     } catch (err) {
       setError(err.message || 'Could not save your onboarding. Please try again.')
