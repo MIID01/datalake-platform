@@ -22,6 +22,7 @@ import AdminCredentials from './pages/admin/Credentials'
 import AdminAccess from './pages/admin/Access'
 import AdminAuditLogs from './pages/admin/AuditLogs'
 import AdminUsers from './pages/admin/Users'
+import AdminIntegrations from './pages/admin/Integrations'
 
 // CEO Pages
 import CEOCommandCenter from './pages/ceo/CommandCenter'
@@ -133,6 +134,7 @@ export default function App() {
           <Route path="access" element={<AdminAccess />} />
           <Route path="audit" element={<AdminAuditLogs />} />
           <Route path="users" element={<AdminUsers />} />
+          <Route path="integrations" element={<AdminIntegrations />} />
           <Route path="*" element={<Navigate to="/admin/credentials" replace />} />
         </Route>
 
