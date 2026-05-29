@@ -46,6 +46,7 @@ import CEOProjects from './pages/ceo/Projects'
 import CEOAdmin from './pages/ceo/Admin'
 import CEODelegation from './pages/ceo/Delegation'
 import CEOEmployees from './pages/ceo/CEOEmployees'
+import CEOMonthlyReports from './pages/ceo/MonthlyReports'
 
 // CTO Pages
 import CTODashboard from './pages/cto/Dashboard'
@@ -109,6 +110,7 @@ export default function App() {
           <Route path="approvals" element={<CEOApprovals />} />
           <Route path="compliance" element={<CEOCompliance />} />
           <Route path="analytics" element={<CEOAnalytics />} />
+          <Route path="reports" element={<CEOMonthlyReports />} />
           <Route path="alerts" element={<CEOAlerts />} />
           <Route path="system" element={<CEOSystem />} />
           <Route path="ai-ops" element={<CEOAIOperations />} />

@@ -26,6 +26,7 @@ const navItems = [
   { icon: Users, label: 'Training Matrix', path: '/ceo/training' },
   { icon: Library, label: 'Policy Library', path: '/ceo/policies' },
   { icon: TrendingUp, label: 'Analytics', path: '/ceo/analytics' },
+  { icon: BarChart3, label: 'Monthly Reports', path: '/ceo/reports' },
   { icon: Bot, label: 'AI Operations', path: '/ceo/ai-ops', badge: 6 },
   { icon: Bell, label: 'Alerts & Logs', path: '/ceo/alerts', badge: 3 },
   { icon: Settings, label: 'System Health', path: '/ceo/system' },
