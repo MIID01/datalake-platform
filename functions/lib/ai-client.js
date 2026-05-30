@@ -258,7 +258,11 @@ async function callOCR({ fileBase64, lang, agent, type, triggeredBy }) {
     return { success: false, error: `Auth error: ${authErr.message}`, lines: [], pageCount: 0 };
   }
 
-  try {
+  // PaddleOCR scales to zero; first request after idle pays a cold start
+  // (container + model load) that can take 60-90s before any byte is processed.
+  // Bumping fetch timeout to 180s and retrying once on network/timeout
+  // covers that without sitting on min-instances (forbidden per CLAUDE.md).
+  const attemptOcr = async () => {
     const response = await fetch(`${OCR_URL}/extract`, {
       method: "POST",
       headers: {
@@ -266,12 +270,24 @@ async function callOCR({ fileBase64, lang, agent, type, triggeredBy }) {
         Authorization: authToken,
       },
       body: JSON.stringify({ file_base64: fileBase64, lang: language }),
-      timeout: 60000, // 60-second timeout for large docs
+      timeout: 180000,
     });
-
     if (!response.ok) {
       const errText = await response.text();
       throw new Error(`OCR HTTP ${response.status}: ${errText}`);
+    }
+    return response;
+  };
+
+  try {
+    let response;
+    try {
+      response = await attemptOcr();
+    } catch (firstErr) {
+      const transient = /timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|network/i.test(firstErr.message || "");
+      if (!transient) throw firstErr;
+      console.warn(`[AI Client] OCR first attempt failed (${firstErr.message}) — retrying once after cold-start`);
+      response = await attemptOcr();
     }
 
     const data = await response.json();

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { auth, db, UPLOAD_CONTRACT_PDF_URL } from '../../lib/firebase'
+import { auth, db, UPLOAD_CONTRACT_PDF_URL, RETRY_CONTRACT_EXTRACTION_URL } from '../../lib/firebase'
 import {
   collection, onSnapshot, doc, setDoc, updateDoc, addDoc, query, orderBy,
   serverTimestamp, arrayUnion,
@@ -242,6 +242,33 @@ export default function HRContracts() {
   // Reuses an existing contracts/{id} (and its companion pending_hires/{id})
   // and re-runs the upload + extraction. Operator has to pick the file again
   // because the backend endpoint requires it on every call.
+  // Re-run AI on the existing PDF (no re-upload). Cheap recovery from
+  // OCR/LLM cold-start timeouts. Calls retryContractExtraction Cloud Function,
+  // which re-publishes datalake.contract.uploaded for the stored PDF.
+  const handleRerunAi = async () => {
+    if (!active) return
+    setActioning(true)
+    try {
+      const me = auth.currentUser
+      const idToken = await me.getIdToken()
+      const body = active.employee_id
+        ? { contract_id: active.id }
+        : { hire_id: active.id }
+      const res = await fetch(RETRY_CONTRACT_EXTRACTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || ('Re-run failed (' + res.status + ')'))
+      showToast('AI extraction re-queued. This may take up to ~3 minutes on cold start.')
+    } catch (e) {
+      showToast('Re-run failed: ' + e.message, 'error')
+    } finally {
+      setActioning(false)
+    }
+  }
+
   const handleRetryExtraction = async (file) => {
     if (!file || !active) return
     if (!['application/pdf', 'image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
@@ -589,7 +616,20 @@ export default function HRContracts() {
               <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
                 {active.extraction_error || active.contract_extraction_error || active.contract_extraction_error_detail || 'No error detail was recorded. Check the Cloud Functions logs for gatekeeperContractExtract.'}
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleRerunAi}
+                  disabled={actioning}
+                  style={{
+                    padding: '7px 14px', borderRadius: 8,
+                    border: '1px solid rgba(21,152,204,0.5)', background: 'rgba(21,152,204,0.18)',
+                    color: '#7dd3fc', cursor: actioning ? 'not-allowed' : 'pointer',
+                    fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 700,
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <RefreshCw size={12} /> Re-run AI (no re-upload)
+                </button>
                 <input
                   type="file"
                   accept=".pdf,.png,.jpg,.jpeg,.webp"
@@ -608,7 +648,7 @@ export default function HRContracts() {
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                   }}
                 >
-                  <RefreshCw size={12} /> Retry extraction (re-upload PDF)
+                  <RefreshCw size={12} /> Retry with new PDF
                 </button>
                 <span style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.55)' }}>
                   …or fill the fields manually below.

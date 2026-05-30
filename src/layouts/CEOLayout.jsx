@@ -4,7 +4,7 @@ import { useRiyadhTime } from '../hooks/useUtils'
 import {
   Zap, BarChart3, Users, DollarSign, FileText, CheckSquare,
   Shield, TrendingUp, Bell, Settings, ChevronLeft, ChevronRight,
-  Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock, Library, Building2,
+  Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock, Library, Building2, ShieldCheck,
 } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
@@ -33,6 +33,7 @@ const navItems = [
   { icon: Bell, label: 'Alerts & Logs', path: '/ceo/alerts', badge: 3 },
   { icon: Settings, label: 'System Health', path: '/ceo/system' },
   { icon: Lock, label: 'Admin Panel', path: '/ceo/admin' },
+  { icon: ShieldCheck, label: 'Audit Export', path: '/ceo/audit-export' },
 ]
 
 export default function CEOLayout() {

@@ -16,7 +16,10 @@ import { ShieldAlert, Loader, LogOut } from 'lucide-react'
  * 5. CEO bypass: m.alqumri@datalake.sa always has full access
  */
 
-const PUBLIC_PATHS = ['/', '/careers', '/consent/', '/client/scorecard/', '/contract/', '/legal/review/']
+const PUBLIC_PATHS = [
+  '/', '/careers', '/consent/', '/client/scorecard/', '/contract/', '/legal/review/',
+  '/client/timesheet/', '/client/sign-timesheet/', '/client/approve-hire/',
+]
 
 function isPublicPath(path) {
   if (path === '/' || path === '/careers') return true
@@ -152,7 +155,22 @@ export default function AuthGate({ children }) {
   if (onOnboardingPage) return children
 
   // CEO bypass — full access to everything (after onboarding)
-  if (isCeo) return children
+  if (isCeo) {
+    document.body.dataset.role = 'ceo'
+    return children
+  }
+
+  // Auditor: read-only roam — sees every portal, but every write path in
+  // firestore.rules excludes the 'auditor' role, and the UI hides .write-action
+  // buttons via the data-role attribute below.
+  if (userRole?.role_id === 'auditor') {
+    document.body.dataset.role = 'auditor'
+    return children
+  }
+  // Anyone else: stamp their role on the body so CSS / DOM checks can tell.
+  if (userRole?.role_id) {
+    document.body.dataset.role = userRole.role_id
+  }
 
   // User not found in system
   if (userRole?.NOT_FOUND) {

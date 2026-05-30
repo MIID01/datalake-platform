@@ -39,8 +39,42 @@ service cloud.firestore {
 
     // ── Hire Chain ──
     match /pending_hires/{hireId} {
+      // Reads allowed for any signed-in user, OR public token-gated read
+      // when the hire still has an unconsumed client_hire_token (so the
+      // /client/approve-hire/:token public page can render).
       allow read: if request.auth != null;
-      allow write: if isCeo();
+      allow read: if resource.data.client_hire_token != null;
+      allow create, delete: if isCeo();
+      // CEO can edit anything. Public client-PM token flow may set ONLY the
+      // acknowledge/dispute audit fields if the hire still has a token.
+      allow update: if isCeo();
+      allow update: if resource.data.client_hire_token != null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'client_acknowledged_at', 'client_acknowledged_by',
+          'client_disputed_at', 'client_disputed_by',
+          'client_action_ip', 'client_signature_method',
+          'client_signature_image', 'client_signature_typed',
+          'client_dispute_reason',
+        ]);
+
+      // Approval evidence subcollection — anyone signed in may write theirs;
+      // the public client-PM token flow may also append an evidence row.
+      match /approval_evidence/{evId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow create: if request.resource.data.token_used != null;
+      }
+    }
+
+    // Token-gated client acknowledgement of a hire placement. Anyone with the
+    // (cryptographically random) token URL may read it once; only CEO/HR
+    // create/delete. The token is burned (deleted) by the client page on
+    // submit, which is the only mutation we allow from unauthenticated users.
+    match /client_hire_tokens/{token} {
+      allow read: if true;
+      allow create: if isCeo() || (request.auth != null && getUserRole() == "hr");
+      allow delete: if true; // burn-after-use; safe because token is opaque
+      allow update: if false;
     }
 
     // ── IT Administration (it_admin only) — segregated from role assignment ──

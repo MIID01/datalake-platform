@@ -71,12 +71,16 @@ export default function Training() {
     setSubmitting(module.module_id || module.id)
     try {
       const moduleId = module.module_id || module.id
+      const ip = await fetch('https://api.ipify.org?format=json').then(r => r.json()).then(j => j.ip).catch(() => 'unknown')
+      const ua = navigator.userAgent || 'unknown'
       // Check if completion record exists
       const existing = completions.find(c => c.module_id === moduleId)
       if (existing) {
         await updateDoc(doc(db, 'training_completions', existing.id), {
           status: 'COMPLETED',
           completed_at: serverTimestamp(),
+          completed_ip: ip,
+          completed_user_agent: ua,
           updated_at: serverTimestamp(),
         })
       } else {
@@ -88,6 +92,8 @@ export default function Training() {
           status: 'COMPLETED',
           started_at: serverTimestamp(),
           completed_at: serverTimestamp(),
+          completed_ip: ip,
+          completed_user_agent: ua,
           created_at: serverTimestamp(),
           updated_at: serverTimestamp(),
         })

@@ -26,6 +26,7 @@ const CANONICAL_ROLES = [
   { id: 'ceo', role_name: 'CEO' },
   { id: 'client', role_name: 'Client' },
   { id: 'pm', role_name: 'Project Manager' },
+  { id: 'auditor', role_name: 'Auditor (read-only)' },
 ]
 const CEO_EMAIL = 'm.alqumri@datalake.sa'
 

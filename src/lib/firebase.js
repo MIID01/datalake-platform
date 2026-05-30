@@ -113,6 +113,8 @@ export const GENERATE_ZATCA_XML_URL =
 // HR Contract upload (Qiwa-signed PDF → Gatekeeper OCR + LLM extraction)
 export const UPLOAD_CONTRACT_PDF_URL =
   "https://uploadcontractpdf-ifzodp5svq-wx.a.run.app";
+export const RETRY_CONTRACT_EXTRACTION_URL =
+  "https://retrycontractextraction-ifzodp5svq-wx.a.run.app";
 
 // PDF engine (templates: invoice, payslip, timesheet, monthly_report, contract_summary, pdpl_consent)
 export const GENERATE_PDF_URL =

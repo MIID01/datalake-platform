@@ -963,7 +963,7 @@ function buildContractEmail(hire, acceptUrl) {
   return [
     `Dear ${hire.candidate_name},`,
     "",
-    "We are pleased to extend an offer of employment with Datalake Information Technology.",
+    "We are pleased to extend an offer of employment with Datalake Saudi Arabia LLC.",
     "",
     `Position: IT Consultant`,
     `Project: ${hire.project_name}`,
@@ -987,8 +987,8 @@ function buildContractEmail(hire, acceptUrl) {
     "Datalake HR Team",
     "hr@datalake.sa",
     "",
-    "Datalake Information Technology",
-    "CR: 109194773 | www.datalake.sa",
+    "Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243",
+    "CR: 1009194773 | NUN: 7048904952 | www.datalake.sa",
   ].join("\n");
 }
 
@@ -1059,6 +1059,77 @@ async function syncContractToEmployeeHandler(event) {
   console.log(`[Contract Sync] Synced ${Object.keys(employeeUpdate).length - 3} fields to employee ${after.employee_id} from contract ${event.params.contractId}`);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 9. retryContractExtraction — HTTP endpoint (CEO/HR only)
+//    Re-publishes datalake.contract.uploaded for an existing contract
+//    so HR can recover from OCR/LLM timeouts without re-uploading the PDF.
+// ═══════════════════════════════════════════════════════════════════
+async function retryContractExtractionHandler(req, res, helpers) {
+  try {
+    if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
+
+    const authHeader = req.headers.authorization || "";
+    const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!idToken) return res.status(401).json({ error: "Missing auth token" });
+
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    const profile = await helpers.getUserAccessProfile(decoded.uid);
+    if (!profile || !["ceo", "hr"].includes(profile.role_id)) {
+      return res.status(403).json({ error: "Only CEO or HR may retry contract extraction" });
+    }
+
+    const { contract_id, hire_id } = req.body || {};
+    if (!contract_id && !hire_id) {
+      return res.status(400).json({ error: "contract_id or hire_id required" });
+    }
+
+    let docRef;
+    let payload;
+    if (contract_id) {
+      docRef = db.collection("contracts").doc(contract_id);
+      const snap = await docRef.get();
+      if (!snap.exists) return res.status(404).json({ error: "Contract not found" });
+      const data = snap.data();
+      if (!data.contract_pdf_storage_path) {
+        return res.status(400).json({ error: "Contract has no PDF — re-upload instead" });
+      }
+      payload = { contract_id, employee_id: data.employee_id };
+    } else {
+      docRef = db.collection("pending_hires").doc(hire_id);
+      const snap = await docRef.get();
+      if (!snap.exists) return res.status(404).json({ error: "Hire not found" });
+      const data = snap.data();
+      if (!data.contract_pdf_storage_path) {
+        return res.status(400).json({ error: "Hire has no PDF — re-upload instead" });
+      }
+      payload = { hire_id };
+    }
+
+    await docRef.update({
+      contract_extraction_status: "PENDING",
+      extraction_error: null,
+      contract_extraction_error: null,
+      retry_requested_at: admin.firestore.FieldValue.serverTimestamp(),
+      retry_requested_by: profile.email,
+    });
+
+    await pubsub.topic("datalake.contract.uploaded").publishMessage({ json: payload });
+
+    await db.collection("task_audit_log").add({
+      event: "CONTRACT_EXTRACTION_RETRIED",
+      action_by: profile.email,
+      action_at: admin.firestore.FieldValue.serverTimestamp(),
+      details: { contract_id: contract_id || null, hire_id: hire_id || null },
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+    });
+
+    return res.status(200).json({ success: true, message: "Extraction re-queued." });
+  } catch (err) {
+    console.error("retryContractExtraction error:", err);
+    return res.status(500).json({ error: "Internal server error", detail: err.message });
+  }
+}
+
 module.exports = {
   initiateHireHandler,
   generateContractHandler,
@@ -1069,4 +1140,5 @@ module.exports = {
   uploadContractPDFHandler,
   gatekeeperContractExtractHandler,
   syncContractToEmployeeHandler,
+  retryContractExtractionHandler,
 };

@@ -28,6 +28,21 @@ body {
 
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; font-family: inherit; border: none; background: none; }
+
+/* Auditor (read-only) role: hide every UI action that mutates state.
+   Components opt-in by adding className="write-action" or [data-write]. */
+body[data-role="auditor"] .write-action,
+body[data-role="auditor"] [data-write],
+body[data-role="auditor"] button[type="submit"]:not([data-readonly-allow]) {
+  display: none !important;
+}
+body[data-role="auditor"]::before {
+  content: "READ-ONLY AUDIT ACCESS";
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+  background: #022873; color: #fff; text-align: center;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+  padding: 4px 10px;
+}
 input, textarea, select { font-family: inherit; font-size: inherit; }
 img { max-width: 100%; display: block; }
 ul, ol { list-style: none; }

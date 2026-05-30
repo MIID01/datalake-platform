@@ -2557,6 +2557,7 @@ const {
   uploadContractPDFHandler,
   gatekeeperContractExtractHandler,
   syncContractToEmployeeHandler,
+  retryContractExtractionHandler,
 } = require("./hireSequence");
 
 const hireHelpers = { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS };
@@ -2602,6 +2603,12 @@ exports.gatekeeperContractExtract = onMessagePublished(
 exports.syncContractToEmployee = onDocumentUpdated(
   { document: "contracts/{contractId}", region: "me-central2" },
   (event) => syncContractToEmployeeHandler(event)
+);
+
+// Manual retry — re-publishes Pub/Sub for an existing contract PDF
+exports.retryContractExtraction = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => retryContractExtractionHandler(req, res, hireHelpers)
 );
 
 // ═══════════════════════════════════════════════════════════════════

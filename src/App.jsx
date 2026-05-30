@@ -49,6 +49,7 @@ import CEODelegation from './pages/ceo/Delegation'
 import CEOEmployees from './pages/ceo/CEOEmployees'
 import CEOClients from './pages/ceo/CEOClients'
 import CEOMonthlyReports from './pages/ceo/MonthlyReports'
+import CEOAuditExport from './pages/ceo/AuditExport'
 
 // CTO Pages
 import CTODashboard from './pages/cto/Dashboard'
@@ -84,6 +85,7 @@ import ClientTimesheetApproval from './pages/client/ClientDashboard'
 import ClientScorecard from './pages/client/ClientScorecard'
 import ContractAcceptance from './pages/client/ContractAcceptance'
 import ClientLeaveApprovals from './pages/client/ClientLeaveApprovals'
+import ClientHireApproval from './pages/client/ClientHireApproval'
 
 import Careers from './pages/Careers'
 
@@ -120,6 +122,7 @@ export default function App() {
           <Route path="tasks" element={<CEOTaskInbox />} />
           <Route path="admin" element={<CEOAdmin />} />
           <Route path="admin/delegation" element={<CEODelegation />} />
+          <Route path="audit-export" element={<CEOAuditExport />} />
         </Route>
 
         {/* CTO Portal */}
@@ -193,6 +196,8 @@ export default function App() {
         </Route>
         {/* Token-based client flows (public / unauthenticated) — sit outside ClientLayout */}
         <Route path="/client/timesheet/:token" element={<ClientTimesheetApproval />} />
+        <Route path="/client/sign-timesheet/:token" element={<ClientTimesheetApproval />} />
+        <Route path="/client/approve-hire/:token" element={<ClientHireApproval />} />
         <Route path="/client/scorecard/:token" element={<ClientScorecard />} />
         <Route path="/contract/:token" element={<ContractAcceptance />} />
 

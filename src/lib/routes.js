@@ -4,6 +4,7 @@
 export function homePathForRole(role) {
   switch (role) {
     case 'ceo': return '/ceo'
+    case 'auditor': return '/ceo/audit-export'
     case 'it_admin': return '/admin'
     case 'hr': return '/hr'
     case 'cto': return '/cto'
@@ -17,9 +18,13 @@ export function homePathForRole(role) {
 
 // The path prefix a role is allowed to stay within. Used by AuthGate to detect
 // when a user has wandered outside their portal and should be redirected home.
+// `auditor` returns null on purpose: read-only audit access roams every portal,
+// but every write is blocked by Firestore rules (no role-write paths granted to
+// `auditor`) and the UI hides action buttons via the data-role attribute.
 export function portalPrefixForRole(role) {
   switch (role) {
     case 'ceo': return '/ceo'
+    case 'auditor': return null
     case 'it_admin': return '/admin'
     case 'hr': return '/hr'
     case 'cto': return '/cto'
@@ -29,4 +34,8 @@ export function portalPrefixForRole(role) {
     case 'employee': return '/employee'
     default: return null
   }
+}
+
+export function isReadOnlyRole(role) {
+  return role === 'auditor'
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Briefcase, Plus, DollarSign, Users, Clock, ChevronDown, CheckCircle, FolderPlus, UserPlus, MapPin } from 'lucide-react'
+import { Briefcase, Plus, DollarSign, Users, Clock, ChevronDown, CheckCircle, FolderPlus, UserPlus, MapPin, Search, X as XIcon } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import NewProjectModal from '../../components/NewProjectModal'
@@ -23,6 +23,8 @@ export default function Projects() {
   const [assignProject, setAssignProject] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
 
   useEffect(() => {
     try {
@@ -41,6 +43,16 @@ export default function Projects() {
   }, [])
 
   const getAssignments = (pid) => assignments.filter(a=>a.project_id===pid)
+
+  const filteredProjects = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return projects.filter(p => {
+      if (statusFilter !== 'ALL' && (p.status || 'ACTIVE') !== statusFilter) return false
+      if (!q) return true
+      return [p.project_name, p.client_name, p.po_number, p.project_id, p.client_approver_name, p.client_approver_email]
+        .filter(Boolean).some(v => String(v).toLowerCase().includes(q))
+    })
+  }, [projects, search, statusFilter])
 
   const stats = useMemo(() => {
     const active = projects.filter(p=>p.status==='ACTIVE')
@@ -87,6 +99,32 @@ export default function Projects() {
         })}
       </div>
 
+      {/* Search + filter */}
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
+        <div style={{position:'relative',flex:1,minWidth:240}}>
+          <Search size={15} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--text-tertiary)'}} />
+          <input
+            value={search}
+            onChange={e=>setSearch(e.target.value)}
+            placeholder="Search by project, client, PO, approver…"
+            style={{width:'100%',padding:'10px 36px 10px 36px',borderRadius:8,border:'1px solid var(--border-primary,#E5E7EB)',background:'var(--bg-surface,#fff)',color:'var(--text-primary)',fontSize:'0.86rem',fontFamily:'inherit',boxSizing:'border-box'}}
+          />
+          {search && (
+            <button onClick={()=>setSearch('')} style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'transparent',border:'none',cursor:'pointer',color:'var(--text-tertiary)',display:'flex'}}><XIcon size={14}/></button>
+          )}
+        </div>
+        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{padding:'10px 14px',borderRadius:8,border:'1px solid var(--border-primary,#E5E7EB)',background:'var(--bg-surface,#fff)',color:'var(--text-primary)',fontSize:'0.86rem',fontFamily:'inherit'}}>
+          <option value="ALL">All statuses</option>
+          <option value="ACTIVE">Active</option>
+          <option value="PAUSED">Paused</option>
+          <option value="COMPLETED">Completed</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+        <span style={{fontSize:'0.78rem',color:'var(--text-tertiary)'}}>
+          {filteredProjects.length} of {projects.length}
+        </span>
+      </div>
+
       {/* Projects List */}
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {projects.length === 0 && (
@@ -96,8 +134,13 @@ export default function Projects() {
             <div style={{fontSize:'0.82rem'}}>Create your first project when you win a deal</div>
           </div>
         )}
+        {projects.length > 0 && filteredProjects.length === 0 && (
+          <div className="card" style={{textAlign:'center',padding:'32px 20px',color:'var(--text-tertiary)'}}>
+            <div style={{fontSize:'0.9rem'}}>No projects match "{search}"{statusFilter !== 'ALL' ? ` in ${statusFilter.toLowerCase()}` : ''}.</div>
+          </div>
+        )}
 
-        {projects.map((p,i)=>{
+        {filteredProjects.map((p,i)=>{
           const isExpanded = expandedId === p.project_id
           const pAssignments = getAssignments(p.project_id)
           const st = STATUS_COLORS[p.status] || STATUS_COLORS.ACTIVE
