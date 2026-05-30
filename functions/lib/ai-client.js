@@ -175,7 +175,7 @@ async function callLLM({
         max_tokens: MAX_TOKENS,
         stream: false,
       }),
-      timeout: 240000, // 4-minute timeout — accounts for cold-start + heavy CPU inference
+      timeout: 480000, // 8-minute timeout — Qwen 2.5 7B on CPU can take 3-7 minutes on long OCR output; pdf-parse text is much shorter so this is generous headroom
     });
 
     if (!response.ok) {

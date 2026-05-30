@@ -20,6 +20,23 @@ const pubsub = new PubSub();
 const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
 const Busboy = require("busboy");
 const { google } = require("googleapis");
+const pdfParse = require("pdf-parse");
+
+// Try the digital PDF text layer first (Qiwa contracts are real digital PDFs,
+// not scans — pdf-parse reads them in milliseconds with no network call).
+// Returns the extracted text or null if the PDF has no usable text layer
+// (image-only scans → fall back to PaddleOCR).
+async function tryPdfTextLayer(pdfBuffer) {
+  try {
+    const result = await pdfParse(pdfBuffer);
+    const text = String(result?.text || "").trim();
+    if (text.length < 80) return null; // too little to be real contract text
+    return { text, pageCount: result?.numpages || 0, lineCount: text.split(/\n+/).filter(Boolean).length };
+  } catch (err) {
+    console.warn(`[Gatekeeper] pdf-parse failed (${err.message}) — falling back to OCR`);
+    return null;
+  }
+}
 
 const db = admin.firestore();
 const PROJECT_ID = "datalake-production-sa";
@@ -783,9 +800,9 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
 // ═══════════════════════════════════════════════════════════════════
 async function gatekeeperContractExtractHandler(event) {
   try {
-    const { hire_id, contract_id, employee_id } = event.data.message.json;
-    if (!hire_id && (!contract_id || !employee_id)) {
-      throw new Error("hire_id or contract_id/employee_id required in Pub/Sub message");
+    let { hire_id, contract_id, employee_id } = event.data.message.json;
+    if (!hire_id && !contract_id) {
+      throw new Error("hire_id or contract_id required in Pub/Sub message");
     }
 
     let docRef;
@@ -797,57 +814,76 @@ async function gatekeeperContractExtractHandler(event) {
       const doc = await docRef.get();
       if (!doc.exists) throw new Error(`Contract not found: ${contract_id}`);
       targetDoc = doc.data();
-      storagePath = targetDoc.contract_pdf_storage_path;
+      // HRContracts.jsx writes `pdf_storage_path`; the backend uploadContractPDF
+      // writes `contract_pdf_storage_path`. Accept either.
+      storagePath = targetDoc.contract_pdf_storage_path || targetDoc.pdf_storage_path;
+      // employee_id can be on the doc itself as employee_id OR linked_employee_id
+      employee_id = employee_id || targetDoc.employee_id || targetDoc.linked_employee_id || targetDoc.linked_employee_employee_id;
     } else {
       docRef = db.collection("pending_hires").doc(hire_id);
       const doc = await docRef.get();
       if (!doc.exists) throw new Error(`Hire not found: ${hire_id}`);
       targetDoc = doc.data();
-      storagePath = targetDoc.contract_pdf_storage_path;
+      storagePath = targetDoc.contract_pdf_storage_path || targetDoc.pdf_storage_path;
     }
 
-    if (!storagePath) throw new Error(`No contract PDF on document`);
+    if (!storagePath) throw new Error(`No contract PDF on document (looked for contract_pdf_storage_path and pdf_storage_path)`);
 
     // Step 1: Download PDF from Cloud Storage
     const bucket = admin.storage().bucket("datalake-worm-hr");
     const [pdfBuffer] = await bucket.file(storagePath).download();
     console.log(`[Gatekeeper] Downloaded contract PDF: ${storagePath} (${pdfBuffer.length} bytes)`);
 
-    // Step 2: OCR
-    const ocrResult = await callOCR({
-      fileBase64: pdfBuffer.toString("base64"),
-      lang: "en",
-      agent: "gatekeeper",
-      type: "contract_ocr",
-      triggeredBy: "system:pubsub",
-    });
-
-    if (!ocrResult.success || !ocrResult.lines?.length) {
-      await docRef.update({
-        contract_extraction_status: "OCR_FAILED",
-        extraction_error: `OCR error: ${ocrResult.error || "No text extracted"}`,
+    // Step 2: Try digital PDF text layer FIRST (Qiwa PDFs are digital — no OCR
+    // needed). Only fall back to PaddleOCR on image-only scans.
+    let fullText;
+    let extractedVia;
+    let ocrLineCount = 0;
+    const textLayer = await tryPdfTextLayer(pdfBuffer);
+    if (textLayer && textLayer.text) {
+      fullText = textLayer.text;
+      extractedVia = "pdf-parse";
+      ocrLineCount = textLayer.lineCount;
+      console.log(`[Gatekeeper] pdf-parse: ${textLayer.text.length} chars across ${textLayer.pageCount} page(s) — skipping OCR`);
+    } else {
+      console.log(`[Gatekeeper] No digital text layer — calling PaddleOCR fallback`);
+      const ocrResult = await callOCR({
+        fileBase64: pdfBuffer.toString("base64"),
+        lang: "en",
+        agent: "gatekeeper",
+        type: "contract_ocr",
+        triggeredBy: "system:pubsub",
       });
-      throw new Error(`OCR failed: ${ocrResult.error || "no text"}`);
+      if (!ocrResult.success || !ocrResult.lines?.length) {
+        await docRef.update({
+          contract_extraction_status: "OCR_FAILED",
+          status: "EXTRACTION_FAILED",
+          extraction_error: `OCR error: ${ocrResult.error || "No text extracted"}`,
+          contract_extraction_error: `OCR error: ${ocrResult.error || "No text extracted"}`,
+        });
+        throw new Error(`OCR failed: ${ocrResult.error || "no text"}`);
+      }
+      fullText = ocrResult.lines.map((l) => l.text).join("\n");
+      ocrLineCount = ocrResult.lines.length;
+      extractedVia = "paddle-ocr";
+      console.log(`[Gatekeeper] OCR fallback: ${ocrResult.lines.length} lines from contract`);
     }
-
-    const fullText = ocrResult.lines.map((l) => l.text).join("\n");
-    console.log(`[Gatekeeper] OCR extracted ${ocrResult.lines.length} lines from contract`);
 
     // Step 3: LLM
     const llmResult = await callLLM({
       agent: "gatekeeper",
       type: "contract_extract",
       triggeredBy: "system:pubsub",
-      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V1",
-      systemPrompt: `You are the Datalake Gatekeeper AI. Extract structured employment data from this contract text.
-This is a Saudi employment or staff augmentation contract. Extract ALL available fields.
-Return ONLY a valid JSON object with these exact fields (use null for any field not found):
+      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V2",
+      systemPrompt: `You are the Datalake Gatekeeper AI. Extract structured employment data from a Saudi Qiwa Unified Employment Contract (MHRSD).
+The text is the raw output of pdf-parse, so tables may appear as multiple short lines and Arabic/English columns may sit next to each other.
+Return ONLY a valid JSON object with these exact fields (use null when truly absent — but read the text carefully first):
 {
-  "employee_name": "Full name in English",
+  "employee_name": "Full name in English (Latin letters). If only Arabic is present, transliterate.",
   "employee_name_ar": "Full name in Arabic if present, else null",
-  "job_title": "Position or role title",
-  "client_name": "Client company name the employee is deployed to",
-  "po_number": "Purchase order number if present",
+  "job_title": "Position or role title in English",
+  "client_name": "Client company the employee is deployed to (Qiwa contracts often omit this — set null if missing, NEVER write 'Not specified')",
+  "po_number": "Purchase order or contract reference number if present",
   "po_value_sar": 0,
   "contract_start_date": "YYYY-MM-DD",
   "contract_end_date": "YYYY-MM-DD",
@@ -859,18 +895,30 @@ Return ONLY a valid JSON object with these exact fields (use null for any field 
   "work_location": "City or site name",
   "iqama_national_id": "ID number if present"
 }
+Where to look for salary in a Qiwa contract:
+- It is in a wage / compensation breakdown section ("الأجر" / "Wage" / "Basic Salary" / "Wage components").
+- The total monthly wage is split into three parts that you MUST extract separately:
+  * Basic salary (الراتب الأساسي / Basic salary / Basic wage) → "salary_monthly_sar"
+  * Housing allowance (بدل السكن / Housing allowance) → "housing_allowance_sar"
+  * Transportation allowance (بدل النقل / Transport allowance) → "transport_allowance_sar"
+- Each value sits on its own row next to the label. The currency is SAR / ر.س / ريال. Strip the currency word.
+- If you see only a single "total wage" without a breakdown, put that total in salary_monthly_sar and leave the two allowances as 0.
+- NEVER output 0 for these three fields just because a label is hard to spot. Re-scan the text once before giving up.
 Rules:
-- All SAR amounts must be numbers only (no commas, no "SAR" text)
-- Dates must be YYYY-MM-DD format
-- If a field is partially visible or ambiguous, include it with a best-effort value
-- Return valid JSON only, no markdown`,
+- All SAR amounts must be plain numbers (no commas, no "SAR", no Arabic digits — convert ٠١٢٣٤٥٦٧٨٩ to 0123456789).
+- Dates must be YYYY-MM-DD. Gregorian calendar. If only Hijri is shown, convert.
+- "employee_name" must be Latin letters. The Arabic full name belongs in "employee_name_ar".
+- For "client_name", if the contract is a direct Qiwa employer-employee contract with no client, set null. Don't write prose like "Not specified".
+- Return valid JSON only, no markdown fences, no commentary.`,
       userPrompt: fullText,
     });
 
     if (!llmResult.success) {
       await docRef.update({
         contract_extraction_status: "LLM_FAILED",
+        status: "EXTRACTION_FAILED",
         extraction_error: `LLM error: ${llmResult.error}`,
+        contract_extraction_error: `LLM error: ${llmResult.error}`,
       });
       throw new Error(`LLM extraction failed: ${llmResult.error}`);
     }
@@ -880,7 +928,9 @@ Rules:
     if (!parsed.success) {
       await docRef.update({
         contract_extraction_status: "PARSE_FAILED",
+        status: "EXTRACTION_FAILED",
         extraction_error: `Parsing error: AI output was not valid JSON`,
+        contract_extraction_error: `Parsing error: AI output was not valid JSON`,
       });
       throw new Error("Parse failed");
     }
@@ -888,13 +938,20 @@ Rules:
     const fields = parsed.data;
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    // Mirror status fields so both the gatekeeper-facing
+    // `contract_extraction_status` and the UI-facing `status` flip together —
+    // HRContracts.jsx reads `c.status || c.contract_extraction_status`, so if
+    // we only update one the UI sticks on "Extracting…".
     const update = {
       contract_extracted_fields: fields,
       contract_extraction_status: "EXTRACTED",
+      status: "EXTRACTED",
       contract_extracted_at: now,
-      contract_ocr_lines: ocrResult.lines.length,
+      contract_ocr_lines: ocrLineCount,
+      contract_extraction_method: extractedVia,
       contract_extraction_model: "qwen2.5-7b-instruct-q4_K_M",
       extraction_error: null,
+      contract_extraction_error: null,
     };
 
     if (hire_id) {
@@ -938,7 +995,8 @@ Rules:
         target_id: contract_id || hire_id,
         fields_extracted: Object.keys(fields).filter((k) => fields[k] != null),
         fields_null: Object.keys(fields).filter((k) => fields[k] == null),
-        ocr_lines: ocrResult.lines.length,
+        ocr_lines: ocrLineCount,
+        extraction_method: extractedVia,
         ai_model: "qwen2.5-7b-instruct-q4_K_M",
         inference_ms: llmResult.inferenceMs,
       },

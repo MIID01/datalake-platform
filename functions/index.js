@@ -2593,9 +2593,13 @@ exports.uploadContractPDF = onRequest(
   (req, res) => uploadContractPDFHandler(req, res, hireHelpers)
 );
 
-// Gatekeeper AI extracts fields from uploaded contract PDF (OCR + LLM)
+// Gatekeeper AI extracts fields from uploaded contract PDF.
+// pdf-parse runs first (digital PDF text layer, milliseconds, no service call);
+// PaddleOCR is only used as fallback for image-only scans. Memory bumped to
+// 1Gi because pdf-parse loads pdfjs; timeout = 2nd-gen max so a slow cold
+// LLM call doesn't get killed mid-inference.
 exports.gatekeeperContractExtract = onMessagePublished(
-  { topic: "datalake.contract.uploaded", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
+  { topic: "datalake.contract.uploaded", region: "me-central2", memory: "1GiB", timeoutSeconds: 540 },
   (event) => gatekeeperContractExtractHandler(event)
 );
 
