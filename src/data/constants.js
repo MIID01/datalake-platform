@@ -2,10 +2,13 @@
 // These are NOT mock data — they are configuration constants and enum definitions.
 
 // ── Open Roles (Careers Page) ────────────────────────────────
-// Business data — current job listings. Move to Firestore when recruitment CMS is built.
+// Placeholder sample roles for the public careers page. Real listings live in
+// Firestore `job_listings/` and are served via the HR Job Listings flow — these
+// are only used as a fallback when no listings exist yet. No client names —
+// public job pages must never expose which specific clients we work with.
 export const openRoles = [
-  { id: 'R-001', title: 'Senior Data Engineer', location: 'Riyadh, KSA', salaryMin: 25000, salaryMax: 35000, client: 'Emkan Finance', type: 'Full-time, On-site' },
-  { id: 'R-002', title: 'ML Engineer', location: 'Riyadh, KSA (Hybrid)', salaryMin: 20000, salaryMax: 28000, client: 'Al Rajhi Bank', type: 'Full-time, Hybrid' },
+  { id: 'R-001', title: 'Senior Data Engineer', location: 'Riyadh, KSA', salaryMin: 25000, salaryMax: 35000, client: 'Confidential — KSA financial services', type: 'Full-time, On-site' },
+  { id: 'R-002', title: 'ML Engineer', location: 'Riyadh, KSA (Hybrid)', salaryMin: 20000, salaryMax: 28000, client: 'Confidential — KSA banking', type: 'Full-time, Hybrid' },
   { id: 'R-003', title: 'Frontend Developer', location: 'Remote KSA', salaryMin: 18000, salaryMax: 25000, client: 'Multiple Clients', type: 'Full-time, Remote' },
 ]
 

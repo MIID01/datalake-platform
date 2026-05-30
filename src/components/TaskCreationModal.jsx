@@ -148,7 +148,7 @@ export default function TaskCreationModal({ onClose, onCreated }) {
             <div style={s.sectionTitle}><Plus size={14} /> Task Identity</div>
             <div style={{ marginBottom: 14 }}>
               <label style={s.label}>Title *</label>
-              <input style={s.input} maxLength={100} placeholder="e.g. Review Q2 Emkan contract renewal" value={form.title} onChange={e => update('title', e.target.value)} />
+              <input style={s.input} maxLength={100} placeholder="e.g. Review Q2 contract renewal" value={form.title} onChange={e => update('title', e.target.value)} />
               <div style={{ fontSize: '0.65rem', color: 'var(--text-tertiary, #8898aa)', textAlign: 'right', marginTop: 2 }}>{form.title.length}/100</div>
             </div>
             <div>

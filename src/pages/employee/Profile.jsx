@@ -241,13 +241,72 @@ export default function Profile() {
         console.warn('[PDPL] dsr_requests audit row failed:', e.message)
       }
 
+      // Generate a readable HTML document instead of raw JSON
+      const htmlContent = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Personal Data Export - ${profile.full_name || profile.name || email}</title>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f6f9; color: #1f2937; margin: 0; padding: 40px; }
+    .container { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 40px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    h1 { color: #022873; margin-top: 0; font-size: 1.8rem; }
+    h2 { color: #1598cc; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; margin-top: 36px; font-size: 1.3rem; }
+    h3 { color: #334155; margin-top: 24px; font-size: 1.1rem; }
+    .meta { background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 32px; font-size: 0.95rem; border: 1px solid #e2e8f0; }
+    .meta div { margin-bottom: 10px; }
+    .meta strong { color: #475569; display: inline-block; width: 140px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    th { background: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.9rem; }
+    pre { background: #f8fafc; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; border: 1px solid #e2e8f0; margin: 0; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Personal Data Export</h1>
+    <div class="meta">
+      <div><strong>Export ID:</strong> ${bundle.export_id}</div>
+      <div><strong>Generated:</strong> ${new Date(bundle.generated_at).toLocaleString()}</div>
+      <div><strong>Employee:</strong> ${profile.full_name || profile.name || email} (${email})</div>
+      <div><strong>Legal Basis:</strong> ${bundle.pdpl_article}</div>
+      <div><strong>Data Controller:</strong> ${bundle.company}</div>
+    </div>
+    
+    <h2>Core Account & Profile</h2>
+    <h3>User Account Record</h3>
+    <pre>${JSON.stringify(bundle.records.user_account, null, 2)}</pre>
+    
+    <h3>Employment Record</h3>
+    <pre>${JSON.stringify(bundle.records.employee_record, null, 2)}</pre>
+    
+    <h2>System Records & Activity</h2>
+    ${Object.entries(bundle.records).filter(([k]) => k !== 'user_account' && k !== 'employee_record').map(([k, v]) => `
+      <h3>${k.replace(/_/g, ' ').toUpperCase()} (${Array.isArray(v) ? v.length : (v ? 1 : 0)} records)</h3>
+      ${Array.isArray(v) && v.length > 0 ? `
+        <table>
+          <thead>
+            <tr><th style="width: 25%">Record ID / Path</th><th>Data Attributes</th></tr>
+          </thead>
+          <tbody>
+            ${v.map(r => `<tr><td><code style="font-size:0.8rem;color:#022873">${r._path || r._id || '-'}</code></td><td><pre>${JSON.stringify(r, null, 2)}</pre></td></tr>`).join('')}
+          </tbody>
+        </table>
+      ` : `<p style="color:#64748b; font-style: italic;">No records found in this category.</p>`}
+    `).join('')}
+  </div>
+</body>
+</html>
+      `
+
       // Trigger browser download.
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       const safeName = (profile.full_name || profile.name || email).replace(/[^A-Za-z0-9_-]+/g, '_')
       a.href = url
-      a.download = `PDPL_Data_Export_${safeName}_${new Date().toISOString().slice(0,10)}.json`
+      a.download = `PDPL_Data_Export_${safeName}_${new Date().toISOString().slice(0,10)}.html`
       document.body.appendChild(a)
       a.click()
       a.remove()

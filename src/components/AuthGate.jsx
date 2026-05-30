@@ -52,28 +52,39 @@ export default function AuthGate({ children }) {
     const isCeo = email === 'm.alqumri@datalake.sa'
 
     // Try to find user doc by email
+    let unsubUser = () => {}
+
     const lookupUser = async () => {
       try {
-        // First try: doc keyed by UID (legacy)
-        const uidDoc = await new Promise((resolve) => {
-          const unsub = onSnapshot(doc(db, 'users', uid), (snap) => {
-            unsub()
-            resolve(snap)
+        // First try: doc keyed by UID
+        const uidRef = doc(db, 'users', uid)
+        const { getDoc } = await import('firebase/firestore')
+        const uidSnap = await getDoc(uidRef)
+        
+        if (uidSnap.exists()) {
+          unsubUser = onSnapshot(uidRef, (snap) => {
+            if (snap.exists()) {
+              setUserRole(snap.data())
+              setLoading(false)
+            } else {
+              setUserRole({ NOT_FOUND: true })
+              setLoading(false)
+            }
           })
-        })
-
-        if (uidDoc.exists()) {
-          setUserRole(uidDoc.data())
-          setLoading(false)
           return
         }
 
         // Second try: query by email field
         const q = query(collection(db, 'users'), where('email', '==', email))
-        const snap = await getDocs(q)
-        if (!snap.empty) {
-          setUserRole(snap.docs[0].data())
-          setLoading(false)
+        const qSnap = await getDocs(q)
+        if (!qSnap.empty) {
+          const matchedDocRef = doc(db, 'users', qSnap.docs[0].id)
+          unsubUser = onSnapshot(matchedDocRef, (snap) => {
+            if (snap.exists()) {
+              setUserRole(snap.data())
+              setLoading(false)
+            }
+          })
           return
         }
 
@@ -104,6 +115,8 @@ export default function AuthGate({ children }) {
     }
 
     lookupUser()
+    
+    return () => unsubUser()
   }, [email, uid])
 
   // Loading spinner

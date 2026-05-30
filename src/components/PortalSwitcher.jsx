@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { auth } from '../lib/firebase'
+import { auth, db } from '../lib/firebase'
 import { CEO_EMAIL } from '../lib/auth'
 
 // Shared CEO-only "Switch Portal" dropdown. Renders nothing for non-CEO users
@@ -31,16 +31,46 @@ export default function PortalSwitcher({ collapsed = false, theme = 'dark' }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [email, setEmail] = useState(auth.currentUser?.email || null)
+  const [roleId, setRoleId] = useState(null)
 
-  // The auth listener handles the case where the layout renders before
-  // currentUser is populated (sign-in just completed).
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(u => setEmail(u?.email || null))
+    const unsub = auth.onAuthStateChanged(async (u) => {
+      setEmail(u?.email || null)
+      if (u) {
+        // Fetch user's role from Firestore to know what portals they have access to
+        const { doc, getDoc } = await import('firebase/firestore')
+        const userDoc = await getDoc(doc(db, 'users', u.uid))
+        if (userDoc.exists()) {
+          setRoleId(userDoc.data().role_id)
+        } else {
+          // fallback query by email
+          const { collection, query, where, getDocs } = await import('firebase/firestore')
+          const q = query(collection(db, 'users'), where('email', '==', u.email))
+          const snap = await getDocs(q)
+          if (!snap.empty) setRoleId(snap.docs[0].data().role_id)
+        }
+      }
+    })
     return () => unsub()
   }, [])
 
-  if (email !== CEO_EMAIL) return null
-  if (collapsed) return null
+  if (!email || collapsed) return null
+  
+  const isCeo = email === CEO_EMAIL
+  
+  // If not CEO and role is just 'employee' (or not yet loaded), they don't need a switcher
+  if (!isCeo && (!roleId || roleId === 'employee' || roleId === 'client')) return null
+
+  // Build the list of views they are allowed to see
+  let allowedViews = []
+  if (isCeo) {
+    allowedViews = PORTAL_VIEWS
+  } else {
+    // Non-CEO staff get their primary portal + Employee View
+    const primaryView = PORTAL_VIEWS.find(v => v.path === `/${roleId}`) || PORTAL_VIEWS.find(v => v.path === `/admin` && roleId === 'it_admin')
+    if (primaryView) allowedViews.push(primaryView)
+    allowedViews.push({ label: 'Employee View', path: '/employee/dashboard' })
+  }
 
   const isLight = theme === 'light'
   const labelStyle = {
@@ -66,10 +96,10 @@ export default function PortalSwitcher({ collapsed = false, theme = 'dark' }) {
       <select
         value={pickCurrentView(location.pathname)}
         onChange={(e) => navigate(e.target.value)}
-        id="ceo-switch-portal"
+        id="portal-switcher"
         style={selectStyle}
       >
-        {PORTAL_VIEWS.map(v => (
+        {allowedViews.map(v => (
           <option key={v.path} value={v.path} style={optionStyle}>{v.label}</option>
         ))}
       </select>

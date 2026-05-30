@@ -390,9 +390,13 @@ export default function Timesheets() {
                       <div>
                         <div style={{ color: 'var(--text-tertiary)', fontSize: '0.72rem', marginBottom: 2 }}>Project Period</div>
                         <div style={{ fontWeight: 600, fontSize: '0.78rem' }}>
-                          {proj.start_date?._seconds ? new Date(proj.start_date._seconds*1000).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}
+                          {proj.start_date
+                            ? new Date(proj.start_date._seconds ? proj.start_date._seconds * 1000 : proj.start_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+                            : '—'}
                           {' — '}
-                          {proj.end_date?._seconds ? new Date(proj.end_date._seconds*1000).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}
+                          {proj.end_date
+                            ? new Date(proj.end_date._seconds ? proj.end_date._seconds * 1000 : proj.end_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+                            : '—'}
                         </div>
                       </div>
                     </div>
