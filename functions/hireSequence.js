@@ -874,14 +874,25 @@ async function gatekeeperContractExtractHandler(event) {
       agent: "gatekeeper",
       type: "contract_extract",
       triggeredBy: "system:pubsub",
-      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V2",
+      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V3",
       systemPrompt: `You are the Datalake Gatekeeper AI. Extract structured employment data from a Saudi Qiwa Unified Employment Contract (MHRSD).
-The text is the raw output of pdf-parse, so tables may appear as multiple short lines and Arabic/English columns may sit next to each other.
+The text is the raw output of pdf-parse: tables appear as multiple short lines, and Arabic/English columns may sit next to each other.
+
+QIWA TWO-COLUMN LAYOUT — CRITICAL
+Every field on a Qiwa contract is printed in TWO columns: English on the LEFT, Arabic on the RIGHT.
+For every English-language field below (employee_name, job_title, work_location, client_name) you MUST read the LEFT / English column.
+Never put Arabic characters in an English field. Never transliterate the Arabic — the English text is already printed in the document, use it verbatim.
+For names, copy the English name token-for-token in the exact left-to-right word order as printed. Do NOT reverse, reorder, or shorten it.
+Example: if the contract prints "Khalid Mohammed Mohammed Hamad" in the English column and "خالد محمد محمد حمد" in the Arabic column, the output MUST be
+  "employee_name": "Khalid Mohammed Mohammed Hamad"
+  "employee_name_ar": "خالد محمد محمد حمد"
+"employee_name_ar" is the ONLY field where Arabic characters are allowed.
+
 Return ONLY a valid JSON object with these exact fields (use null when truly absent — but read the text carefully first):
 {
-  "employee_name": "Full name in English (Latin letters). If only Arabic is present, transliterate.",
-  "employee_name_ar": "Full name in Arabic if present, else null",
-  "job_title": "Position or role title in English",
+  "employee_name": "Full name in English (Latin letters only, left-to-right order, as printed in the English column)",
+  "employee_name_ar": "Full name in Arabic, exactly as printed (الاسم بالعربية)",
+  "job_title": "Position or role title in English (from English column)",
   "client_name": "Client company the employee is deployed to (Qiwa contracts often omit this — set null if missing, NEVER write 'Not specified')",
   "po_number": "Purchase order or contract reference number if present",
   "po_value_sar": 0,
@@ -892,9 +903,10 @@ Return ONLY a valid JSON object with these exact fields (use null when truly abs
   "transport_allowance_sar": 0,
   "probation_period_months": 3,
   "notice_period_days": 30,
-  "work_location": "City or site name",
+  "work_location": "City or site name (English)",
   "iqama_national_id": "ID number if present"
 }
+
 Where to look for salary in a Qiwa contract:
 - It is in a wage / compensation breakdown section ("الأجر" / "Wage" / "Basic Salary" / "Wage components").
 - The total monthly wage is split into three parts that you MUST extract separately:
@@ -904,10 +916,11 @@ Where to look for salary in a Qiwa contract:
 - Each value sits on its own row next to the label. The currency is SAR / ر.س / ريال. Strip the currency word.
 - If you see only a single "total wage" without a breakdown, put that total in salary_monthly_sar and leave the two allowances as 0.
 - NEVER output 0 for these three fields just because a label is hard to spot. Re-scan the text once before giving up.
+
 Rules:
 - All SAR amounts must be plain numbers (no commas, no "SAR", no Arabic digits — convert ٠١٢٣٤٥٦٧٨٩ to 0123456789).
 - Dates must be YYYY-MM-DD. Gregorian calendar. If only Hijri is shown, convert.
-- "employee_name" must be Latin letters. The Arabic full name belongs in "employee_name_ar".
+- English fields contain Latin letters only. Arabic fields contain Arabic letters only.
 - For "client_name", if the contract is a direct Qiwa employer-employee contract with no client, set null. Don't write prose like "Not specified".
 - Return valid JSON only, no markdown fences, no commentary.`,
       userPrompt: fullText,
