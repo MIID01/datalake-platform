@@ -198,7 +198,12 @@ export default function HRContracts() {
       //    fires the Gatekeeper Pub/Sub extraction.
       const idToken = await me.getIdToken()
       const fd = new FormData()
-      fd.append('hire_id', ref.id)
+      if (uploadMode === 'existing') {
+        fd.append('employee_id', linkedEmp.id)
+        fd.append('contract_id', ref.id)
+      } else {
+        fd.append('hire_id', ref.id)
+      }
       fd.append('contract_pdf', file, file.name)
       const res = await fetch(UPLOAD_CONTRACT_PDF_URL, {
         method: 'POST',
@@ -263,7 +268,12 @@ export default function HRContracts() {
       })
       const idToken = await me.getIdToken()
       const fd = new FormData()
-      fd.append('hire_id', active.id)
+      if (active.upload_mode === 'existing') {
+        fd.append('employee_id', active.linked_employee_id)
+        fd.append('contract_id', active.id)
+      } else {
+        fd.append('hire_id', active.id)
+      }
       fd.append('contract_pdf', file, file.name)
       const res = await fetch(UPLOAD_CONTRACT_PDF_URL, {
         method: 'POST',

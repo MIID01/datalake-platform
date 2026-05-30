@@ -654,11 +654,13 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
     let fileMimeType = null;
     let hireId = null;
     let employeeId = null;
+    let contractId = null;
 
     await new Promise((resolve, reject) => {
       busboy.on("field", (name, val) => {
         if (name === "hire_id") hireId = val;
         if (name === "employee_id") employeeId = val;
+        if (name === "contract_id") contractId = val;
       });
       busboy.on("file", (name, stream, info) => {
         if (name !== "contract_pdf") { stream.resume(); return; }
@@ -688,19 +690,19 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
 
     if (employeeId) {
       // Direct employee upload flow
-      const contractId = db.collection("contracts").doc().id;
+      const resolvedContractId = contractId || db.collection("contracts").doc().id;
       const storagePath = `contracts/employees/${employeeId}/${Date.now()}_${fileName}`;
       const file = bucket.file(storagePath);
       await file.save(pdfBuffer, {
         contentType: fileMimeType,
         metadata: {
           cacheControl: "private, max-age=0",
-          metadata: { employee_id: employeeId, contract_id: contractId, uploaded_by: profile.email },
+          metadata: { employee_id: employeeId, contract_id: resolvedContractId, uploaded_by: profile.email },
         },
       });
 
-      await db.collection("contracts").doc(contractId).set({
-        contract_id: contractId,
+      await db.collection("contracts").doc(resolvedContractId).set({
+        contract_id: resolvedContractId,
         employee_id: employeeId,
         contract_pdf_storage_path: storagePath,
         contract_pdf_filename: fileName,
@@ -708,21 +710,21 @@ async function uploadContractPDFHandler(req, res, { verifyAuth, getUserAccessPro
         contract_pdf_uploaded_at: now,
         contract_pdf_uploaded_by: profile.email,
         contract_extraction_status: "PENDING",
-      });
+      }, { merge: true });
 
       await db.collection("task_audit_log").add({
         event: "CONTRACT_PDF_UPLOADED",
         action_by: profile.email,
         action_at: now,
-        details: { employee_id: employeeId, contract_id: contractId, file_name: fileName, size_bytes: pdfBuffer.length, storage_path: storagePath },
+        details: { employee_id: employeeId, contract_id: resolvedContractId, file_name: fileName, size_bytes: pdfBuffer.length, storage_path: storagePath },
         ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
       });
 
-      await pubsub.topic("datalake.contract.uploaded").publishMessage({ json: { contract_id: contractId, employee_id: employeeId } });
+      await pubsub.topic("datalake.contract.uploaded").publishMessage({ json: { contract_id: resolvedContractId, employee_id: employeeId } });
 
       return res.status(200).json({
         success: true,
-        contract_id: contractId,
+        contract_id: resolvedContractId,
         employee_id: employeeId,
         storage_path: storagePath,
         message: "Contract PDF uploaded. Gatekeeper AI extraction started.",
