@@ -234,7 +234,7 @@ function buildDefaultJD(project, candidate) {
       ? `- Key skills: ${candidate.skills.join(", ")}`
       : "",
     ``,
-    `This is an outsourcing engagement managed by Datalake Information Technology.`,
+    `This is an outsourcing engagement managed by Datalake Saudi Arabia LLC.`,
     `The candidate will be deployed to ${project.client_name} under project ${project.project_name}.`,
   ]
     .filter(Boolean)

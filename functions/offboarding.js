@@ -137,7 +137,7 @@ async function performOffboarding(engineerId, eng, actorEmail) {
     if (eng.email) {
       const engBody = [
         `Dear ${eng.full_name},`,
-        "", "Your engagement with Datalake Information Technology has concluded.",
+        "", "Your engagement with Datalake Saudi Arabia LLC has concluded.",
         `Project: ${eng.project_name}`, `End Date: ${eng.contract_end}`,
         "", "Your platform access has been suspended. Thank you for your contributions.",
         "", "Best regards,", "Datalake HR", "hr@datalake.sa",
@@ -188,8 +188,9 @@ function generateCertificate(eng, engineerId) {
     "Note: Nafath e-signature integration pending Phase 3.",
     "",
     "═══════════════════════════════════════",
-    "Datalake Information Technology",
-    "CR: 109194773 | www.datalake.sa",
+    "Datalake Saudi Arabia LLC",
+    "Riyadh Al-Yarmouk 13243",
+    "CR: 1009194773 | NUN: 7048904952 | www.datalake.sa",
     "Processed under PDPL Art. 4; NCA ECC-1:2018",
   ].join("\n");
 }

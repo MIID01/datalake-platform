@@ -140,9 +140,11 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
       created_at: now,
       zoho_synced: false,
       zatca_generated: false,
-      seller_name: "Datalake Information Technology",
+      seller_name: "Datalake Saudi Arabia LLC",
       seller_vat: "300000000000003", // ZATCA Testing VAT
-      seller_cr: "109194773",
+      seller_cr: "1009194773",
+      seller_nun: "7048904952",
+      seller_address: "Riyadh Al-Yarmouk 13243, Saudi Arabia",
     };
 
     await db.collection("invoices").doc(invoiceId).set(invoice);

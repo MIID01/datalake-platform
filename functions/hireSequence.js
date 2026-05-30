@@ -159,8 +159,8 @@ async function generateContractWithAI(hire) {
     type: "contract_draft",
     triggeredBy: hire.initiated_by || "system",
     promptTemplateId: "GATEKEEPER_CONTRACT_DRAFT_V1",
-    systemPrompt: `You are the Datalake Gatekeeper AI — a legal document drafter for Datalake Information Technology,
-a Saudi Arabian IT outsourcing company (CR: 109194773, Riyadh).
+    systemPrompt: `You are the Datalake Gatekeeper AI — a legal document drafter for Datalake Saudi Arabia LLC,
+a Saudi Arabian IT outsourcing company (CR: 1009194773, NUN: 7048904952, Riyadh Al-Yarmouk 13243).
 Draft an Employment Contract (DTLK-FORM-HRM-001) in English.
 This is a fixed-term staff augmentation contract under Saudi Labor Law.
 Include ALL of the following mandatory clauses:
@@ -181,7 +181,7 @@ Do NOT include signatures — those will be added digitally.
 Do NOT invent information — use only what is provided in the user message.
 If any mandatory Art. 51 field is missing, note it in a MISSING_FIELDS comment at the end.`,
     userPrompt: JSON.stringify({
-      employer: "Datalake Information Technology, CR 109194773, Riyadh, Saudi Arabia",
+      employer: "Datalake Saudi Arabia LLC, CR 1009194773, NUN 7048904952, Riyadh Al-Yarmouk 13243, Saudi Arabia",
       candidate_name: hire.candidate_name,
       candidate_email: hire.candidate_email,
       position: `IT Consultant — outsourced to ${hire.client_name}`,
@@ -276,7 +276,7 @@ Return valid JSON only, no markdown.`,
         probation_days: terms.probationDays || 90,
         housing_allowance_sar: terms.housingAllowance || 0,
         transport_allowance_sar: terms.transportAllowance || 0,
-        employer: "Datalake Information Technology, CR 109194773, Riyadh, Saudi Arabia",
+        employer: "Datalake Saudi Arabia LLC, CR 1009194773, NUN 7048904952, Riyadh Al-Yarmouk 13243, Saudi Arabia",
       }),
     });
 
@@ -367,7 +367,7 @@ async function dispatchContractHandler(event) {
     const rawEmail = buildRawEmail({
       from: "Datalake HR <hr@datalake.sa>",
       to: `${hire.candidate_name} <${hire.candidate_email}>`,
-      subject: `Employment Contract — Datalake Information Technology — ${hire.project_name}`,
+      subject: `Employment Contract — Datalake Saudi Arabia LLC — ${hire.project_name}`,
       body: emailBody,
     });
 
@@ -586,7 +586,7 @@ async function provisionEngineerHandler(event) {
       const welcomeBody = [
         `Dear ${hire.candidate_name},`,
         "",
-        "Welcome to Datalake Information Technology!",
+        "Welcome to Datalake Saudi Arabia LLC!",
         "",
         `Your account has been provisioned. You can access the Engineer Portal at:`,
         `https://datalake-production-sa.web.app/portal`,

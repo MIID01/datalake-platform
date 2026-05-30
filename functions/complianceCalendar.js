@@ -92,7 +92,7 @@ async function draftComplianceArtifact(item) {
     type: "compliance_artifact_draft",
     triggeredBy: "scheduler",
     promptTemplateId: "AUDITOR_COMPLIANCE_ARTIFACT_V1",
-    systemPrompt: `You are the Datalake Auditor AI for Datalake Information Technology (CR: 109194773), a Saudi IT outsourcing company.
+    systemPrompt: `You are the Datalake Auditor AI for Datalake Saudi Arabia LLC (CR: 1009194773, NUN: 7048904952), a Saudi IT outsourcing company.
 Draft a formal compliance artifact document.
 Requirements:
 - Follow NCA ECC-1:2018 and SAMA CSF frameworks

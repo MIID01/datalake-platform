@@ -263,8 +263,9 @@ function buildEmailBody({ candidateName, roleInterest, projectName, clientName, 
     "Datalake HR Team",
     "hr@datalake.sa",
     "",
-    "Datalake Information Technology",
-    "CR: 109194773 | UEN: 7048904952",
+    "Datalake Saudi Arabia LLC",
+    "Riyadh Al-Yarmouk 13243",
+    "CR: 1009194773 | NUN: 7048904952",
     "www.datalake.sa",
   ].join("\n");
 }
