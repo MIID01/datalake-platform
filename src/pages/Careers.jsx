@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db, EXTRACT_CV_URL, CLOUD_FUNCTION_URL } from '../lib/firebase'
 import { MapPin, Briefcase, DollarSign, Upload, X, CheckCircle, ArrowLeft, ChevronDown, Loader, Sparkles, FileText, Shield } from 'lucide-react'
 import '../styles/careers.css'
@@ -24,12 +24,39 @@ export default function Careers() {
   const formRef = useRef(null)
   const fileInputRef = useRef(null)
 
-  // Live job listings from Firestore
+  // Live job listings from Firestore.
+  //
+  // The query is intentionally a single-field filter (no orderBy on
+  // created_at) so it does NOT require a composite index — anyone can add a
+  // listing in /hr/jobs without an ops index-migration step. We sort newest-
+  // first on the client; the open-roles list is tiny (single digits) so this
+  // is free.
+  //
+  // Errors are surfaced to the UI instead of being swallowed — a silent
+  // empty page is exactly how this broke before.
   const [openRoles, setOpenRoles] = useState([])
   const [jobsLoading, setJobsLoading] = useState(true)
+  const [jobsError, setJobsError] = useState('')
   useEffect(() => {
-    const q = query(collection(db, 'job_listings'), where('status', '==', 'open'), orderBy('created_at', 'desc'))
-    const unsub = onSnapshot(q, snap => { setOpenRoles(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setJobsLoading(false) }, () => setJobsLoading(false))
+    const q = query(collection(db, 'job_listings'), where('status', '==', 'open'))
+    const unsub = onSnapshot(q,
+      snap => {
+        const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        rows.sort((a, b) => {
+          const ta = a.created_at?.toMillis?.() ?? 0
+          const tb = b.created_at?.toMillis?.() ?? 0
+          return tb - ta
+        })
+        setOpenRoles(rows)
+        setJobsLoading(false)
+        setJobsError('')
+      },
+      err => {
+        console.error('careers job_listings query failed:', err)
+        setJobsError(err.message || 'Could not load open roles')
+        setJobsLoading(false)
+      },
+    )
     return () => unsub()
   }, [])
 
@@ -220,6 +247,10 @@ export default function Careers() {
       <section className="careers-roles">
         {jobsLoading ? (
           <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: '0.9rem' }}>Loading open positions…</div>
+        ) : jobsError ? (
+          <div style={{ textAlign: 'center', padding: 32, color: '#C0392B', fontSize: '0.9rem' }}>
+            Could not load open roles right now ({jobsError}). Please refresh in a moment.
+          </div>
         ) : openRoles.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: '0.9rem' }}>
             No open positions at the moment. Check back soon or submit a general application below.
