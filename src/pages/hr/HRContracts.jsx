@@ -16,6 +16,7 @@ import SearchablePicker from '../../components/SearchablePicker'
 const STATUS_META = {
   PENDING_EXTRACTION:  { label: 'Extracting…',     color: '#1598CC', bg: 'rgba(21,152,204,0.12)' },
   EXTRACTED:           { label: 'Review needed',   color: '#F39C12', bg: 'rgba(243,156,18,0.12)' },
+  REVIEWED:            { label: 'HR Reviewed',     color: '#2ECC71', bg: 'rgba(46,204,113,0.12)' },
   EXTRACTION_FAILED:   { label: 'Extraction failed', color: '#C0392B', bg: 'rgba(192,57,43,0.12)' },
   LEGAL_PENDING:       { label: 'With Legal',      color: '#9C27B0', bg: 'rgba(156,39,176,0.15)' },
   LEGAL_APPROVED:      { label: 'Legal approved',  color: '#34BF3A', bg: 'rgba(52,191,58,0.15)' },
@@ -325,6 +326,12 @@ export default function HRContracts() {
         reviewed_fields: reviewFields,
         reviewed_by: by,
         reviewed_at: serverTimestamp(),
+        contract_extraction_status: 'REVIEWED',
+        status: 'EXTRACTED',
+        status_history: arrayUnion({
+          status: 'REVIEWED', at: new Date().toISOString(), by,
+          notes: 'HR reviewed and saved extracted fields',
+        }),
         updated_at: serverTimestamp(),
       })
       // Existing-employee path: the reviewed fields ARE the employee's HR record.

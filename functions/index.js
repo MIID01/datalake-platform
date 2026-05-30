@@ -2599,7 +2599,6 @@ exports.gatekeeperContractExtract = onMessagePublished(
 );
 
 // Sync contract extracted fields to employee document when reviewed
-const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 exports.syncContractToEmployee = onDocumentUpdated(
   { document: "contracts/{contractId}", region: "me-central2" },
   (event) => syncContractToEmployeeHandler(event)

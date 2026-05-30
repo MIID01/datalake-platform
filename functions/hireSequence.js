@@ -1008,40 +1008,55 @@ async function syncContractToEmployeeHandler(event) {
   const before = event.data.before.data();
   const after = event.data.after.data();
 
-  // We only want to sync when the status changes to REVIEWED (or APPROVED),
-  // OR when it is already REVIEWED/APPROVED and the fields are updated.
-  // The user says: "After extraction succeeds and HR saves the reviewed fields: the system must write ALL extracted fields to employees/{employee_id}"
-  // We'll watch for when contract_extraction_status becomes REVIEWED, or if HR edits fields while it's REVIEWED.
-  
-  if (after.contract_extraction_status === "REVIEWED" || after.contract_extraction_status === "APPROVED") {
-    // Check if the extracted fields changed or status just changed to REVIEWED
-    const statusChangedToReviewed = (after.contract_extraction_status !== before.contract_extraction_status);
-    const fieldsChanged = JSON.stringify(after.contract_extracted_fields) !== JSON.stringify(before.contract_extracted_fields);
+  // Fire when:
+  // 1. Status changes to REVIEWED or APPROVED (HR saved their review)
+  // 2. reviewed_fields or contract_extracted_fields changed while in those states
+  const validStatuses = ["REVIEWED", "APPROVED"];
+  if (!validStatuses.includes(after.contract_extraction_status)) return;
+  if (!after.employee_id) return;
 
-    if ((statusChangedToReviewed || fieldsChanged) && after.contract_extracted_fields && after.employee_id) {
-      const fields = after.contract_extracted_fields;
-      const employeeUpdate = {};
+  const statusChanged = after.contract_extraction_status !== before.contract_extraction_status;
+  const reviewedFieldsChanged = JSON.stringify(after.reviewed_fields) !== JSON.stringify(before.reviewed_fields);
+  const extractedFieldsChanged = JSON.stringify(after.contract_extracted_fields) !== JSON.stringify(before.contract_extracted_fields);
 
-      if (fields.employee_name) employeeUpdate.full_name = fields.employee_name;
-      if (fields.employee_name_ar) employeeUpdate.full_name_ar = fields.employee_name_ar;
-      if (fields.job_title) employeeUpdate.job_title = fields.job_title;
-      if (fields.client_name) employeeUpdate.client_name = fields.client_name;
-      if (fields.po_number) employeeUpdate.po_number = fields.po_number;
-      if (fields.po_value_sar) employeeUpdate.po_value_sar = Number(fields.po_value_sar);
-      if (fields.contract_start_date) employeeUpdate.contract_start = fields.contract_start_date;
-      if (fields.contract_end_date) employeeUpdate.contract_end = fields.contract_end_date;
-      if (fields.salary_monthly_sar) employeeUpdate.salary_monthly = Number(fields.salary_monthly_sar);
-      if (fields.housing_allowance_sar) employeeUpdate.housing_allowance_sar = Number(fields.housing_allowance_sar);
-      if (fields.transport_allowance_sar) employeeUpdate.transport_allowance_sar = Number(fields.transport_allowance_sar);
-      if (fields.work_location) employeeUpdate.work_location = fields.work_location;
-      if (fields.iqama_national_id) employeeUpdate.national_id = fields.iqama_national_id;
+  if (!statusChanged && !reviewedFieldsChanged && !extractedFieldsChanged) return;
 
-      if (Object.keys(employeeUpdate).length > 0) {
-        await db.collection("employees").doc(after.employee_id).set(employeeUpdate, { merge: true });
-        console.log(`[Contract Sync] Synced ${Object.keys(employeeUpdate).length} fields to employee ${after.employee_id}`);
-      }
-    }
+  // Prefer reviewed_fields (HR-edited) over raw AI extraction
+  const fields = { ...(after.contract_extracted_fields || {}), ...(after.reviewed_fields || {}) };
+  if (Object.keys(fields).length === 0) return;
+
+  const num = (v) => (v === '' || v == null ? null : Number(v));
+  const employeeUpdate = {};
+
+  // Map all 15 Gatekeeper fields to employee document schema
+  if (fields.employee_name) employeeUpdate.full_name = fields.employee_name;
+  if (fields.employee_name_ar) employeeUpdate.full_name_ar = fields.employee_name_ar;
+  if (fields.job_title) employeeUpdate.job_title = fields.job_title;
+  if (fields.client_name) employeeUpdate.client_name = fields.client_name;
+  if (fields.po_number) employeeUpdate.po_number = fields.po_number;
+  if (fields.po_value_sar) employeeUpdate.po_value_sar = num(fields.po_value_sar);
+  if (fields.contract_start_date) employeeUpdate.contract_start = fields.contract_start_date;
+  if (fields.contract_end_date) employeeUpdate.contract_end = fields.contract_end_date;
+  if (fields.salary_monthly_sar) {
+    employeeUpdate.salary_monthly = num(fields.salary_monthly_sar);
+    employeeUpdate.salary = num(fields.salary_monthly_sar); // convenience alias
   }
+  if (fields.housing_allowance_sar) employeeUpdate.housing_allowance_sar = num(fields.housing_allowance_sar);
+  if (fields.transport_allowance_sar) employeeUpdate.transport_allowance_sar = num(fields.transport_allowance_sar);
+  if (fields.probation_period_months) employeeUpdate.probation_period_months = num(fields.probation_period_months);
+  if (fields.notice_period_days) employeeUpdate.notice_period_days = num(fields.notice_period_days);
+  if (fields.work_location) employeeUpdate.work_location = fields.work_location;
+  if (fields.iqama_national_id) employeeUpdate.national_id = fields.iqama_national_id;
+
+  if (Object.keys(employeeUpdate).length === 0) return;
+
+  // Add sync metadata
+  employeeUpdate.contract_synced_from = event.params.contractId;
+  employeeUpdate.contract_synced_at = admin.firestore.FieldValue.serverTimestamp();
+  employeeUpdate.updated_at = admin.firestore.FieldValue.serverTimestamp();
+
+  await db.collection("employees").doc(after.employee_id).set(employeeUpdate, { merge: true });
+  console.log(`[Contract Sync] Synced ${Object.keys(employeeUpdate).length - 3} fields to employee ${after.employee_id} from contract ${event.params.contractId}`);
 }
 
 module.exports = {
