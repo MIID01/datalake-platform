@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Briefcase, Plus, DollarSign, Users, Clock, ChevronDown, CheckCircle, FolderPlus, UserPlus, MapPin, Search, X as XIcon } from 'lucide-react'
+import { Briefcase, Plus, DollarSign, Users, Clock, ChevronDown, CheckCircle, FolderPlus, UserPlus, MapPin, Search, X as XIcon, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import NewProjectModal from '../../components/NewProjectModal'
@@ -144,8 +144,19 @@ export default function Projects() {
           const isExpanded = expandedId === p.project_id
           const pAssignments = getAssignments(p.project_id)
           const st = STATUS_COLORS[p.status] || STATUS_COLORS.ACTIVE
+          // SAMA Compliance-as-Code: a MATERIAL engagement may not be ACTIVE
+          // until SAMA No-Objection is OBTAINED. We surface a hard banner
+          // and visually demote the status pill until the block clears.
+          const m = p.sama_materiality
+          const nocBlocked = !!(m?.noc_required && m?.noc_status !== 'OBTAINED')
           return (
-            <div key={p.project_id} className="animate-fade-in-up" style={{animationDelay:`${i*0.03}s`,background:'var(--bg-card)',border:'1px solid var(--border-card)',borderRadius:'var(--radius-lg)',borderLeft:`4px solid ${st.color}`,boxShadow:'var(--shadow-card)'}}>
+            <div key={p.project_id} className="animate-fade-in-up" style={{animationDelay:`${i*0.03}s`,background:'var(--bg-card)',border:'1px solid var(--border-card)',borderRadius:'var(--radius-lg)',borderLeft:`4px solid ${nocBlocked ? '#C0392B' : st.color}`,boxShadow:'var(--shadow-card)'}}>
+              {nocBlocked && (
+                <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 16px',background:'rgba(192,57,43,0.10)',borderBottom:'1px solid rgba(192,57,43,0.2)',color:'#C0392B',fontSize:'0.78rem',fontWeight:600,borderRadius:'var(--radius-lg) var(--radius-lg) 0 0'}}>
+                  <ShieldAlert size={14} />
+                  Material outsourcing — SAMA No-Objection required before commencement (noc_status: {m?.noc_status || 'NONE'})
+                </div>
+              )}
               <div style={{padding:'16px 20px',cursor:'pointer',display:'flex',alignItems:'center',gap:14}} onClick={()=>setExpandedId(isExpanded?null:p.project_id)}>
                 <div style={{width:36,height:36,borderRadius:'var(--radius-md)',background:`${st.color}15`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                   <Briefcase size={16} color={st.color} />

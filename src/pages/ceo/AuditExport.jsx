@@ -16,7 +16,8 @@ const SCOPES = [
   { id: 'approvals',     label: 'Approvals & Signatures', desc: 'Every approval_evidence row (invoices, payroll, contracts, hires).' },
   { id: 'pdpl',          label: 'PDPL Consents',          desc: 'Onboarding consent rows from employees/{id}/onboarding_evidence.' },
   { id: 'payroll',       label: 'Payroll Records',        desc: 'payroll/{run_id} runs and per-employee line items.' },
-  { id: 'compliance',    label: 'Compliance Scans',       desc: 'compliance/* deadline + control scan records.' },
+  { id: 'compliance',    label: 'Compliance Scans',       desc: 'compliance/* deadline + control scan records (incl. SAMA-OUT-NOC-001).' },
+  { id: 'materiality',   label: 'SAMA Materiality Assessments', desc: 'projects/* sama_materiality determinations + NOC status.' },
   { id: 'contracts',     label: 'Contracts',              desc: 'contracts/* documents, extraction status, signatures.' },
   { id: 'timesheets',    label: 'Timesheets',             desc: 'timesheets/* in the period with audit_trail.' },
 ]
@@ -143,6 +144,28 @@ export default function AuditExport() {
             evidence_url: r.contract_pdf_storage_path ? `gs://datalake-worm-hr/${r.contract_pdf_storage_path}` : '',
             evidence_sha256: r.evidence_sha256 || '',
             signature_method: '', signature_url: '',
+          })
+        })
+      }
+
+      if (selected.materiality) {
+        // SAMA materiality is stored on the engagement (projects) doc itself.
+        // We're not date-filtering here because the assessment is a point-in-
+        // time regulatory determination — auditors want every active record.
+        const snap = await getDocs(collection(db, 'projects'))
+        snap.forEach(d => {
+          const r = d.data()
+          const m = r.sama_materiality
+          if (!m) return
+          pushed('sama_materiality', {
+            id: d.id, parent_collection: 'projects', parent_id: d.id,
+            actor: m.assessed_by || '', role: 'CEO',
+            action: `${m.determination || 'UNKNOWN'} · NOC: ${m.noc_status || 'NONE'} · ${r.project_name || ''} (${r.client_name || ''})`,
+            at: tsString(m.assessed_at) || tsString(r.created_at),
+            ip: '', user_agent: '',
+            evidence_url: '', evidence_sha256: '',
+            signature_method: m.assessment_signed ? 'ceo-signed' : '',
+            signature_url: '',
           })
         })
       }

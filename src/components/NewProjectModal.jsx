@@ -3,6 +3,7 @@ import { X, ChevronDown, Loader, Plus, Building2 } from 'lucide-react'
 import { auth, CREATE_PROJECT_URL } from '../lib/firebase'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import SearchablePicker from './SearchablePicker'
+import SamaMaterialityAssessment, { deriveDetermination } from './SamaMaterialityAssessment'
 
 const LOCATIONS = ['CLIENT_OFFICE','DATALAKE_OFFICE','HYBRID','REMOTE_KSA','REMOTE_INTL']
 const RATES = ['HOURLY','MONTHLY','FIXED']
@@ -43,6 +44,10 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
     timesheet_type: editProject?.timesheet_type || 'CONSOLIDATED',
     notes: editProject?.notes || '',
   })
+  // SAMA Materiality Assessment — managed by SamaMaterialityAssessment child
+  // component via onChange. We keep its snapshot in form state and persist it
+  // on submit.
+  const [materiality, setMateriality] = useState(editProject?.sama_materiality || null)
   // Live clients list — the project must reference a client_id from this
   // collection so /ceo/clients edits cascade into invoices + timesheets.
   const [clients, setClients] = useState([])
@@ -75,6 +80,19 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
         ...form,
         po_value_sar: Number(form.po_value_sar),
         rate_amount_sar: Number(form.rate_amount_sar) || null,
+      }
+
+      // Stamp the materiality assessment if any answer has been recorded.
+      // The CEO signature is captured separately via ApprovalButton inside
+      // the assessment section once the engagement has an id.
+      if (materiality) {
+        const det = deriveDetermination(materiality.answers)
+        payload.sama_materiality = {
+          ...materiality,
+          determination: det.determination,
+          noc_required: det.noc_required,
+          noc_status: materiality.noc_status || (det.noc_required ? 'REQUESTED' : 'NONE'),
+        }
       }
 
       if (editProject) {
@@ -182,7 +200,18 @@ export default function NewProjectModal({ onClose, onCreated, editProject }) {
           {/* Notes */}
           <div style={s.field}><label style={s.label}>Notes</label><textarea style={{...s.input,minHeight:60,resize:'vertical'}} value={form.notes} onChange={e=>u('notes',e.target.value)} placeholder="Additional context..." /></div>
 
-          {error && <div style={{padding:'10px 16px',background:'rgba(192,57,43,0.1)',border:'1px solid rgba(192,57,43,0.3)',borderRadius:8,color:'#C0392B',fontSize:'0.82rem',marginBottom:16}}>{error}</div>}
+          {/* SAMA Materiality Assessment — required for every engagement
+              before it can go ACTIVE. CEO signature is captured here once
+              the project has been saved (editProject.id) so the
+              approval_evidence subcollection has somewhere to live. */}
+          <SamaMaterialityAssessment
+            engagementId={editProject?.id || null}
+            engagementCollection="projects"
+            initial={editProject?.sama_materiality}
+            onChange={setMateriality}
+          />
+
+          {error && <div style={{padding:'10px 16px',background:'rgba(192,57,43,0.1)',border:'1px solid rgba(192,57,43,0.3)',borderRadius:8,color:'#C0392B',fontSize:'0.82rem',marginBottom:16,marginTop:16}}>{error}</div>}
 
           <div style={{display:'flex',justifyContent:'flex-end',gap:10,paddingTop:8,borderTop:'1px solid var(--border-primary,#e5e7eb)'}}>
             <button onClick={onClose} style={{padding:'10px 20px',border:'1px solid var(--border-primary,#E5E7EB)',borderRadius:8,background:'transparent',color:'var(--text-secondary)',fontWeight:600,fontSize:'0.85rem',cursor:'pointer',fontFamily:'inherit'}}>Cancel</button>
