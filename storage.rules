@@ -42,6 +42,16 @@ service firebase.storage {
       allow update, delete: if isCeo();
     }
 
+    // Approval-evidence uploads — ApprovalButton writes the signed PDF +
+    // signature image here under approval-evidence/<parentCollection>/<parentId>/.
+    // Any signed-in user may write (Firestore rules gate which evidence rows
+    // are valid); reads allowed for any signed-in user (audit export pulls
+    // these into the manifest).
+    match /approval-evidence/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email != null;
+    }
+
     match /{allPaths=**} {
       allow read: if isCeo();
       allow write: if false;

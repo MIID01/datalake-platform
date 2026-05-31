@@ -280,7 +280,10 @@ export default function HREmployees() {
         <SendEmailModal
           employee={emailEmployee}
           onClose={() => setEmailEmployee(null)}
-          onSent={() => setToast({ msg: `Email sent to ${emailEmployee.email}`, kind: 'success' })}
+          onSent={() => {
+            setToast(`Email sent to ${emailEmployee.email}`)
+            setTimeout(() => setToast(null), 4000)
+          }}
         />
       )}
 
