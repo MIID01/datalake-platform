@@ -126,6 +126,10 @@ export const CREATE_PAYROLL_RUN_URL =
 export const LIST_MY_PAYSLIPS_URL =
   "https://listmypayslips-ifzodp5svq-wx.a.run.app";
 
+// Iqama lifecycle
+export const ADVANCE_IQAMA_STAGE_URL =
+  "https://advanceiqamastage-ifzodp5svq-wx.a.run.app";
+
 // Multi-Tenant Integration Config (Phase 9)
 export const SAVE_INTEGRATION_CONFIG_URL =
   "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";

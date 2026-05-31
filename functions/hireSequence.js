@@ -874,7 +874,7 @@ async function gatekeeperContractExtractHandler(event) {
       agent: "gatekeeper",
       type: "contract_extract",
       triggeredBy: "system:pubsub",
-      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V4",
+      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V5",
       systemPrompt: `Extract employment data from a Saudi employment contract. The text is the raw output of pdf-parse.
 
 RULES:
@@ -884,12 +884,23 @@ RULES:
 4. Numbers: digits only, no commas, no currency words. Convert Arabic digits ٠١٢٣٤٥٦٧٨٩ to 0-9.
 5. Dates: YYYY-MM-DD, Gregorian.
 6. English fields: Latin letters only. Arabic field: Arabic letters only.
-7. Return ONLY raw JSON. No markdown. No commentary. No code fences.
+7. Booleans: true/false only, not strings. If absent, null.
+8. Return ONLY raw JSON. No markdown. No commentary. No code fences.
 
 FIELDS:
 {
   "employee_name": string|null,
   "employee_name_ar": string|null,
+  "nationality": string|null,
+  "date_of_birth": "YYYY-MM-DD"|null,
+  "marital_status": string|null,
+  "education_level": string|null,
+  "passport_number": string|null,
+  "iqama_national_id": string|null,
+  "contract_number": string|null,
+  "contract_type": "fixed_term"|"indefinite"|null,
+  "auto_renewal": boolean|null,
+  "auto_renewal_notice_days": number|null,
   "job_title": string|null,
   "client_name": string|null,
   "po_number": string|null,
@@ -901,8 +912,15 @@ FIELDS:
   "transport_allowance_sar": number|null,
   "probation_period_months": number|null,
   "notice_period_days": number|null,
-  "work_location": string|null,
-  "iqama_national_id": string|null
+  "annual_leave_days": number|null,
+  "working_hours_per_day": number|null,
+  "working_days_per_week": number|null,
+  "weekly_rest_day": string|null,
+  "non_compete_years": number|null,
+  "confidentiality_years": number|null,
+  "bank_name": string|null,
+  "iban": string|null,
+  "work_location": string|null
 }`,
       userPrompt: fullText,
     });
@@ -1107,6 +1125,25 @@ async function syncContractToEmployeeHandler(event) {
   if (fields.notice_period_days) employeeUpdate.notice_period_days = num(fields.notice_period_days);
   if (fields.work_location) employeeUpdate.work_location = fields.work_location;
   if (fields.iqama_national_id) employeeUpdate.national_id = fields.iqama_national_id;
+
+  // V5 fields — personal, contract structure, banking, schedule.
+  if (fields.nationality) employeeUpdate.nationality = fields.nationality;
+  if (fields.date_of_birth) employeeUpdate.date_of_birth = fields.date_of_birth;
+  if (fields.marital_status) employeeUpdate.marital_status = fields.marital_status;
+  if (fields.education_level) employeeUpdate.education_level = fields.education_level;
+  if (fields.passport_number) employeeUpdate.passport_number = fields.passport_number;
+  if (fields.contract_number) employeeUpdate.contract_number = fields.contract_number;
+  if (fields.contract_type) employeeUpdate.contract_type = fields.contract_type;
+  if (typeof fields.auto_renewal === 'boolean') employeeUpdate.auto_renewal = fields.auto_renewal;
+  if (fields.auto_renewal_notice_days != null) employeeUpdate.auto_renewal_notice_days = num(fields.auto_renewal_notice_days);
+  if (fields.annual_leave_days != null) employeeUpdate.annual_leave_days = num(fields.annual_leave_days);
+  if (fields.working_hours_per_day != null) employeeUpdate.working_hours_per_day = num(fields.working_hours_per_day);
+  if (fields.working_days_per_week != null) employeeUpdate.working_days_per_week = num(fields.working_days_per_week);
+  if (fields.weekly_rest_day) employeeUpdate.weekly_rest_day = fields.weekly_rest_day;
+  if (fields.non_compete_years != null) employeeUpdate.non_compete_years = num(fields.non_compete_years);
+  if (fields.confidentiality_years != null) employeeUpdate.confidentiality_years = num(fields.confidentiality_years);
+  if (fields.bank_name) employeeUpdate.bank_name = fields.bank_name;
+  if (fields.iban) employeeUpdate.bank_iban = fields.iban;
 
   if (Object.keys(employeeUpdate).length === 0) return;
 

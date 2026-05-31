@@ -75,6 +75,7 @@ import InterviewCVPrep from './pages/hr/InterviewCVPrep'
 import HRJobListings from './pages/hr/HRJobListings'
 import HREmployees from './pages/hr/HREmployees'
 import HRContracts from './pages/hr/HRContracts'
+import HRIqama from './pages/hr/HRIqama'
 
 // Legal (external — token-gated public flow)
 import LegalReview from './pages/legal/LegalReview'
@@ -181,6 +182,7 @@ export default function App() {
           <Route index element={<HRTalentPool />} />
           <Route path="employees" element={<HREmployees />} />
           <Route path="contracts" element={<HRContracts />} />
+          <Route path="iqama" element={<HRIqama />} />
           <Route path="scoring" element={<HRScoring />} />
           <Route path="interview-cv" element={<InterviewCVPrep />} />
           <Route path="jobs" element={<HRJobListings />} />

@@ -2967,6 +2967,25 @@ exports.listMyPayslips = onRequest(
   (req, res) => listMyPayslipsHandler(req, res),
 );
 
+// ── Iqama lifecycle ──
+const { advanceIqamaStageHandler, scanIqamaExpiriesHandler } = require("./iqama");
+
+exports.advanceIqamaStage = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => advanceIqamaStageHandler(req, res, hireHelpers),
+);
+
+exports.scanIqamaExpiries = onSchedule(
+  {
+    schedule: "0 6 * * *", // Daily at 06:00 Riyadh
+    timeZone: "Asia/Riyadh",
+    region: "me-central2",
+    memory: "256MiB",
+    timeoutSeconds: 300,
+  },
+  async () => { await scanIqamaExpiriesHandler(); },
+);
+
 exports.generateWPSFile = onMessagePublished(
   { topic: "datalake.payroll.approved", region: "me-central2", memory: "256MiB" },
   async (event) => { await generateWPSFileHandler(event); }

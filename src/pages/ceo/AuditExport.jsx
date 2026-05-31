@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   collection, collectionGroup, query, where, getDocs, Timestamp,
 } from 'firebase/firestore'
@@ -18,6 +18,7 @@ const SCOPES = [
   { id: 'payroll',       label: 'Payroll Records',        desc: 'payroll/{run_id} runs and per-employee line items.' },
   { id: 'compliance',    label: 'Compliance Scans',       desc: 'compliance/* deadline + control scan records (incl. SAMA-OUT-NOC-001).' },
   { id: 'materiality',   label: 'SAMA Materiality Assessments', desc: 'projects/* sama_materiality determinations + NOC status.' },
+  { id: 'iqama',         label: 'Iqama Lifecycle',        desc: 'iqama_records/* status + iqama_evidence rows (issue, renewal, transfer).' },
   { id: 'contracts',     label: 'Contracts',              desc: 'contracts/* documents, extraction status, signatures.' },
   { id: 'timesheets',    label: 'Timesheets',             desc: 'timesheets/* in the period with audit_trail.' },
 ]
@@ -32,6 +33,14 @@ export default function AuditExport() {
   const [fromDate, setFromDate] = useState(startOfMonthIso(new Date()))
   const [toDate, setToDate] = useState(todayIso())
   const [selected, setSelected] = useState(Object.fromEntries(SCOPES.map(s => [s.id, true])))
+  // ensure new scopes default to selected even if older state lingered
+  useEffect(() => {
+    setSelected(prev => {
+      const next = { ...prev }
+      SCOPES.forEach(s => { if (next[s.id] == null) next[s.id] = true })
+      return next
+    })
+  }, [])
   const [rows, setRows] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -143,6 +152,48 @@ export default function AuditExport() {
             at: tsString(at), ip: '', user_agent: '',
             evidence_url: r.contract_pdf_storage_path ? `gs://datalake-worm-hr/${r.contract_pdf_storage_path}` : '',
             evidence_sha256: r.evidence_sha256 || '',
+            signature_method: '', signature_url: '',
+          })
+        })
+      }
+
+      if (selected.iqama) {
+        // iqama_evidence rows from every employee — covers every stage advance
+        // (request → docs → submitted → issued → renewal → transfer).
+        const evSnap = await getDocs(
+          query(collectionGroup(db, 'iqama_evidence'),
+            where('approved_at', '>=', fromTs), where('approved_at', '<=', toTs))
+        )
+        evSnap.forEach(d => {
+          const r = d.data()
+          pushed('iqama_evidence', {
+            id: d.id,
+            parent_collection: 'iqama_records',
+            parent_id: r.parent_id || (d.ref.parent.parent?.id) || '',
+            actor: r.approver_email || '',
+            role: r.approver_role || 'HR',
+            action: r.action || r.label || '',
+            at: tsString(r.approved_at),
+            ip: r.ip_address || '',
+            user_agent: (r.user_agent || '').slice(0, 60),
+            evidence_url: r.evidence_url || '',
+            evidence_sha256: r.evidence_sha256 || '',
+            signature_method: 'hr-action', signature_url: '',
+          })
+        })
+        // Also dump the current state of every iqama_records doc so an
+        // auditor can reconcile the running state against the evidence trail.
+        const recSnap = await getDocs(collection(db, 'iqama_records'))
+        recSnap.forEach(d => {
+          const r = d.data()
+          pushed('iqama_record', {
+            id: d.id, parent_collection: 'iqama_records', parent_id: d.id,
+            actor: r.updated_by || r.created_by || '',
+            role: 'HR',
+            action: `Status=${r.status || 'NONE'} · stage=${r.current_stage || '—'} · iqama=${r.iqama_number || '—'} · expiry=${r.expiry_date || '—'}`,
+            at: tsString(r.updated_at) || tsString(r.created_at),
+            ip: '', user_agent: '',
+            evidence_url: '', evidence_sha256: '',
             signature_method: '', signature_url: '',
           })
         })
