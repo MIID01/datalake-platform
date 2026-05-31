@@ -129,8 +129,11 @@ export default function HREmployees() {
       </div>
 
       {toast && (
+        // Defensive render: callers historically wrote either a plain string
+        // OR an object of shape { msg, kind }. Coerce to a string here so a
+        // stray object shape doesn't crash the page with React #31.
         <div className="animate-fade-in-up" style={{ padding: '12px 20px', background: 'rgba(52,191,58,0.12)', border: '1px solid rgba(52,191,58,0.3)', borderRadius: 8, color: '#34BF3A', fontSize: '0.85rem', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <CheckCircle size={16} /> {toast}
+          <CheckCircle size={16} /> {typeof toast === 'string' ? toast : (toast?.msg || JSON.stringify(toast))}
         </div>
       )}
 
