@@ -21,6 +21,21 @@ service cloud.firestore {
     function isAssignedClient(clientId) {
       return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.client_id == clientId;
     }
+
+    // Role helpers. These match getUserRole()'s precedence (hardcoded HR
+    // email → role_id from users doc). Used for the segregation-of-duties
+    // rules on payroll, approval evidence, etc.
+    function isHR() {
+      return request.auth != null && (
+        request.auth.token.email == "hr@datalake.sa" ||
+        request.auth.token.email == "HR@datalake.sa" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role_id == "hr"
+      );
+    }
+    function isFinance() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role_id == "finance";
+    }
     
     // ── RBAC Collections ──
     match /users/{uid} {
@@ -241,33 +256,52 @@ service cloud.firestore {
       allow write: if isCeo();
     }
 
-    // ── Payroll runs (system-of-record, self-contained no-Zoho) ──
-    // Read for any signed-in user (an employee reads their own line item to
-    // surface "My Payslips" on /employee/documents — backend filters by
-    // employee_id before returning the row; we don't want to expose other
-    // employees' net pay via direct Firestore reads, so the UI uses the
-    // listMyPayslips Cloud Function for that, and the rule allows read so
-    // CEO + Finance pages can also list them directly).
-    // Writes are CEO + Finance + HR (and the approval flow flips status
-    // DRAFT → APPROVED — that update is captured here too).
+    // ── Payroll runs ──
+    // Salary is Tier-1 PII. NO blanket read. Segregation of duties between
+    // preparer (finance/HR) and approver (CEO only). Employee payslip
+    // access goes through the listMyPayslips Cloud Function (which checks
+    // caller == subject from the auth token) — never via direct read.
     match /payroll_runs/{runId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && (
-        getUserRole() == "ceo" ||
-        getUserRole() == "finance" ||
-        getUserRole() == "hr"
-      );
+      // Read: CEO/finance/HR see all. Employees do NOT read directly.
+      allow read: if isCeo() || isFinance() || isHR();
 
-      // Per-run approval evidence (CEO ApprovalButton writes here on sign).
+      // Preparer: finance/HR/CEO may create the DRAFT.
+      allow create: if isFinance() || isHR() || isCeo();
+
+      // Preparer edits ONLY while DRAFT, and cannot flip to APPROVED here.
+      allow update: if (isFinance() || isHR())
+        && resource.data.status == 'DRAFT'
+        && request.resource.data.status == 'DRAFT';
+
+      // Approver: ONLY the CEO can transition DRAFT → APPROVED.
+      // (CEO can also continue to edit a DRAFT — covered by the create/update
+      // branches via isCeo() being inside isFinance() OR through this rule.)
+      allow update: if isCeo()
+        && resource.data.status == 'DRAFT'
+        && request.resource.data.status == 'APPROVED';
+
+      // No deletes.
+      allow delete: if false;
+
+      // Per-run approval evidence — CEO only, immutable.
       match /approval_evidence/{evId} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null;
+        allow read: if isCeo() || isFinance() || isHR();
+        allow create: if isCeo();
+        allow update, delete: if false;
       }
     }
 
     // ── CEO Dashboards ──
     match /ai_agents/{docId} { allow read, write: if isCeo(); }
-    match /notifications/{docId} { allow read, write: if request.auth != null; }
+    // Notifications — owner-scoped. A user only reads/writes their own
+    // notifications (matched by user_email on the doc). Anyone signed in
+    // may create a notification (system fan-outs frequently target other
+    // users).
+    match /notifications/{noteId} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email == resource.data.user_email;
+      allow create: if request.auth != null;
+    }
     match /analytics/{docId} { allow read, write: if request.auth != null; }
     match /compliance/{docId} { allow read, write: if request.auth != null; }
     match /pipeline/{docId} { allow read, write: if request.auth != null; }

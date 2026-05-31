@@ -21,13 +21,42 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
   try {
     const decoded = await verifyAuth(req);
     const profile = await getUserAccessProfile(decoded.uid);
-    if (!["ceo", "finance", "hr"].includes(profile.role_id)) {
-      return res.status(403).json({ error: "Insufficient permissions" });
-    }
 
-    const { template, docId, options } = req.body;
+    // GET supports query params so an employee can download via a plain
+    // `<a href>` without a JSON body (the existing CEO flow uses POST body
+    // and that still works because we fall back to body if query is empty).
+    const template = req.body?.template || req.query?.template;
+    const docId = req.body?.docId || req.query?.docId;
+    const options = req.body?.options || null;
     if (!template || !docId) {
       return res.status(400).json({ error: "Missing template or docId" });
+    }
+
+    // Per-template authorization.
+    //   payslip + per-employee docId ("PR-YYYY-MM__<EMPID>") → CEO/finance/HR,
+    //     OR the employee whose employee_id matches the suffix (caller ==
+    //     subject, derived from auth token, never trusted from request).
+    //   everything else → CEO/finance/HR only.
+    const isPrivilegedPdfRole = ["ceo", "finance", "hr"].includes(profile.role_id);
+    if (template === "payslip" && String(docId).includes("__")) {
+      const subjectEmpId = String(docId).split("__")[1];
+      if (!isPrivilegedPdfRole) {
+        // Resolve the caller's own employee_id from auth-token email — DO NOT
+        // accept it from the request.
+        const email = String(decoded.email || "").toLowerCase();
+        let callerEmpId = null;
+        const empQ = await db.collection("employees").where("email", "==", email).limit(1).get();
+        if (!empQ.empty) callerEmpId = empQ.docs[0].data().employee_id || empQ.docs[0].id;
+        if (!callerEmpId) {
+          const usrQ = await db.collection("users").where("email", "==", email).limit(1).get();
+          if (!usrQ.empty) callerEmpId = usrQ.docs[0].data().employee_id || null;
+        }
+        if (!callerEmpId || callerEmpId !== subjectEmpId) {
+          return res.status(403).json({ error: "Forbidden — payslip belongs to a different employee" });
+        }
+      }
+    } else if (!isPrivilegedPdfRole) {
+      return res.status(403).json({ error: "Insufficient permissions" });
     }
 
     // Default tenant branding
