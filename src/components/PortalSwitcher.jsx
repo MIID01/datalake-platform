@@ -16,6 +16,7 @@ const PORTAL_VIEWS = [
   { label: 'Finance View',  path: '/finance' },
   { label: 'HR View',       path: '/hr' },
   { label: 'Admin View',    path: '/admin' },
+  { label: 'CRM View',      path: '/crm/clients' },
   { label: 'Employee View', path: '/employee/dashboard' },
 ]
 
@@ -23,6 +24,7 @@ function pickCurrentView(pathname) {
   if (pathname.startsWith('/finance'))  return '/finance'
   if (pathname.startsWith('/hr'))       return '/hr'
   if (pathname.startsWith('/admin'))    return '/admin'
+  if (pathname.startsWith('/crm'))      return '/crm/clients'
   if (pathname.startsWith('/employee')) return '/employee/dashboard'
   return '/ceo'
 }
@@ -66,8 +68,16 @@ export default function PortalSwitcher({ collapsed = false, theme = 'dark' }) {
   if (isCeo) {
     allowedViews = PORTAL_VIEWS
   } else {
-    // Non-CEO staff get their primary portal + Employee View
-    const primaryView = PORTAL_VIEWS.find(v => v.path === `/${roleId}`) || PORTAL_VIEWS.find(v => v.path === `/admin` && roleId === 'it_admin')
+    // Non-CEO staff get their primary portal + Employee View. Business and
+    // sales roles land in CRM as their primary view.
+    let primaryView
+    if (roleId === 'business' || roleId === 'sales') {
+      primaryView = PORTAL_VIEWS.find(v => v.path === '/crm/clients')
+    } else if (roleId === 'it_admin') {
+      primaryView = PORTAL_VIEWS.find(v => v.path === '/admin')
+    } else {
+      primaryView = PORTAL_VIEWS.find(v => v.path === `/${roleId}`)
+    }
     if (primaryView) allowedViews.push(primaryView)
     allowedViews.push({ label: 'Employee View', path: '/employee/dashboard' })
   }

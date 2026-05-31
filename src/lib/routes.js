@@ -11,6 +11,8 @@ export function homePathForRole(role) {
     case 'pm': return '/pm'
     case 'client': return '/client'
     case 'finance': return '/finance'
+    case 'business':
+    case 'sales': return '/crm/clients'
     case 'employee':
     default: return '/employee/dashboard'
   }
@@ -31,6 +33,8 @@ export function portalPrefixForRole(role) {
     case 'pm': return '/pm'
     case 'client': return '/client'
     case 'finance': return '/finance'
+    case 'business':
+    case 'sales': return '/crm'
     case 'employee': return '/employee'
     default: return null
   }

@@ -36,6 +36,12 @@ service cloud.firestore {
       return request.auth != null &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role_id == "finance";
     }
+    function isBusinessOrSales() {
+      return request.auth != null && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role_id == "business" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role_id == "sales"
+      );
+    }
     
     // ── RBAC Collections ──
     match /users/{uid} {
@@ -108,8 +114,20 @@ service cloud.firestore {
       allow write: if isCeo();
     }
     match /clients/{clientId} {
-      allow read: if request.auth != null && (isCeo() || isAssignedClient(clientId));
-      allow write: if isCeo();
+      // CEO sees all. Business/sales (CRM portal) read+write all client
+      // metadata + status/pipeline_stage. A logged-in `client` user reads
+      // only the client doc they're scoped to (kept from prior rule).
+      allow read: if request.auth != null && (isCeo() || isBusinessOrSales() || isAssignedClient(clientId));
+      allow write: if isCeo() || isBusinessOrSales();
+
+      // Per-client notes timeline (CRM detail page Add Note). Same audience
+      // as the parent doc; rows are append-only to preserve the interaction
+      // log.
+      match /client_notes/{noteId} {
+        allow read: if isCeo() || isBusinessOrSales();
+        allow create: if isCeo() || isBusinessOrSales();
+        allow update, delete: if false;
+      }
     }
 
     // ── Employees & HR ──

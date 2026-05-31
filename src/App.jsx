@@ -77,6 +77,12 @@ import HREmployees from './pages/hr/HREmployees'
 import HRContracts from './pages/hr/HRContracts'
 import HRIqama from './pages/hr/HRIqama'
 
+// CRM
+import CRMLayout from './layouts/CRMLayout'
+import CRMClients from './pages/crm/CRMClients'
+import CRMClientDetail from './pages/crm/CRMClientDetail'
+import CRMPipeline from './pages/crm/CRMPipeline'
+
 // Legal (external — token-gated public flow)
 import LegalReview from './pages/legal/LegalReview'
 
@@ -171,6 +177,15 @@ export default function App() {
           <Route path="support" element={<EmpSupport />} />
           <Route path="profile" element={<EmpProfile />} />
           <Route path="*" element={<Navigate to="/employee/dashboard" replace />} />
+        </Route>
+
+        {/* CRM Portal (ceo + business + sales) */}
+        <Route path="/crm" element={<CRMLayout />}>
+          <Route index element={<Navigate to="/crm/clients" replace />} />
+          <Route path="clients" element={<CRMClients />} />
+          <Route path="clients/:id" element={<CRMClientDetail />} />
+          <Route path="pipeline" element={<CRMPipeline />} />
+          <Route path="*" element={<Navigate to="/crm/clients" replace />} />
         </Route>
 
         {/* Legacy /portal and /engineer redirect to /employee */}
