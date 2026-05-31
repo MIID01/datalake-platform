@@ -874,55 +874,36 @@ async function gatekeeperContractExtractHandler(event) {
       agent: "gatekeeper",
       type: "contract_extract",
       triggeredBy: "system:pubsub",
-      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V3",
-      systemPrompt: `You are the Datalake Gatekeeper AI. Extract structured employment data from a Saudi Qiwa Unified Employment Contract (MHRSD).
-The text is the raw output of pdf-parse: tables appear as multiple short lines, and Arabic/English columns may sit next to each other.
+      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V4",
+      systemPrompt: `Extract employment data from a Saudi employment contract. The text is the raw output of pdf-parse.
 
-QIWA TWO-COLUMN LAYOUT — CRITICAL
-Every field on a Qiwa contract is printed in TWO columns: English on the LEFT, Arabic on the RIGHT.
-For every English-language field below (employee_name, job_title, work_location, client_name) you MUST read the LEFT / English column.
-Never put Arabic characters in an English field. Never transliterate the Arabic — the English text is already printed in the document, use it verbatim.
-For names, copy the English name token-for-token in the exact left-to-right word order as printed. Do NOT reverse, reorder, or shorten it.
-Example: if the contract prints "Khalid Mohammed Mohammed Hamad" in the English column and "خالد محمد محمد حمد" in the Arabic column, the output MUST be
-  "employee_name": "Khalid Mohammed Mohammed Hamad"
-  "employee_name_ar": "خالد محمد محمد حمد"
-"employee_name_ar" is the ONLY field where Arabic characters are allowed.
+RULES:
+1. Extract ONLY what is explicitly written in the contract. Do not derive, calculate, assume, or fill in any value.
+2. If a field is present, copy it exactly as written. If it is not present, use null.
+3. Do not infer salary breakdowns from percentages. Do not apply any policy. Read the actual printed numbers.
+4. Numbers: digits only, no commas, no currency words. Convert Arabic digits ٠١٢٣٤٥٦٧٨٩ to 0-9.
+5. Dates: YYYY-MM-DD, Gregorian.
+6. English fields: Latin letters only. Arabic field: Arabic letters only.
+7. Return ONLY raw JSON. No markdown. No commentary. No code fences.
 
-Return ONLY a valid JSON object with these exact fields (use null when truly absent — but read the text carefully first):
+FIELDS:
 {
-  "employee_name": "Full name in English (Latin letters only, left-to-right order, as printed in the English column)",
-  "employee_name_ar": "Full name in Arabic, exactly as printed (الاسم بالعربية)",
-  "job_title": "Position or role title in English (from English column)",
-  "client_name": "Client company the employee is deployed to (Qiwa contracts often omit this — set null if missing, NEVER write 'Not specified')",
-  "po_number": "Purchase order or contract reference number if present",
-  "po_value_sar": 0,
-  "contract_start_date": "YYYY-MM-DD",
-  "contract_end_date": "YYYY-MM-DD",
-  "salary_monthly_sar": 0,
-  "housing_allowance_sar": 0,
-  "transport_allowance_sar": 0,
-  "probation_period_months": 3,
-  "notice_period_days": 30,
-  "work_location": "City or site name (English)",
-  "iqama_national_id": "ID number if present"
-}
-
-Where to look for salary in a Qiwa contract:
-- It is in a wage / compensation breakdown section ("الأجر" / "Wage" / "Basic Salary" / "Wage components").
-- The total monthly wage is split into three parts that you MUST extract separately:
-  * Basic salary (الراتب الأساسي / Basic salary / Basic wage) → "salary_monthly_sar"
-  * Housing allowance (بدل السكن / Housing allowance) → "housing_allowance_sar"
-  * Transportation allowance (بدل النقل / Transport allowance) → "transport_allowance_sar"
-- Each value sits on its own row next to the label. The currency is SAR / ر.س / ريال. Strip the currency word.
-- If you see only a single "total wage" without a breakdown, put that total in salary_monthly_sar and leave the two allowances as 0.
-- NEVER output 0 for these three fields just because a label is hard to spot. Re-scan the text once before giving up.
-
-Rules:
-- All SAR amounts must be plain numbers (no commas, no "SAR", no Arabic digits — convert ٠١٢٣٤٥٦٧٨٩ to 0123456789).
-- Dates must be YYYY-MM-DD. Gregorian calendar. If only Hijri is shown, convert.
-- English fields contain Latin letters only. Arabic fields contain Arabic letters only.
-- For "client_name", if the contract is a direct Qiwa employer-employee contract with no client, set null. Don't write prose like "Not specified".
-- Return valid JSON only, no markdown fences, no commentary.`,
+  "employee_name": string|null,
+  "employee_name_ar": string|null,
+  "job_title": string|null,
+  "client_name": string|null,
+  "po_number": string|null,
+  "po_value_sar": number|null,
+  "contract_start_date": "YYYY-MM-DD"|null,
+  "contract_end_date": "YYYY-MM-DD"|null,
+  "salary_monthly_sar": number|null,
+  "housing_allowance_sar": number|null,
+  "transport_allowance_sar": number|null,
+  "probation_period_months": number|null,
+  "notice_period_days": number|null,
+  "work_location": string|null,
+  "iqama_national_id": string|null
+}`,
       userPrompt: fullText,
     });
 
@@ -939,12 +920,20 @@ Rules:
     // Step 4: Parse and store extracted fields
     const parsed = parseJsonOutput(llmResult.output);
     if (!parsed.success) {
+      // Capture the raw model output verbatim so we (and HR) can see exactly
+      // what Qwen produced. Truncate to 4000 chars to stay well under
+      // Firestore's 1MB doc limit while preserving the first JSON-looking
+      // block that failed.
+      const rawSnippet = String(llmResult.output || "").slice(0, 4000);
       await docRef.update({
         contract_extraction_status: "PARSE_FAILED",
         status: "EXTRACTION_FAILED",
-        extraction_error: `Parsing error: AI output was not valid JSON`,
-        contract_extraction_error: `Parsing error: AI output was not valid JSON`,
+        extraction_error: `Parsing error: AI output was not valid JSON. ${parsed.error || ""}`.trim(),
+        contract_extraction_error: `Parsing error: AI output was not valid JSON. ${parsed.error || ""}`.trim(),
+        extraction_raw_output: rawSnippet,
+        extraction_raw_output_at: admin.firestore.FieldValue.serverTimestamp(),
       });
+      console.error(`[Gatekeeper] PARSE_FAILED — raw output: ${rawSnippet.slice(0, 500)}`);
       throw new Error("Parse failed");
     }
 
