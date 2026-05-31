@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { db, auth } from '../../lib/firebase'
-import { FileText, Upload, CheckCircle, Clock, AlertTriangle, Download, Eye, Loader, Shield, Mail, X } from 'lucide-react'
+import { db, auth, LIST_MY_PAYSLIPS_URL, GENERATE_PDF_URL } from '../../lib/firebase'
+import { FileText, Upload, CheckCircle, Clock, AlertTriangle, Download, Eye, Loader, Shield, Mail, X, DollarSign } from 'lucide-react'
 
 const DOC_CATEGORIES = ['Contract', 'NDA', 'Policy', 'Certificate', 'ID/Passport', 'Medical', 'Payslip', 'Other']
 
@@ -28,6 +28,8 @@ export default function Documents() {
 
   const [userEmail, setUserEmail] = useState(null)
   const [userName, setUserName] = useState('')
+  const [payslips, setPayslips] = useState([])
+  const [payslipsLoading, setPayslipsLoading] = useState(true)
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(user => {
@@ -35,6 +37,48 @@ export default function Documents() {
     })
     return () => unsub()
   }, [])
+
+  // Pull this employee's payslips via the listMyPayslips Cloud Function. The
+  // backend resolves employee_id from the auth token's email, then returns the
+  // line item from every APPROVED payroll_run that contains them.
+  useEffect(() => {
+    if (!userEmail) return
+    let alive = true
+    ;(async () => {
+      try {
+        const me = auth.currentUser
+        const idToken = await me.getIdToken()
+        const res = await fetch(LIST_MY_PAYSLIPS_URL, { headers: { Authorization: 'Bearer ' + idToken } })
+        const data = await res.json().catch(() => ({}))
+        if (alive) setPayslips(data.payslips || [])
+      } catch (err) {
+        console.warn('listMyPayslips failed:', err.message)
+      } finally {
+        if (alive) setPayslipsLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [userEmail])
+
+  const downloadPayslip = async (payrollRunId, period) => {
+    try {
+      const me = auth.currentUser
+      const idToken = await me.getIdToken()
+      const empQ = await import('firebase/firestore').then(m => m.getDocs(m.query(m.collection(db, 'employees'), m.where('email', '==', userEmail), m.limit(1))))
+      const employeeId = !empQ.empty ? (empQ.docs[0].data().employee_id || empQ.docs[0].id) : null
+      if (!employeeId) { showToast('Could not resolve your employee ID.', 'error'); return }
+      const url = `${GENERATE_PDF_URL}?template=payslip&docId=${encodeURIComponent(payrollRunId + '__' + employeeId)}`
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + idToken } })
+      if (!res.ok) throw new Error(`PDF ${res.status}`)
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      const dlUrl = URL.createObjectURL(blob)
+      a.href = dlUrl; a.download = `payslip-${period}.pdf`; a.click()
+      setTimeout(() => URL.revokeObjectURL(dlUrl), 2000)
+    } catch (err) {
+      showToast('Payslip download failed: ' + err.message, 'error')
+    }
+  }
 
   useEffect(() => {
     if (!userEmail) return
@@ -180,6 +224,57 @@ export default function Documents() {
             <Upload size={16} /> Upload Document
           </button>
         </div>
+      </div>
+
+      {/* My Payslips — pulled from payroll_runs the platform owns end-to-end. */}
+      <div className="card animate-fade-in-up" style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <DollarSign size={18} color="#022873" />
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>My Payslips</h3>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginLeft: 6 }}>
+            {payslipsLoading ? 'loading…' : `${payslips.length} approved`}
+          </span>
+        </div>
+        {payslipsLoading ? (
+          <div style={{ padding: 16, color: 'var(--text-tertiary)', fontSize: '0.86rem' }}>Loading…</div>
+        ) : payslips.length === 0 ? (
+          <div style={{ padding: '16px 8px', color: 'var(--text-tertiary)', fontSize: '0.86rem' }}>
+            No payslips yet. Your first one will show up here once HR/CEO approves the next payroll run.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="data-table" style={{ width: '100%', fontSize: '0.86rem' }}>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Basic</th>
+                  <th>Housing</th>
+                  <th>Transport</th>
+                  <th>GOSI</th>
+                  <th>Net Pay</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payslips.map(p => (
+                  <tr key={p.payroll_run_id}>
+                    <td style={{ fontWeight: 600 }}>{p.period}</td>
+                    <td>SAR {Math.round(p.base_salary || 0).toLocaleString()}</td>
+                    <td>SAR {Math.round(p.housing || 0).toLocaleString()}</td>
+                    <td>SAR {Math.round(p.transport || 0).toLocaleString()}</td>
+                    <td style={{ color: 'var(--text-tertiary)' }}>SAR {Math.round(p.gosi_employee || 0).toLocaleString()}</td>
+                    <td style={{ fontWeight: 700 }}>SAR {Math.round(p.net_pay || 0).toLocaleString()}</td>
+                    <td>
+                      <button onClick={() => downloadPayslip(p.payroll_run_id, p.period)} className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Download size={12} /> Download
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Action Required Banner */}

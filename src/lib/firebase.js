@@ -120,6 +120,12 @@ export const RETRY_CONTRACT_EXTRACTION_URL =
 export const GENERATE_PDF_URL =
   "https://generatepdf-ifzodp5svq-wx.a.run.app";
 
+// Payroll
+export const CREATE_PAYROLL_RUN_URL =
+  "https://createpayrollrun-ifzodp5svq-wx.a.run.app";
+export const LIST_MY_PAYSLIPS_URL =
+  "https://listmypayslips-ifzodp5svq-wx.a.run.app";
+
 // Multi-Tenant Integration Config (Phase 9)
 export const SAVE_INTEGRATION_CONFIG_URL =
   "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";

@@ -233,12 +233,36 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
-    // ── Platform settings (SAMA criteria, etc.) ──
-    // Read for any signed-in user (the SamaMaterialityAssessment component
-    // loads the criteria on every modal open). Writes are CEO-only.
+    // ── Platform settings (SAMA criteria, finance_integrations, etc.) ──
+    // Read for any signed-in user (components load criteria / toggles on
+    // every mount). Writes are CEO-only.
     match /platform_settings/{docId} {
       allow read: if request.auth != null;
       allow write: if isCeo();
+    }
+
+    // ── Payroll runs (system-of-record, self-contained no-Zoho) ──
+    // Read for any signed-in user (an employee reads their own line item to
+    // surface "My Payslips" on /employee/documents — backend filters by
+    // employee_id before returning the row; we don't want to expose other
+    // employees' net pay via direct Firestore reads, so the UI uses the
+    // listMyPayslips Cloud Function for that, and the rule allows read so
+    // CEO + Finance pages can also list them directly).
+    // Writes are CEO + Finance + HR (and the approval flow flips status
+    // DRAFT → APPROVED — that update is captured here too).
+    match /payroll_runs/{runId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && (
+        getUserRole() == "ceo" ||
+        getUserRole() == "finance" ||
+        getUserRole() == "hr"
+      );
+
+      // Per-run approval evidence (CEO ApprovalButton writes here on sign).
+      match /approval_evidence/{evId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+      }
     }
 
     // ── CEO Dashboards ──

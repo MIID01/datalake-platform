@@ -82,16 +82,77 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
          .text(`Total: SAR ${(data.amount || 0) * 1.15}`);
 
     } else if (template === "payslip") {
-      const docSnap = await db.collection("payroll_runs").doc(docId).get();
-      if (!docSnap.exists) throw new Error("Payroll not found");
+      // docId can be either:
+      //   • "PR-2026-05"               → run-level summary (totals only)
+      //   • "PR-2026-05__DLSA1003"     → per-employee payslip
+      const sep = docId.indexOf("__");
+      const runId = sep > 0 ? docId.slice(0, sep) : docId;
+      const employeeId = sep > 0 ? docId.slice(sep + 2) : null;
+      const docSnap = await db.collection("payroll_runs").doc(runId).get();
+      if (!docSnap.exists) throw new Error("Payroll run not found: " + runId);
       const data = docSnap.data();
 
-      doc.fontSize(16).fillColor(primaryColor).text("CONFIDENTIAL PAYSLIP", { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(12).fillColor('black')
-         .text(`Period: ${data.period || 'N/A'}`)
-         .text(`Total Gross: SAR ${data.total_gross || 0}`)
-         .text(`Total Net: SAR ${data.total_net || 0}`);
+      if (!employeeId) {
+        // Run-level summary
+        doc.fontSize(16).fillColor(primaryColor).text("CONFIDENTIAL — PAYROLL RUN SUMMARY", { align: 'center' });
+        doc.moveDown();
+        doc.fontSize(12).fillColor('black')
+           .text(`Period:           ${data.period || 'N/A'}`)
+           .text(`Employees paid:   ${data.employee_count || (data.employees?.length || 0)}`)
+           .text(`Pending contract: ${data.pending_contract_count || 0}`)
+           .text(`Total Gross:      SAR ${Math.round(data.total_gross || 0).toLocaleString()}`)
+           .text(`Total GOSI (er.): SAR ${Math.round(data.total_gosi_employee || 0).toLocaleString()}`)
+           .text(`Total Net:        SAR ${Math.round(data.total_net || 0).toLocaleString()}`)
+           .text(`Status:           ${data.status || '—'}`);
+      } else {
+        const line = (data.employees || []).find(e => e.employee_id === employeeId);
+        if (!line) throw new Error(`Employee ${employeeId} not found in run ${runId}`);
+
+        const empSnap = await db.collection("employees").doc(employeeId).get();
+        const emp = empSnap.exists ? empSnap.data() : {};
+        const fullName = line.name || emp.full_name || employeeId;
+        const iban = String(emp.bank_iban || "").trim();
+        const maskedIban = iban
+          ? iban.slice(0, 4) + " •••• •••• " + iban.slice(-4)
+          : "(no IBAN on record)";
+
+        doc.fontSize(16).fillColor(primaryColor).text("CONFIDENTIAL PAYSLIP", { align: 'center' });
+        doc.fontSize(9).fillColor('#555').text("This document contains personal compensation data — handle per PDPL Art. 5", { align: 'center' });
+        doc.moveDown(1);
+
+        doc.fontSize(11).fillColor('black')
+           .text(`Employee:    ${fullName}`)
+           .text(`Employee ID: ${employeeId}`)
+           .text(`Period:      ${data.period || 'N/A'}`)
+           .text(`Nationality: ${line.nationality || '—'}  (GOSI bracket: ${line.gosi_type || '—'})`)
+           .text(`Bank IBAN:   ${maskedIban}`);
+        doc.moveDown(0.8);
+
+        doc.fontSize(12).fillColor(primaryColor).text("Earnings");
+        doc.fontSize(11).fillColor('black')
+           .text(`  Basic salary       SAR ${Math.round(line.base_salary || 0).toLocaleString().padStart(12)}`)
+           .text(`  Housing allowance  SAR ${Math.round(line.housing || 0).toLocaleString().padStart(12)}`)
+           .text(`  Transport allow.   SAR ${Math.round(line.transport || 0).toLocaleString().padStart(12)}`)
+           .text(`  Reimbursements     SAR ${Math.round(line.reimbursements || 0).toLocaleString().padStart(12)}`);
+        const grossOne = (Number(line.base_salary || 0) + Number(line.housing || 0) + Number(line.transport || 0) + Number(line.reimbursements || 0));
+        doc.text(`  Gross              SAR ${Math.round(grossOne).toLocaleString().padStart(12)}`);
+        doc.moveDown(0.5);
+
+        doc.fontSize(12).fillColor(primaryColor).text("Deductions");
+        doc.fontSize(11).fillColor('black')
+           .text(`  GOSI (employee)    SAR ${Math.round(line.gosi_employee || 0).toLocaleString().padStart(12)}`)
+           .text(`  Other deductions   SAR ${Math.round(line.deductions || 0).toLocaleString().padStart(12)}`);
+        doc.moveDown(0.5);
+
+        doc.fontSize(13).fillColor(primaryColor).text("Net Pay");
+        doc.fontSize(13).fillColor('black')
+           .text(`  SAR ${Math.round(line.net_pay || 0).toLocaleString()}`);
+        doc.moveDown(1);
+
+        doc.fontSize(9).fillColor('#555')
+           .text(`Payroll Run ID: ${runId} · Status: ${data.status || '—'}`)
+           .text(`Approved at: ${data.approved_at?.toDate ? data.approved_at.toDate().toISOString() : '—'}  ·  Approved by: ${data.approved_by || '—'}`);
+      }
 
     } else if (template === "timesheet") {
       const docSnap = await db.collection("timesheets").doc(docId).get();

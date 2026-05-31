@@ -179,6 +179,15 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
 async function syncToZohoBooksHandler(event) {
   console.log("[Controller AI] Starting syncToZohoBooks...");
   try {
+    // Zoho is OPTIONAL — the platform is the system of record. Check the
+    // finance_integrations toggle before doing anything. Default OFF.
+    const settingsSnap = await db.collection("platform_settings").doc("finance_integrations").get();
+    const settings = settingsSnap.exists ? settingsSnap.data() : {};
+    if (settings.zoho_books_enabled !== true) {
+      console.log("[Zoho] zoho_books_enabled=false — skipping sync (platform is system of record).");
+      return;
+    }
+
     const { invoice_id } = event.data.message.json;
     if (!invoice_id) throw new Error("invoice_id required in event payload");
 

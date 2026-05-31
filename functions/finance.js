@@ -8,19 +8,25 @@ const db = admin.firestore();
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5A: Payroll Calculation Chain
 // ═══════════════════════════════════════════════════════════════════
-async function calculatePayrollHandler() {
-  console.log("[Controller AI] Starting calculatePayroll...");
+async function calculatePayrollHandler({ year_month, actor } = {}) {
+  console.log("[Payroll] Starting calculatePayroll for", year_month || "current month");
   try {
     const now = new Date();
-    // E.g., "2026-06"
-    const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    
-    // Read all active employees
-    const employeesSnapshot = await db.collection("employees").where("employment_status", "==", "active").get();
-    
+    // E.g., "2026-06". If the caller supplied year_month use that, else
+    // default to the current Riyadh month. This is what makes the function
+    // usable both from the scheduled cron AND from the "Create Payroll Run"
+    // UI for any past/future month.
+    const yearMonth = year_month && /^\d{4}-\d{2}$/.test(year_month)
+      ? year_month
+      : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // Read all active employees. We accept either employment_status="active"
+    // or status="active" because the directory has used both keys historically.
+    const employeesSnapshot = await db.collection("employees").get();
+
     if (employeesSnapshot.empty) {
-      console.log("[Controller AI] No active employees found for payroll calculation.");
-      return;
+      console.log("[Payroll] No employees at all.");
+      return { period: yearMonth, created: false, reason: "no_employees" };
     }
 
     let total_gross = 0;
@@ -28,15 +34,35 @@ async function calculatePayrollHandler() {
     let total_gosi_employee = 0;
     let total_gosi_employer = 0;
     const payroll_employees = [];
+    // Employees who are active but have no salary data — listed separately
+    // so HR can see who's blocked on a contract, not silently zeroed out.
+    const pending_contract = [];
 
     for (const doc of employeesSnapshot.docs) {
       const emp = doc.data();
+      const empStatus = String(emp.employment_status || emp.status || '').toLowerCase();
+      // Skip inactive employees outright.
+      if (empStatus && empStatus !== 'active') continue;
+
       const empId = emp.employee_id || doc.id;
-      
-      // Determine base salary and allowances (with fallbacks for legacy schemas)
-      const base_salary = Number(emp.salary_monthly_sar || emp.salary_sar || 0);
+
+      // Determine base salary and allowances (with fallbacks for legacy schemas).
+      const base_salary = Number(emp.salary_monthly_sar || emp.salary_sar || emp.salary || 0);
       const housing = Number(emp.housing_allowance_sar || emp.contract_extracted_fields?.housing_allowance_sar || 0);
       const transport = Number(emp.transport_allowance_sar || emp.contract_extracted_fields?.transport_allowance_sar || 0);
+
+      // No contract / no salary data → list in pending_contract and skip the
+      // payroll math. We don't want a "SAR 0 net" row in WPS for someone whose
+      // contract isn't loaded yet — that's the bug from the user's spec.
+      if (base_salary <= 0) {
+        pending_contract.push({
+          employee_id: empId,
+          name: emp.full_name || emp.name || empId,
+          nationality: emp.nationality || null,
+          reason: 'no_salary_data',
+        });
+        continue;
+      }
       
       // GOSI Calculation (based on Nationality)
       const isSaudi = (emp.nationality || '').toLowerCase() === 'saudi';
@@ -107,35 +133,48 @@ async function calculatePayrollHandler() {
       period: yearMonth,
       status: "DRAFT",
       created_at: admin.firestore.FieldValue.serverTimestamp(),
+      created_by: actor || 'system:scheduler',
       total_gross,
       total_net,
       total_gosi_employee,
       total_gosi_employer,
       employees: payroll_employees,
+      employee_count: payroll_employees.length,
+      pending_contract,
+      pending_contract_count: pending_contract.length,
       approved_by: null,
-      approved_at: null
+      approved_at: null,
     };
 
     await db.collection("payroll_runs").doc(payrollRunId).set(payload);
 
-    // Audit Log to BigQuery
-    await logToBigQuery("datalake_audit", "ai_actions", {
-      agent_name: "Controller",
-      action_type: "CALCULATE_PAYROLL",
-      entity_id: payrollRunId,
-      result: "SUCCESS",
-      duration_ms: Date.now() - now.getTime(),
-      regulatory_reference: "Saudi Labor Law / GOSI",
-      timestamp: new Date()
-    });
+    // Audit Log to BigQuery (best-effort — don't fail the run if BQ is down)
+    try {
+      await logToBigQuery("datalake_audit", "ai_actions", {
+        agent_name: "Controller",
+        action_type: "CALCULATE_PAYROLL",
+        entity_id: payrollRunId,
+        result: "SUCCESS",
+        duration_ms: Date.now() - now.getTime(),
+        regulatory_reference: "Saudi Labor Law / GOSI",
+        timestamp: new Date(),
+      });
+    } catch (bqErr) {
+      console.warn("[Payroll] BigQuery audit insert failed (non-blocking):", bqErr.message);
+    }
 
-    console.log(`[Controller AI] Payroll calculated for ${yearMonth}. Run ID: ${payrollRunId}`);
-    
-    // Publish to Pub/Sub
-    await pubsub.topic("datalake.payroll.calculated").publishMessage({ json: { payroll_run_id: payrollRunId } });
+    console.log(`[Payroll] DRAFT run created for ${yearMonth} (id=${payrollRunId}): ${payroll_employees.length} paid, ${pending_contract.length} pending contract`);
 
+    // Publish to Pub/Sub for any downstream that wants the "draft created" event
+    try {
+      await pubsub.topic("datalake.payroll.calculated").publishMessage({ json: { payroll_run_id: payrollRunId, period: yearMonth } });
+    } catch (psErr) {
+      console.warn("[Payroll] Pub/Sub publish failed (non-blocking):", psErr.message);
+    }
+
+    return { period: yearMonth, payroll_run_id: payrollRunId, created: true, employee_count: payroll_employees.length, pending_contract_count: pending_contract.length, total_gross, total_net };
   } catch (error) {
-    console.error("[Controller AI] calculatePayroll error:", error);
+    console.error("[Payroll] calculatePayroll error:", error);
     throw error;
   }
 }
@@ -359,9 +398,129 @@ async function controllerMonthlyOpsHandler(event) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// HTTP wrapper — "Create Payroll Run" from the Finance / CEO UI.
+// CEO + finance role only. Returns the DRAFT run id; the page then opens
+// the ApprovalButton + signature flow.
+// ═══════════════════════════════════════════════════════════════════
+async function createPayrollRunHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS } = {}) {
+  // CORS handled by the onRequest wrapper (cors: ALLOWED_ORIGINS).
+  if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
+  try {
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing auth token" });
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+    const profile = (getUserAccessProfile && (await getUserAccessProfile(decoded.uid))) || null;
+    const allowedRoles = ["ceo", "finance"];
+    const userRole = profile?.role_id || (decoded.email === "m.alqumri@datalake.sa" ? "ceo" : null);
+    if (!userRole || !allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: "Only CEO or Finance may create a payroll run" });
+    }
+
+    const { year_month } = req.body || {};
+    if (!year_month || !/^\d{4}-\d{2}$/.test(year_month)) {
+      return res.status(400).json({ error: "year_month must be YYYY-MM" });
+    }
+
+    // Idempotency: refuse to overwrite an APPROVED run.
+    const runId = `PR-${year_month}`;
+    const existing = await db.collection("payroll_runs").doc(runId).get();
+    if (existing.exists && existing.data().status === "APPROVED") {
+      return res.status(409).json({ error: `Payroll for ${year_month} already APPROVED — cannot recreate` });
+    }
+
+    const result = await calculatePayrollHandler({ year_month, actor: profile?.email || decoded.email });
+
+    await db.collection("task_audit_log").add({
+      event: "PAYROLL_RUN_CREATED",
+      action_by: profile?.email || decoded.email,
+      action_at: admin.firestore.FieldValue.serverTimestamp(),
+      details: result,
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+    });
+
+    return res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    console.error("createPayrollRun error:", err);
+    return res.status(500).json({ error: err.message || "Internal error" });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Firestore trigger: when payroll_runs/{id}.status flips DRAFT → APPROVED,
+// publish to datalake.payroll.approved so generateWPSFile + generateGOSI
+// both fire. This is the missing bridge between CEO approval and the
+// downstream output generators.
+// ═══════════════════════════════════════════════════════════════════
+async function publishPayrollApprovedHandler(event) {
+  try {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after) return;
+    if (before.status === "APPROVED" || after.status !== "APPROVED") return;
+
+    const payrollRunId = event.params.payrollRunId;
+    await pubsub.topic("datalake.payroll.approved").publishMessage({ json: { payroll_run_id: payrollRunId, period: after.period } });
+    console.log(`[Payroll] APPROVED → published datalake.payroll.approved for ${payrollRunId}`);
+  } catch (err) {
+    console.error("publishPayrollApproved error:", err);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HTTP wrapper — "My Payslips" feed for an employee.
+// Lists every payroll_runs/* the calling user appears in (matched by
+// employee_id or email). Used by /employee/documents.
+// ═══════════════════════════════════════════════════════════════════
+async function listMyPayslipsHandler(req, res) {
+  if (req.method !== "GET" && req.method !== "POST") return res.status(405).json({ error: "GET or POST" });
+  try {
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing auth token" });
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+    const email = String(decoded.email || "").toLowerCase();
+
+    // Resolve the employee_id for this user.
+    let employee_id = null;
+    const empQ = await db.collection("employees").where("email", "==", email).limit(1).get();
+    if (!empQ.empty) employee_id = empQ.docs[0].data().employee_id || empQ.docs[0].id;
+    if (!employee_id) {
+      const usrQ = await db.collection("users").where("email", "==", email).limit(1).get();
+      if (!usrQ.empty) employee_id = usrQ.docs[0].data().employee_id || null;
+    }
+    if (!employee_id) return res.status(200).json({ payslips: [], note: "No employee record matched this account." });
+
+    const runsSnap = await db.collection("payroll_runs").where("status", "==", "APPROVED").get();
+    const payslips = [];
+    runsSnap.forEach(d => {
+      const r = d.data();
+      const line = (r.employees || []).find(e => e.employee_id === employee_id);
+      if (!line) return;
+      payslips.push({
+        payroll_run_id: d.id,
+        period: r.period || d.id.replace(/^PR-/, ""),
+        base_salary: line.base_salary,
+        housing: line.housing,
+        transport: line.transport,
+        gosi_employee: line.gosi_employee,
+        net_pay: line.net_pay,
+        approved_at: r.approved_at?.toMillis?.() || null,
+      });
+    });
+    payslips.sort((a, b) => (b.period || "").localeCompare(a.period || ""));
+    return res.status(200).json({ employee_id, payslips });
+  } catch (err) {
+    console.error("listMyPayslips error:", err);
+    return res.status(500).json({ error: err.message || "Internal error" });
+  }
+}
+
 module.exports = {
   calculatePayrollHandler,
   generateWPSFileHandler,
   generateGOSIReportHandler,
-  controllerMonthlyOpsHandler
+  controllerMonthlyOpsHandler,
+  createPayrollRunHandler,
+  publishPayrollApprovedHandler,
+  listMyPayslipsHandler,
 };

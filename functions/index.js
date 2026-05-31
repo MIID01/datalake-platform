@@ -2931,7 +2931,11 @@ exports.assignrole = assignrole;
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5: CONTROLLER AI — FINANCE CHAIN
 // ═══════════════════════════════════════════════════════════════════
-const { calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler, controllerMonthlyOpsHandler } = require("./finance");
+const {
+  calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler,
+  controllerMonthlyOpsHandler, createPayrollRunHandler, publishPayrollApprovedHandler,
+  listMyPayslipsHandler,
+} = require("./finance");
 
 exports.calculatePayroll = onSchedule(
   {
@@ -2942,6 +2946,25 @@ exports.calculatePayroll = onSchedule(
     timeoutSeconds: 300,
   },
   async () => { await calculatePayrollHandler(); }
+);
+
+// CEO / Finance "Create Payroll Run" — UI-driven, parameterized by month.
+exports.createPayrollRun = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 300, cors: ALLOWED_ORIGINS },
+  (req, res) => createPayrollRunHandler(req, res, hireHelpers),
+);
+
+// Firestore trigger: payroll_runs/{id} DRAFT → APPROVED → publish Pub/Sub
+// so WPS + GOSI generators run.
+exports.publishPayrollApproved = onDocumentUpdated(
+  { document: "payroll_runs/{payrollRunId}", region: "me-central2" },
+  (event) => publishPayrollApprovedHandler(event),
+);
+
+// /employee/documents → "My Payslips" feed.
+exports.listMyPayslips = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => listMyPayslipsHandler(req, res),
 );
 
 exports.generateWPSFile = onMessagePublished(
