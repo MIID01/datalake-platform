@@ -870,11 +870,66 @@ async function gatekeeperContractExtractHandler(event) {
     }
 
     // Step 3: LLM
+    // Truncate the input to ~15000 chars — the data-bearing pages of a Qiwa
+    // contract are at the top; sending all 34k chars makes Qwen 7B prone to
+    // "summarize" the input instead of extract. This keeps the first ~5
+    // pages of clean text plus the start of the wage breakdown.
+    const truncatedText = fullText.length > 15000 ? fullText.slice(0, 15000) : fullText;
+
+    // JSON Schema for Ollama structured outputs. With this set the model
+    // can ONLY emit a JSON object with these exact keys — no invented
+    // "sections" array, no markdown prose, no commentary.
+    const CONTRACT_EXTRACT_SCHEMA = {
+      type: "object",
+      properties: {
+        employee_name:           { type: ["string", "null"] },
+        employee_name_ar:        { type: ["string", "null"] },
+        nationality:             { type: ["string", "null"] },
+        date_of_birth:           { type: ["string", "null"] },
+        marital_status:          { type: ["string", "null"] },
+        education_level:         { type: ["string", "null"] },
+        passport_number:         { type: ["string", "null"] },
+        iqama_national_id:       { type: ["string", "null"] },
+        contract_number:         { type: ["string", "null"] },
+        contract_type:           { type: ["string", "null"] },
+        auto_renewal:            { type: ["boolean", "null"] },
+        auto_renewal_notice_days:{ type: ["number", "null"] },
+        job_title:               { type: ["string", "null"] },
+        client_name:             { type: ["string", "null"] },
+        po_number:               { type: ["string", "null"] },
+        po_value_sar:            { type: ["number", "null"] },
+        contract_start_date:     { type: ["string", "null"] },
+        contract_end_date:       { type: ["string", "null"] },
+        salary_monthly_sar:      { type: ["number", "null"] },
+        housing_allowance_sar:   { type: ["number", "null"] },
+        transport_allowance_sar: { type: ["number", "null"] },
+        probation_period_months: { type: ["number", "null"] },
+        notice_period_days:      { type: ["number", "null"] },
+        annual_leave_days:       { type: ["number", "null"] },
+        working_hours_per_day:   { type: ["number", "null"] },
+        working_days_per_week:   { type: ["number", "null"] },
+        weekly_rest_day:         { type: ["string", "null"] },
+        non_compete_years:       { type: ["number", "null"] },
+        confidentiality_years:   { type: ["number", "null"] },
+        bank_name:               { type: ["string", "null"] },
+        iban:                    { type: ["string", "null"] },
+        work_location:           { type: ["string", "null"] },
+      },
+      required: [
+        "employee_name","employee_name_ar","job_title","contract_start_date","contract_end_date",
+        "salary_monthly_sar","housing_allowance_sar","transport_allowance_sar","nationality",
+        "iban","bank_name","annual_leave_days","contract_type","iqama_national_id",
+        "passport_number","date_of_birth",
+      ],
+      additionalProperties: false,
+    };
+
     const llmResult = await callLLM({
       agent: "gatekeeper",
       type: "contract_extract",
       triggeredBy: "system:pubsub",
-      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V5",
+      jsonSchema: CONTRACT_EXTRACT_SCHEMA,
+      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V6",
       systemPrompt: `Extract employment data from a Saudi employment contract. The text is the raw output of pdf-parse.
 
 RULES:
@@ -922,7 +977,7 @@ FIELDS:
   "iban": string|null,
   "work_location": string|null
 }`,
-      userPrompt: fullText,
+      userPrompt: truncatedText,
     });
 
     if (!llmResult.success) {

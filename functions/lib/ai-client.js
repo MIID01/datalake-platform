@@ -136,6 +136,8 @@ async function callLLM({
   userPrompt,
   triggeredBy,
   promptTemplateId,
+  jsonMode = false,
+  jsonSchema = null,
 }) {
   const startTime = Date.now();
 
@@ -174,6 +176,16 @@ async function callLLM({
         temperature: 0.1, // Low temperature for deterministic compliance outputs
         max_tokens: MAX_TOKENS,
         stream: false,
+        // Ollama structured outputs.
+        //   • jsonSchema (preferred) — passes a full JSON Schema; Ollama
+        //     constrains output to match the schema EXACTLY. This is what
+        //     stops Qwen 2.5 7B from inventing its own field names on long
+        //     inputs (the "sections": [...obligations...] failure mode).
+        //   • jsonMode — loose JSON mode (no shape constraint). Use when
+        //     you want a JSON object but don't care which keys.
+        ...(jsonSchema
+          ? { format: jsonSchema, response_format: { type: "json_object", schema: jsonSchema } }
+          : (jsonMode ? { format: "json", response_format: { type: "json_object" } } : {})),
       }),
       timeout: 480000, // 8-minute timeout — Qwen 2.5 7B on CPU can take 3-7 minutes on long OCR output; pdf-parse text is much shorter so this is generous headroom
     });
