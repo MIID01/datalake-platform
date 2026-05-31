@@ -130,6 +130,12 @@ export const LIST_MY_PAYSLIPS_URL =
 export const ADVANCE_IQAMA_STAGE_URL =
   "https://advanceiqamastage-ifzodp5svq-wx.a.run.app";
 
+// HR Send Email
+export const SEND_HR_EMAIL_URL =
+  "https://sendhremail-ifzodp5svq-wx.a.run.app";
+export const LIST_EMAIL_TEMPLATES_URL =
+  "https://listemailtemplates-ifzodp5svq-wx.a.run.app";
+
 // Multi-Tenant Integration Config (Phase 9)
 export const SAVE_INTEGRATION_CONFIG_URL =
   "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";

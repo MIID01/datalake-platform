@@ -5,6 +5,7 @@ import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, 
 import { useLocation, useNavigate } from 'react-router-dom'
 import AddEmployeeModal from '../../components/AddEmployeeModal'
 import OnboardingDetailModal from '../../components/OnboardingDetailModal'
+import SendEmailModal from '../../components/SendEmailModal'
 import { ShieldCheck } from 'lucide-react'
 
 const STATUS_COLORS = {
@@ -30,6 +31,7 @@ export default function HREmployees() {
   const [editEmployee, setEditEmployee] = useState(null)
   const [viewEmployee, setViewEmployee] = useState(null)
   const [consentEmployee, setConsentEmployee] = useState(null)  // → OnboardingDetailModal
+  const [emailEmployee, setEmailEmployee] = useState(null)       // → SendEmailModal
   const [toast, setToast] = useState(null)
   
   const location = useLocation()
@@ -214,6 +216,9 @@ export default function HREmployees() {
                           <button onClick={() => handleOffboard(e.id)} className="btn-action" style={{ background: 'rgba(239,88,41,0.1)', color: '#EF5829', border: '1px solid rgba(239,88,41,0.3)' }} title="Offboard">
                             <UserMinus size={12} /> Offboard
                           </button>
+                          <button onClick={() => setEmailEmployee(e)} className="btn-action" title="Send email">
+                            <Mail size={12} /> Email
+                          </button>
                           <button onClick={() => setEditEmployee(e)} className="btn-action" title="Edit">
                             <Edit2 size={12} /> Edit
                           </button>
@@ -222,6 +227,9 @@ export default function HREmployees() {
 
                       {isPending && (
                         <>
+                          <button onClick={() => setEmailEmployee(e)} className="btn-action" title="Send welcome / credentials">
+                            <Mail size={12} /> Email
+                          </button>
                           <button onClick={() => handleSendLink(e.email)} className="btn-action" title="Send Link">
                             <Send size={12} /> Send Link
                           </button>
@@ -268,6 +276,13 @@ export default function HREmployees() {
       {editEmployee && <AddEmployeeModal onClose={() => setEditEmployee(null)} initialData={editEmployee} isEdit={true} />}
       {viewEmployee && <AddEmployeeModal onClose={() => setViewEmployee(null)} initialData={viewEmployee} isEdit={true} />}
       {consentEmployee && <OnboardingDetailModal employee={consentEmployee} onClose={() => setConsentEmployee(null)} />}
+      {emailEmployee && (
+        <SendEmailModal
+          employee={emailEmployee}
+          onClose={() => setEmailEmployee(null)}
+          onSent={() => setToast({ msg: `Email sent to ${emailEmployee.email}`, kind: 'success' })}
+        />
+      )}
 
       <style>{`
         .spin { animation: spin 1s linear infinite; } 

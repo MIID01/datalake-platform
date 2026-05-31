@@ -2967,6 +2967,18 @@ exports.listMyPayslips = onRequest(
   (req, res) => listMyPayslipsHandler(req, res),
 );
 
+// ── HR Send Email ──
+const { sendHrEmailHandler, listEmailTemplatesHandler } = require("./hrEmail");
+
+exports.sendHrEmail = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => sendHrEmailHandler(req, res, hireHelpers),
+);
+exports.listEmailTemplates = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => listEmailTemplatesHandler(req, res),
+);
+
 // ── Iqama lifecycle ──
 const { advanceIqamaStageHandler, scanIqamaExpiriesHandler } = require("./iqama");
 

@@ -256,6 +256,15 @@ service cloud.firestore {
       allow write: if isCeo();
     }
 
+    // ── HR email log ──
+    // Read for HR / Finance / CEO (audit + send-history view). Writes go
+    // through the sendHrEmail Cloud Function, never the client — direct
+    // creates are blocked so the log can't be forged or amended.
+    match /email_log/{logId} {
+      allow read: if isCeo() || isFinance() || isHR();
+      allow write: if false;
+    }
+
     // ── Iqama lifecycle ──
     // iqama_records/{employee_id} holds the lifecycle state. Reads allowed
     // for any signed-in user (the employee should see their own dashboard

@@ -145,9 +145,9 @@ export default function HRScoring() {
         <img src="/images/icon.svg" alt="Datalake" style={{ width: 48, height: 48, marginBottom: 20 }} />
         <h1 style={{ color: '#fff', fontSize: '1.4rem', fontWeight: 700, marginBottom: 8 }}>HR Interview Scoring</h1>
         <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', marginBottom: 32 }}>Sign in with your Datalake account</p>
-        <button onClick={handleSignIn} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, width: '100%', padding: '14px 24px', border: 'none', borderRadius: 12, background: '#fff', color: '#1A1A2E', fontWeight: 600, fontSize: '0.95rem', fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,0.2)' }}>
-          Sign in with Google
-        </button>
+        <a href="/" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, width: '100%', padding: '14px 24px', border: 'none', borderRadius: 12, background: '#1598CC', color: '#fff', fontWeight: 600, fontSize: '0.95rem', fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,0.2)', textDecoration: 'none' }}>
+          Sign in
+        </a>
         {authError && <div style={{ marginTop: 16, color: '#ff6b6b', fontSize: '0.82rem' }}>{authError}</div>}
       </div>
     </div>
