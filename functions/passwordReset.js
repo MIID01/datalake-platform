@@ -10,8 +10,8 @@
 //      Firebase action link (oobCode-backed). Same security model, same
 //      1-hour expiry; only the delivery channel changes.
 //   2. sendEmailRaw(gmail, ...) — dispatches via the existing Gmail
-//      domain-wide-delegation client (functions/lib/gmail.js) as the real
-//      m.alqumri@datalake.sa mailbox. Workspace-signed → SPF/DKIM/DMARC
+//      domain-wide-delegation client (functions/lib/gmail.js) as the
+//      shared hr@datalake.sa mailbox. Workspace-signed → SPF/DKIM/DMARC
 //      pass naturally → lands in the inbox.
 //   3. email_log row written (PENDING → SENT/FAILED) so the audit trail
 //      sees password-reset emails alongside HR comms.
@@ -56,16 +56,16 @@ async function generateAndSendPasswordResetHandler(req, res) {
       ``,
       `  ${resetLink}`,
       ``,
-      `This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change.`,
+      `This link expires in 1 hour. If you didn't request this, you can safely ignore this email - your password won't change.`,
       ``,
       `For help, reply to this email and Datalake HR will respond.`,
       ``,
-      `— Datalake HR`,
+      `- Datalake HR`,
       ``,
-      `────────────────────────────────────────`,
+      `--------------------------------------------------`,
       `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
       `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
-      `PRIVATE & CONFIDENTIAL — This message contains a one-time security link.`,
+      `PRIVATE & CONFIDENTIAL - This message contains a one-time security link.`,
     ].join("\n");
 
     const logRef = db.collection("email_log").doc();

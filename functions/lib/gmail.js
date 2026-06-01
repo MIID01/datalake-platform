@@ -1,7 +1,10 @@
 const { google } = require("googleapis");
 
 const SA_EMAIL = "808056940626-compute@developer.gserviceaccount.com";
-const SUBJECT = "m.alqumri@datalake.sa";
+// Workspace alias hr@datalake.sa is the shared HR mailbox. Replies route
+// to the HR team; the alias is set up under m.alqumri@datalake.sa, so
+// domain-wide delegation impersonates hr@datalake.sa directly.
+const SUBJECT = "hr@datalake.sa";
 const SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 async function getGmailClient() {
@@ -51,9 +54,19 @@ async function getGmailClient() {
   return google.gmail({ version: "v1", auth: oauth2Client });
 }
 
+// RFC 2047 — when the subject contains any non-ASCII byte (em-dash, curly
+// quote, Arabic, accents, etc.) it must be MIME-encoded or the recipient
+// sees "Ã¢Â€Â" mojibake. ASCII-only subjects pass through unchanged.
+function mimeEncodeSubject(s) {
+  const str = String(s || "");
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(str)) return str;
+  return "=?UTF-8?B?" + Buffer.from(str, "utf8").toString("base64") + "?=";
+}
+
 async function sendEmailRaw(gmail, to, subject, bodyText) {
   console.log("[gmail] Sending email to", to, "subject:", subject.substring(0, 50));
-  
+
   // Convert plain text body to simple HTML
   const htmlBody = bodyText
     .replace(/\n/g, "<br>")
@@ -64,9 +77,9 @@ async function sendEmailRaw(gmail, to, subject, bodyText) {
   const dateStr = new Date().toUTCString();
 
   const lines = [
-    `From: Datalake HR <m.alqumri@datalake.sa>`,
+    `From: Datalake HR <hr@datalake.sa>`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${mimeEncodeSubject(subject)}`,
     `Message-ID: ${messageId}`,
     `Date: ${dateStr}`,
     `MIME-Version: 1.0`,
@@ -89,7 +102,7 @@ async function sendEmailRaw(gmail, to, subject, bodyText) {
   
   const raw = Buffer.from(lines.join("\r\n")).toString("base64url");
   const result = await gmail.users.messages.send({
-    userId: "m.alqumri@datalake.sa",
+    userId: "hr@datalake.sa",
     requestBody: { raw },
   });
   console.log("[gmail] Email sent successfully, messageId:", result.data.id);

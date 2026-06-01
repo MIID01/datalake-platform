@@ -4,7 +4,7 @@
 //
 // HR (or CEO) sends an arbitrary email from the /hr/employees panel. The
 // email is dispatched via the existing Gmail domain-wide-delegation client
-// (functions/lib/gmail.js) as the real m.alqumri@datalake.sa mailbox — so
+// (functions/lib/gmail.js) as the real hr@datalake.sa shared mailbox so
 // the SENT folder reflects HR's outbound communications, replies route to
 // the right inbox, and SPF/DKIM/DMARC pass naturally (Workspace-signed).
 //
@@ -24,7 +24,7 @@ const TEMPLATES = {
   welcome_credentials: {
     id: "welcome_credentials",
     label: "Welcome / Login Credentials",
-    subject: "Welcome to Datalake — your platform access",
+    subject: "Welcome to Datalake - your platform access",
     body: (vars) => [
       `Dear ${vars.full_name || vars.recipient_email},`,
       ``,
@@ -35,7 +35,7 @@ const TEMPLATES = {
       `  ${vars.login_url || "https://datalake-production-sa.web.app"}`,
       ``,
       `Username (email): ${vars.recipient_email}`,
-      `Initial password: ${vars.temporary_password || "(set by IT — use the 'Forgot password' link to set your own)"}`,
+      `Initial password: ${vars.temporary_password || "(set by IT - use the 'Forgot password' link to set your own)"}`,
       ``,
       `If you don't yet have a password, click "Forgot password?" on the sign-in page to set one.`,
       ``,
@@ -43,12 +43,12 @@ const TEMPLATES = {
       ``,
       `If you have any questions, reply to this email.`,
       ``,
-      `— Datalake HR`,
+      `- Datalake HR`,
       ``,
-      `────────────────────────────────────────`,
+      `--------------------------------------------------`,
       `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
       `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
-      `PRIVATE & CONFIDENTIAL — This message may contain personal data processed under PDPL Art. 5.`,
+      `PRIVATE & CONFIDENTIAL - This message may contain personal data processed under PDPL Art. 5.`,
     ].join("\n"),
   },
   generic: {

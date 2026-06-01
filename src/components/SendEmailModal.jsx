@@ -40,7 +40,7 @@ export default function SendEmailModal({ employee, onClose, onSent }) {
   useEffect(() => {
     if (!templateId) return
     if (templateId === 'welcome_credentials') {
-      setSubject('Welcome to Datalake — your platform access')
+      setSubject('Welcome to Datalake - your platform access')
       setBody([
         `Dear ${employee?.full_name || to},`,
         ``,
@@ -51,13 +51,13 @@ export default function SendEmailModal({ employee, onClose, onSent }) {
         `  https://datalake-production-sa.web.app`,
         ``,
         `Username (email): ${to}`,
-        `Initial password: (set by IT — use the "Forgot password?" link on the sign-in page to set your own)`,
+        `Initial password: (set by IT - use the "Forgot password?" link on the sign-in page to set your own)`,
         ``,
         `Once you sign in, please complete the onboarding flow (PDPL consent + workplace policies) before continuing.`,
         ``,
         `If you have any questions, reply to this email.`,
         ``,
-        `— Datalake HR`,
+        `- Datalake HR`,
       ].join('\n'))
     } else if (templateId === 'generic') {
       setSubject('')
@@ -101,7 +101,7 @@ export default function SendEmailModal({ employee, onClose, onSent }) {
           <button onClick={() => !sending && onClose()} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <p style={{ fontSize: '0.76rem', color: 'var(--text-tertiary)', margin: '0 0 14px', lineHeight: 1.5 }}>
-          Sent from <strong>m.alqumri@datalake.sa</strong> (HR/CEO mailbox) — replies route back to that inbox. Stamped in email_log.
+          Sent from <strong>hr@datalake.sa</strong> (shared HR mailbox). Replies route back to that inbox. Stamped in email_log.
         </p>
 
         {sentInfo ? (
