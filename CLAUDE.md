@@ -71,6 +71,49 @@ External services: **BigQuery** (`datalake_audit`, `datalake_finance` — immuta
 ### Authorization layers (defense in depth)
 `firestore.rules` is the real security boundary for direct client reads/writes (CEO-only writes on RBAC collections, role checks via `getUserRole()`, `client_id` scoping). Cloud Functions re-verify role for privileged operations. AuthGate / `routes.js` are **UX routing only** — never the trust boundary.
 
+## Security Controls
+
+Quick reference for the security posture. Full auditor-facing detail in `docs/SECURITY.md`.
+**Be accurate when editing this section or SECURITY.md — both are handed to bank security
+teams and ISO auditors. Never document a control as built unless it actually is.**
+
+- **Password policy** — min 12 chars, ≥1 uppercase / lowercase / number / special.
+  - *Client-side validation is built & deployed*: shared rules in `src/lib/password-policy.js`,
+    live checkmarks via `src/components/PasswordChecklist.jsx`, on the public `/reset-password`
+    page (`src/pages/ResetPassword.jsx`) and the employee Profile "Change Password" card.
+  - *Server-side enforcement* is a Firebase Auth password policy (`functions/set-password-policy.js`,
+    `enforcementState: ENFORCE`). **It is code-complete but ACTIVATED ONLY by running that
+    one-time script** (`gcloud` ADC). Until run, the client rules are advisory, not enforced.
+  - No periodic forced rotation (`forceUpgradeOnSignin: false`) — aligns with NIST 800-63B.
+  - **Gaps (not enforced):** "force change of temp password on first login" — IT-Admin reset
+    writes a `force_reset`/`must_change` flag (`password_policies/{uid}`) that is only *displayed*
+    in `/admin/credentials`; login does not gate on it. Account lockout is Firebase's built-in
+    anti-abuse throttling (`auth/too-many-requests`), **not** a fixed 5-attempt policy.
+- **MFA** — **NOT implemented in the platform.** Onboarding asks staff to enable MFA on their
+  Google Workspace account (org-level), but the app enforces no second factor. Planned (see TODO).
+- **Auth** — Firebase Auth email/password only; Google SSO was removed (commit `9532297`). Sessions
+  use Firebase's default ID-token model (≈1 h token, silent refresh, `browserLocalPersistence`).
+  Two hardcoded role bypasses kept in sync across `auth.js` / `AuthGate.jsx` / `firestore.rules`:
+  `m.alqumri@datalake.sa` (ceo), `hr@datalake.sa` (hr).
+- **Firestore rules** (`firestore.rules` — the real boundary) — role-based via `getUserRole()`,
+  default-deny catch-all. Payroll (`payroll_runs`) is read-restricted to CEO/finance/HR with
+  segregation of duties: finance/HR prepare the DRAFT, **only the CEO** transitions DRAFT→APPROVED;
+  employees read payslips only through the `listMyPayslips` function (caller==subject). Approval-
+  evidence subcollections are CEO-only create and immutable (`update, delete: if false`). RBAC
+  collections (`roles`, `access_matrix`, `users.role_id`) are CEO-write-only; the CEO cannot change
+  their own role.
+- **Storage rules** (`storage.rules`) — `approval-evidence/**` is read/write for any authenticated
+  user (Firestore rules gate which evidence rows are valid); `employee-photos` writes are scoped to
+  the owning employee; default-deny catch-all (CEO read-only).
+- **Data residency** — everything region-locked to `me-central2` (Dammam, KSA) for PDPL + ZATCA.
+  Encryption at rest (AES-256) and in transit (TLS 1.2+) are Google Cloud platform defaults.
+- **Audit logging** — AI calls are logged append-only to BigQuery (`datalake_audit`) with a SHA-256
+  input hash and no raw prompts (`functions/lib/ai-client.js`). Every material approval writes an
+  immutable evidence row (approver identity, `approved_at`, `ip_address`, `user_agent`, signature,
+  and file SHA-256 when a document is required), enforced immutable by `firestore.rules`. HR/email
+  actions append to `email_log` (`write: if false` from clients); credential actions write admin
+  audit rows.
+
 ## Conventions
 - ESM throughout (`"type": "module"`). React 19, React Router 7.
 - Styling: CSS custom-property design tokens in `src/index.css`, per-portal stylesheets in `src/styles/` (`ceo.css` dark navy `#010e2b`/accent `#1598CC`; `engineer.css` light). Inline styles only for dynamic values.

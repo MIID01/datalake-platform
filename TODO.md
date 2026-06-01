@@ -8,6 +8,23 @@ Priority order. "Active" = work on these now; "Parked" = blocked on a dependency
 - **Finance Cash Flow** — replace `baseCash=0` with a real forecast from the `recalculateForecast` function. ⏸ deferred: overlaps the in-flight finance backend work on `feature/controller-finance`.
 - **AI Operations** — replace the `setTimeout` fake "Running" status with real Cloud Run health pings. ⏸ deferred: browser→Cloud Run health pings need an unauthenticated health endpoint + CORS; random errorCount already removed.
 
+## Security Controls (status)
+
+Auditor-facing detail in `docs/SECURITY.md`. Status reflects what is **actually built** — keep it honest; this list is read alongside the security doc by external reviewers.
+
+- ✅ **Strong password policy — client** — min 12 + upper/lower/number/special, live checkmarks on `/reset-password` and the employee Profile "Change Password" card (`src/lib/password-policy.js`, `src/components/PasswordChecklist.jsx`).
+- ⏳ **Strong password policy — server enforcement** — `functions/set-password-policy.js` (Firebase Auth `ENFORCE`) is committed but **NOT yet activated**. Run the one-time script (needs `gcloud` ADC) to switch it on; until then the client rules are advisory only.
+- ✅ **Password reset via Gmail API** — branded link sent from `hr@datalake.sa` via Workspace domain-wide delegation (inbox delivery, SPF/DKIM/DMARC pass), plus a custom in-app `/reset-password` handler (`functions/passwordReset.js`, `src/pages/ResetPassword.jsx`).
+- ✅ **Firestore security rules — payroll segregation of duties** (commit `77431b9`). Resolves the three payroll CAPAs:
+  - **CAPA-PAY-001** — no blanket salary read: `payroll_runs` read restricted to CEO/finance/HR; employees fetch only their own payslip via `listMyPayslips` (caller==subject).
+  - **CAPA-PAY-002** — preparer ≠ approver: finance/HR may only create/edit a DRAFT; **only the CEO** transitions DRAFT→APPROVED.
+  - **CAPA-PAY-003** — immutable approval evidence: per-run evidence rows are CEO-only create, `update/delete: false`.
+- ✅ **Storage rules for approval evidence** — `approval-evidence/**` authenticated read/write, gated by the Firestore evidence rules (`storage.rules`).
+- 🔧 **MFA** — building now. **Not yet enforced** by the platform (only Google-account MFA is requested at onboarding).
+- ❌ **Account lockout / forced first-login password change** — not enforced. Firebase built-in throttling only; the `force_reset` flag is displayed in `/admin/credentials` but not gated at login.
+- ❌ **Penetration test** — not yet conducted.
+- ❌ **ISO 27001 certification** — not yet pursued.
+
 ## Parked (waiting on dependencies)
 
 ### T5: Zoho Invoice Push
