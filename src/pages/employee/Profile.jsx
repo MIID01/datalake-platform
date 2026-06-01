@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, onSnapshot, query, where, getDoc, getDocs, doc, updateDoc, addDoc, serverTimestamp, collectionGroup } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth'
 import { db, auth, storage } from '../../lib/firebase'
-import { Shield, Download, Trash2, Edit2, Loader, Camera, Check, X, AlertCircle } from 'lucide-react'
+import { Shield, Download, Trash2, Edit2, Loader, Camera, Check, X, AlertCircle, KeyRound, Eye, EyeOff } from 'lucide-react'
+import PasswordChecklist from '../../components/PasswordChecklist'
+import { evaluatePassword } from '../../lib/password-policy'
 
 export default function Profile() {
   const [profile, setProfile] = useState({})
@@ -17,6 +20,11 @@ export default function Profile() {
   const [dsrWorking, setDsrWorking] = useState(null)  // 'export' | 'delete' | null
   const [dsrMsg, setDsrMsg] = useState({ kind: '', text: '' })
   const fileInput = useRef(null)
+  // Change-password form (re-auth + updatePassword)
+  const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' })
+  const [pwShow, setPwShow] = useState(false)
+  const [pwSaving, setPwSaving] = useState(false)
+  const [pwMsg, setPwMsg] = useState({ kind: '', text: '' })
 
   useEffect(() => {
     let unsubEmp = () => {}
@@ -369,6 +377,42 @@ export default function Profile() {
     }
   }
 
+  // ── Change Password — re-authenticate then updatePassword ────────
+  // Firebase requires a recent login to change a password, so we re-auth with
+  // the current password first. The new password is enforced both client-side
+  // (live checklist below) and server-side (updatePassword rejects a password
+  // that fails the project policy with auth/password-does-not-meet-requirements).
+  async function handleChangePassword(e) {
+    e.preventDefault()
+    setPwMsg({ kind: '', text: '' })
+    const { current, next, confirm } = pwForm
+    if (!evaluatePassword(next).allMet) {
+      setPwMsg({ kind: 'error', text: 'Your new password does not meet every requirement below.' }); return
+    }
+    if (next !== confirm) {
+      setPwMsg({ kind: 'error', text: 'The new password and confirmation do not match.' }); return
+    }
+    const user = auth.currentUser
+    if (!user?.email) { setPwMsg({ kind: 'error', text: 'You are not signed in. Please sign in again.' }); return }
+    setPwSaving(true)
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, current))
+      await updatePassword(user, next)
+      setPwForm({ current: '', next: '', confirm: '' })
+      setPwMsg({ kind: 'success', text: 'Your password has been updated.' })
+    } catch (err) {
+      const c = String(err?.code || '').toLowerCase()
+      let text = 'Could not change your password. Please try again.'
+      if (c.includes('wrong-password') || c.includes('invalid-credential')) text = 'Your current password is incorrect.'
+      else if (c.includes('weak-password') || c.includes('password-does-not-meet-requirements')) text = 'That password does not meet the security requirements.'
+      else if (c.includes('too-many-requests')) text = 'Too many attempts — please try again in a minute.'
+      else if (c.includes('requires-recent-login')) text = 'For security, please sign out and sign back in, then change your password.'
+      setPwMsg({ kind: 'error', text })
+    } finally {
+      setPwSaving(false)
+    }
+  }
+
   if (error) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
@@ -498,6 +542,60 @@ export default function Profile() {
           </div>
         </div>
       )}
+
+      {/* Change Password */}
+      <div className="profile-section animate-fade-in-up">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <KeyRound size={20} style={{ color: 'var(--text-tertiary)' }} />
+          <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Change Password</h3>
+        </div>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)', marginBottom: 16, lineHeight: 1.6 }}>
+          Choose a strong password that meets every requirement below. You'll need your current password to confirm it's you.
+        </p>
+        <form onSubmit={handleChangePassword} style={{ maxWidth: 380 }}>
+          <div style={{ position: 'relative', marginBottom: 10 }}>
+            <input
+              className="form-input" type={pwShow ? 'text' : 'password'} autoComplete="current-password"
+              placeholder="Current password" value={pwForm.current}
+              onChange={e => setPwForm(f => ({ ...f, current: e.target.value }))}
+              style={{ width: '100%', boxSizing: 'border-box', paddingRight: 40 }}
+            />
+            <button type="button" onClick={() => setPwShow(s => !s)} aria-label={pwShow ? 'Hide passwords' : 'Show passwords'}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, display: 'flex' }}>
+              {pwShow ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <input
+            className="form-input" type={pwShow ? 'text' : 'password'} autoComplete="new-password"
+            placeholder="New password" value={pwForm.next}
+            onChange={e => setPwForm(f => ({ ...f, next: e.target.value }))}
+            style={{ width: '100%', boxSizing: 'border-box', marginBottom: 10 }}
+          />
+          <input
+            className="form-input" type={pwShow ? 'text' : 'password'} autoComplete="new-password"
+            placeholder="Confirm new password" value={pwForm.confirm}
+            onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))}
+            style={{ width: '100%', boxSizing: 'border-box' }}
+          />
+          {pwForm.next !== '' && <PasswordChecklist password={pwForm.next} confirm={pwForm.confirm} />}
+          {pwMsg.text && (
+            <div style={{
+              marginTop: 12, padding: '10px 14px', borderRadius: 8,
+              background: pwMsg.kind === 'error' ? 'rgba(192,57,43,0.10)' : 'rgba(52,191,58,0.10)',
+              border: '1px solid ' + (pwMsg.kind === 'error' ? 'rgba(192,57,43,0.30)' : 'rgba(52,191,58,0.30)'),
+              color: pwMsg.kind === 'error' ? '#C0392B' : '#1f7a2a',
+              fontSize: '0.82rem', display: 'flex', alignItems: 'flex-start', gap: 8,
+            }}>
+              {pwMsg.kind === 'error' ? <AlertCircle size={13} /> : <Check size={13} />}
+              <span>{pwMsg.text}</span>
+            </div>
+          )}
+          <button type="submit" className="btn btn-primary btn-sm" disabled={pwSaving} style={{ marginTop: 14 }}>
+            {pwSaving ? <Loader size={14} className="spin" /> : <KeyRound size={14} />}
+            {pwSaving ? ' Updating…' : ' Update Password'}
+          </button>
+        </form>
+      </div>
 
       {/* PDPL Actions */}
       <div className="profile-section animate-fade-in-up" style={{ background: 'var(--bg-surface)' }}>

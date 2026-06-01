@@ -17,12 +17,12 @@ import { ShieldAlert, Loader, LogOut } from 'lucide-react'
  */
 
 const PUBLIC_PATHS = [
-  '/', '/careers', '/consent/', '/client/scorecard/', '/contract/', '/legal/review/',
+  '/', '/careers', '/reset-password', '/consent/', '/client/scorecard/', '/contract/', '/legal/review/',
   '/client/timesheet/', '/client/sign-timesheet/', '/client/approve-hire/',
 ]
 
 function isPublicPath(path) {
-  if (path === '/' || path === '/careers') return true
+  if (path === '/' || path === '/careers' || path === '/reset-password') return true
   return PUBLIC_PATHS.some(p => p !== '/' && path.startsWith(p))
 }
 

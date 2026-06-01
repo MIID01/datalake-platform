@@ -3,6 +3,7 @@ import LandingPage from './pages/LandingPage'
 import AuthGate from './components/AuthGate'
 import ErrorBoundary from './components/ErrorBoundary'
 import Consent from './pages/Consent'
+import ResetPassword from './pages/ResetPassword'
 
 // Layouts
 import CEOLayout from './layouts/CEOLayout'
@@ -219,6 +220,7 @@ export default function App() {
         <Route path="/contract/:token" element={<ContractAcceptance />} />
 
         {/* Public Pages */}
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/careers" element={<Careers />} />
         <Route path="/consent/:token" element={<Consent />} />
       </Routes>
