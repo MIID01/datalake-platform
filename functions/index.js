@@ -2974,6 +2974,25 @@ exports.generateAndSendPasswordReset = onRequest(
   (req, res) => generateAndSendPasswordResetHandler(req, res),
 );
 
+// ── Reset onboarding (HR/CEO) — flips onboarding_complete back to false
+//    on users + employees so the next sign-in restarts the onboarding gate.
+const { resetOnboardingHandler } = require("./resetOnboarding");
+exports.resetOnboarding = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => resetOnboardingHandler(req, res, hireHelpers),
+);
+
+// ── Auth account audit + provision (HR/CEO) ──
+const { auditAuthAccountsHandler, provisionMissingAuthAccountHandler } = require("./authAccountAudit");
+exports.auditAuthAccounts = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
+  (req, res) => auditAuthAccountsHandler(req, res, hireHelpers),
+);
+exports.provisionMissingAuthAccount = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => provisionMissingAuthAccountHandler(req, res, hireHelpers),
+);
+
 // ── HR Send Email ──
 const { sendHrEmailHandler, listEmailTemplatesHandler } = require("./hrEmail");
 

@@ -140,6 +140,16 @@ export const LIST_EMAIL_TEMPLATES_URL =
 export const GENERATE_PASSWORD_RESET_URL =
   "https://generateandsendpasswordreset-ifzodp5svq-wx.a.run.app";
 
+// Auth account audit + provision (HR/CEO only)
+export const AUDIT_AUTH_ACCOUNTS_URL =
+  "https://auditauthaccounts-ifzodp5svq-wx.a.run.app";
+export const PROVISION_MISSING_AUTH_ACCOUNT_URL =
+  "https://provisionmissingauthaccount-ifzodp5svq-wx.a.run.app";
+
+// Reset onboarding (HR/CEO only)
+export const RESET_ONBOARDING_URL =
+  "https://resetonboarding-ifzodp5svq-wx.a.run.app";
+
 // Multi-Tenant Integration Config (Phase 9)
 export const SAVE_INTEGRATION_CONFIG_URL =
   "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";

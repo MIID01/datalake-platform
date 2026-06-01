@@ -3,6 +3,7 @@ import { auth, db } from '../../lib/firebase'
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, addDoc, query, where, serverTimestamp } from 'firebase/firestore'
 import { Link } from 'react-router-dom'
 import { Users, Shield, Grid3X3, Plus, X, CheckCircle, Loader, AlertTriangle, ScrollText, Search } from 'lucide-react'
+import AuthAccountAudit from '../../components/AuthAccountAudit'
 
 const TABS = [
   { id: 'users', label: 'Users', icon: Users },
@@ -221,6 +222,8 @@ export default function Admin() {
       </Link>
       {error && <div style={{ padding: '10px 16px', background: 'rgba(239,88,41,0.15)', border: '1px solid rgba(239,88,41,0.3)', borderRadius: 8, color: '#fb923c', fontSize: '0.82rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><AlertTriangle size={16} />{error}<button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#fb923c', cursor: 'pointer' }}><X size={14} /></button></div>}
       <div style={s.tabs}>{TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={s.tab(tab === t.id)}><t.icon size={16} />{t.label}</button>)}</div>
+
+      {tab === 'users' && <AuthAccountAudit />}
 
       {tab === 'users' && <div style={s.card}>
         {(() => {

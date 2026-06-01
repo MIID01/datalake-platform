@@ -16,6 +16,7 @@ import SearchablePicker from '../../components/SearchablePicker'
 const STATUS_META = {
   PENDING_EXTRACTION:  { label: 'Extracting…',     color: '#1598CC', bg: 'rgba(21,152,204,0.12)' },
   EXTRACTED:           { label: 'Review needed',   color: '#F39C12', bg: 'rgba(243,156,18,0.12)' },
+  MANUAL_ENTRY:        { label: 'Manual entry',    color: '#9C27B0', bg: 'rgba(156,39,176,0.12)' },
   REVIEWED:            { label: 'HR Reviewed',     color: '#2ECC71', bg: 'rgba(46,204,113,0.12)' },
   EXTRACTION_FAILED:   { label: 'Extraction failed', color: '#C0392B', bg: 'rgba(192,57,43,0.12)' },
   LEGAL_PENDING:       { label: 'With Legal',      color: '#9C27B0', bg: 'rgba(156,39,176,0.15)' },
@@ -264,6 +265,76 @@ export default function HRContracts() {
       showToast('AI extraction re-queued. This may take up to ~3 minutes on cold start.')
     } catch (e) {
       showToast('Re-run failed: ' + e.message, 'error')
+    } finally {
+      setActioning(false)
+    }
+  }
+
+  // Manual Entry — creates a contracts/{auto} doc with no PDF for the
+  // selected employee. Status MANUAL_ENTRY → review form renders with
+  // empty fields → HR types each value → Save Review → syncContractToEmployee
+  // mirrors to the employee record (same path as AI extraction).
+  const handleCreateManual = async () => {
+    if (!selectedEmployeeId) return
+    setActioning(true)
+    try {
+      const emp = employees.find(e => e.id === selectedEmployeeId)
+      if (!emp) throw new Error('Pick the employee first.')
+      const me = auth.currentUser
+      const ref = await addDoc(collection(db, 'contracts'), {
+        upload_mode: 'existing',
+        linked_employee_id: emp.employee_id || emp.id,
+        linked_employee_name: emp.full_name || emp.name || '',
+        linked_employee_email: emp.email || '',
+        employee_id: emp.employee_id || emp.id,
+        contract_extraction_status: 'MANUAL_ENTRY',
+        status: 'MANUAL_ENTRY',
+        contract_extracted_fields: {},
+        manual_entry: true,
+        manual_entry_created_by: me?.email || 'unknown',
+        created_at: serverTimestamp(),
+        uploaded_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+        status_history: arrayUnion({
+          status: 'MANUAL_ENTRY',
+          at: new Date().toISOString(),
+          by: me?.displayName || me?.email || 'unknown',
+          notes: 'Manual entry — no PDF; HR fills fields by hand',
+        }),
+      })
+      setActiveId(ref.id)
+      setSelectedEmployeeId('')
+      showToast(`Manual contract started for ${emp.full_name || emp.id}. Fill the fields below.`)
+    } catch (err) {
+      showToast('Could not create manual contract: ' + err.message, 'error')
+    } finally {
+      setActioning(false)
+    }
+  }
+
+  // Switch a failed-extraction contract into Manual Entry mode so HR can
+  // type the fields by hand without waiting on AI.
+  const handleSwitchToManual = async () => {
+    if (!active) return
+    setActioning(true)
+    try {
+      await updateDoc(doc(db, 'contracts', active.id), {
+        contract_extraction_status: 'MANUAL_ENTRY',
+        status: 'MANUAL_ENTRY',
+        manual_entry: true,
+        manual_entry_switched_at: serverTimestamp(),
+        manual_entry_switched_by: auth.currentUser?.email || 'unknown',
+        updated_at: serverTimestamp(),
+        status_history: arrayUnion({
+          status: 'MANUAL_ENTRY',
+          at: new Date().toISOString(),
+          by: auth.currentUser?.displayName || auth.currentUser?.email || 'unknown',
+          notes: 'Switched from failed extraction to manual entry',
+        }),
+      })
+      showToast('Switched to manual entry. Fill the fields below and Save Review.')
+    } catch (err) {
+      showToast('Switch failed: ' + err.message, 'error')
     } finally {
       setActioning(false)
     }
@@ -531,6 +602,25 @@ export default function HRContracts() {
             <AlertCircle size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{uploadError}
           </div>
         )}
+
+        {/* Manual entry fallback — when AI extraction is broken or there's
+            no PDF at all (backfilling pre-platform employees). Creates a
+            contracts/{auto} row with status MANUAL_ENTRY, no storage path,
+            and routes the operator straight to the review form. */}
+        {uploadMode === 'existing' && selectedEmployeeId && (
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 14px', background: 'rgba(156,39,176,0.08)', border: '1px solid rgba(156,39,176,0.25)', borderRadius: 8 }}>
+            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
+              No PDF? Fill the 15 fields by hand — same Save Review path. Recommended for pre-platform employees while AI extraction is offline.
+            </div>
+            <button
+              onClick={handleCreateManual}
+              disabled={uploading || actioning}
+              style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #9C27B0', background: 'rgba(156,39,176,0.18)', color: '#e9b8f3', fontSize: '0.78rem', fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Pencil size={12} /> Create Manual Entry
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Contracts list ───────────────────────────────── */}
@@ -617,6 +707,19 @@ export default function HRContracts() {
                 {active.extraction_error || active.contract_extraction_error || active.contract_extraction_error_detail || 'No error detail was recorded. Check the Cloud Functions logs for gatekeeperContractExtract.'}
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleSwitchToManual}
+                  disabled={actioning}
+                  style={{
+                    padding: '7px 14px', borderRadius: 8,
+                    border: '1px solid #9C27B0', background: 'rgba(156,39,176,0.18)',
+                    color: '#e9b8f3', cursor: actioning ? 'not-allowed' : 'pointer',
+                    fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 700,
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <Pencil size={12} /> Switch to Manual Entry
+                </button>
                 <button
                   onClick={handleRerunAi}
                   disabled={actioning}

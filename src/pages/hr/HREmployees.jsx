@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
-import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, CheckCircle, Trash2, Edit2, Send, Archive, UserMinus, Eye } from 'lucide-react'
+import { auth, db, RESET_ONBOARDING_URL } from '../../lib/firebase'
+import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, CheckCircle, Trash2, Edit2, Send, Archive, UserMinus, Eye, RefreshCcw } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import AddEmployeeModal from '../../components/AddEmployeeModal'
 import OnboardingDetailModal from '../../components/OnboardingDetailModal'
@@ -32,6 +32,8 @@ export default function HREmployees() {
   const [viewEmployee, setViewEmployee] = useState(null)
   const [consentEmployee, setConsentEmployee] = useState(null)  // → OnboardingDetailModal
   const [emailEmployee, setEmailEmployee] = useState(null)       // → SendEmailModal
+  const [resetTarget, setResetTarget] = useState(null)           // → confirm modal
+  const [resetting, setResetting] = useState(false)
   const [toast, setToast] = useState(null)
   
   const location = useLocation()
@@ -222,6 +224,9 @@ export default function HREmployees() {
                           <button onClick={() => setEmailEmployee(e)} className="btn-action" title="Send email">
                             <Mail size={12} /> Email
                           </button>
+                          <button onClick={() => setResetTarget(e)} className="btn-action" title="Reset onboarding — next sign-in restarts the PDPL + policies flow" style={{ background: 'rgba(243,156,18,0.10)', color: '#F39C12', border: '1px solid rgba(243,156,18,0.3)' }}>
+                            <RefreshCcw size={12} /> Reset onboarding
+                          </button>
                           <button onClick={() => setEditEmployee(e)} className="btn-action" title="Edit">
                             <Edit2 size={12} /> Edit
                           </button>
@@ -232,6 +237,9 @@ export default function HREmployees() {
                         <>
                           <button onClick={() => setEmailEmployee(e)} className="btn-action" title="Send welcome / credentials">
                             <Mail size={12} /> Email
+                          </button>
+                          <button onClick={() => setResetTarget(e)} className="btn-action" title="Reset onboarding" style={{ background: 'rgba(243,156,18,0.10)', color: '#F39C12', border: '1px solid rgba(243,156,18,0.3)' }}>
+                            <RefreshCcw size={12} /> Reset onboarding
                           </button>
                           <button onClick={() => handleSendLink(e.email)} className="btn-action" title="Send Link">
                             <Send size={12} /> Send Link
@@ -288,6 +296,55 @@ export default function HREmployees() {
             setTimeout(() => setToast(null), 4000)
           }}
         />
+      )}
+
+      {resetTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }} onClick={() => !resetting && setResetTarget(null)}>
+          <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--bg-surface, #fff)', borderRadius: 12, padding: 22, width: 460, maxWidth: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <RefreshCcw size={18} color="#F39C12" />
+              <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 700 }}>Reset onboarding?</h3>
+            </div>
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              This clears <strong>onboarding_complete</strong>, <strong>pdpl_consent</strong>, and training/contract flags
+              for <strong>{resetTarget.full_name || resetTarget.email}</strong>.
+              The next time they sign in, the full PDPL + policies onboarding flow restarts.
+            </p>
+            <p style={{ fontSize: '0.76rem', color: 'var(--text-tertiary)', marginTop: 8 }}>
+              Historical acknowledgment records are kept for audit — only the gating flags are reset.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+              <button onClick={() => !resetting && setResetTarget(null)} style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid var(--border-primary, #E5E7EB)', background: 'transparent', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.84rem', fontFamily: 'inherit', cursor: 'pointer' }}>Cancel</button>
+              <button
+                onClick={async () => {
+                  setResetting(true)
+                  try {
+                    const me = auth.currentUser
+                    const idToken = await me.getIdToken()
+                    const res = await fetch(RESET_ONBOARDING_URL, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+                      body: JSON.stringify({ employee_id: resetTarget.employee_id || resetTarget.id, email: resetTarget.email }),
+                    })
+                    const data = await res.json().catch(() => ({}))
+                    if (!res.ok) throw new Error(data.error || `Reset failed (${res.status})`)
+                    setToast(`Onboarding reset for ${resetTarget.full_name || resetTarget.email}`)
+                    setTimeout(() => setToast(null), 4000)
+                    setResetTarget(null)
+                  } catch (err) {
+                    setError(err.message)
+                  } finally {
+                    setResetting(false)
+                  }
+                }}
+                disabled={resetting}
+                style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#F39C12', color: '#fff', fontWeight: 700, fontSize: '0.84rem', fontFamily: 'inherit', cursor: resetting ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                {resetting ? <Loader size={13} className="spin" /> : <RefreshCcw size={13} />} Reset onboarding
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <style>{`
