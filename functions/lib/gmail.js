@@ -1,10 +1,12 @@
 const { google } = require("googleapis");
 
 const SA_EMAIL = "808056940626-compute@developer.gserviceaccount.com";
-// Workspace alias hr@datalake.sa is the shared HR mailbox. Replies route
-// to the HR team; the alias is set up under m.alqumri@datalake.sa, so
-// domain-wide delegation impersonates hr@datalake.sa directly.
-const SUBJECT = "hr@datalake.sa";
+// TEMPORARY (2026-06-01): hr@datalake.sa Workspace alias is not yet
+// provisioned, so DWD impersonation of hr@ fails. Reverted to
+// m.alqumri@datalake.sa to unblock outbound mail. Flip both SUBJECT and
+// the From/userId below back to hr@datalake.sa as soon as the alias
+// exists.
+const SUBJECT = "m.alqumri@datalake.sa";
 const SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 async function getGmailClient() {
@@ -77,7 +79,7 @@ async function sendEmailRaw(gmail, to, subject, bodyText) {
   const dateStr = new Date().toUTCString();
 
   const lines = [
-    `From: Datalake HR <hr@datalake.sa>`,
+    `From: Datalake HR <m.alqumri@datalake.sa>`,
     `To: ${to}`,
     `Subject: ${mimeEncodeSubject(subject)}`,
     `Message-ID: ${messageId}`,
@@ -102,7 +104,7 @@ async function sendEmailRaw(gmail, to, subject, bodyText) {
   
   const raw = Buffer.from(lines.join("\r\n")).toString("base64url");
   const result = await gmail.users.messages.send({
-    userId: "hr@datalake.sa",
+    userId: "m.alqumri@datalake.sa",
     requestBody: { raw },
   });
   console.log("[gmail] Email sent successfully, messageId:", result.data.id);
