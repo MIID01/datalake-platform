@@ -2967,6 +2967,13 @@ exports.listMyPayslips = onRequest(
   (req, res) => listMyPayslipsHandler(req, res),
 );
 
+// ── Password reset (Gmail DWD path, bypasses Firebase default sender) ──
+const { generateAndSendPasswordResetHandler } = require("./passwordReset");
+exports.generateAndSendPasswordReset = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
+  (req, res) => generateAndSendPasswordResetHandler(req, res),
+);
+
 // ── HR Send Email ──
 const { sendHrEmailHandler, listEmailTemplatesHandler } = require("./hrEmail");
 

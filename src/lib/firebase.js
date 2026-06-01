@@ -136,6 +136,10 @@ export const SEND_HR_EMAIL_URL =
 export const LIST_EMAIL_TEMPLATES_URL =
   "https://listemailtemplates-ifzodp5svq-wx.a.run.app";
 
+// Password reset (Gmail-DWD, replaces Firebase's default sender)
+export const GENERATE_PASSWORD_RESET_URL =
+  "https://generateandsendpasswordreset-ifzodp5svq-wx.a.run.app";
+
 // Multi-Tenant Integration Config (Phase 9)
 export const SAVE_INTEGRATION_CONFIG_URL =
   "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";

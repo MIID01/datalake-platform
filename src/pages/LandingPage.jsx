@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { auth } from '../lib/firebase'
-import { signInWithEmail, sendPasswordReset, resolveUserRole, signOut, CEO_EMAIL } from '../lib/auth'
+import { auth, GENERATE_PASSWORD_RESET_URL } from '../lib/firebase'
+import { signInWithEmail, resolveUserRole, signOut, CEO_EMAIL } from '../lib/auth'
 import { homePathForRole } from '../lib/routes'
 import { LogIn, Mail, Lock, AlertTriangle, LogOut } from 'lucide-react'
 import '../styles/ceo.css'
@@ -78,10 +78,19 @@ export default function LandingPage() {
     setNotice('')
     if (!email) { setAuthError('Enter your email above first, then click "Forgot password?".'); return }
     try {
-      await sendPasswordReset(email)
-      setNotice(`If an account exists for ${email}, a password reset link has been sent. Check your inbox (and spam).`)
+      // Bypass Firebase's default sender (which gets spam-filtered) — call
+      // our own Gmail-DWD endpoint so the reset link arrives from a real
+      // @datalake.sa mailbox.
+      await fetch(GENERATE_PASSWORD_RESET_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      })
+      // Always show a generic success so attackers can't enumerate accounts.
+      setNotice(`If an account exists for ${email}, a password reset link has been sent. Check your inbox.`)
     } catch (err) {
-      setAuthError(friendlyAuthError(err))
+      // Generic friendly message — never expose the underlying network error.
+      setNotice(`If an account exists for ${email}, a password reset link has been sent. Check your inbox.`)
     }
   }
 
