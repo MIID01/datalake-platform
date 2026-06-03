@@ -1423,6 +1423,7 @@ async function checkOnboardingTrainingGate(email) {
     blocked: missingPolicies.length > 0 || missingModules.length > 0,
     missingPolicies,
     missingModules,
+    effectiveDate: eff ? eff.toISOString() : null,
   };
 }
 
@@ -1459,16 +1460,23 @@ exports.submitTimesheet = onRequest(
         if (gate.missingModules.length) parts.push(`complete required training (${gate.missingModules.join(", ")})`);
         const reason = `Timesheet submission blocked — you must first ${parts.join(" and ")}.`;
         try {
-          const { logToBigQuery } = require("./lib/bigquery");
-          await logToBigQuery("datalake_audit", "control_events", {
-            control: "ONBOARDING_TRAINING_GATE",
-            result: "BLOCKED",
-            employee_email: decodedToken.email,
-            missing_policies: gate.missingPolicies,
+          // Insert directly (not via logToBigQuery, which JSON-stringifies arrays)
+          // to match the existing datalake_audit.control_events schema:
+          // missing_modules is REPEATED STRING; missing_onboarding is BOOLEAN.
+          const { BigQuery } = require("@google-cloud/bigquery");
+          await new BigQuery().dataset("datalake_audit").table("control_events").insert([{
+            event_id: require("crypto").randomUUID(),
+            control_name: "ONBOARDING_TRAINING_GATE",
+            outcome: "BLOCKED",
+            actor_email: decodedToken.email,
+            actor_uid: decodedToken.uid || null,
+            missing_onboarding: gate.missingPolicies.length > 0,
             missing_modules: gate.missingModules,
+            gate_enabled: true,
+            effective_date: gate.effectiveDate || null,
             timestamp: new Date(),
-          });
-        } catch { /* best-effort audit — never block on the log */ }
+          }]);
+        } catch (e) { console.error("[gate] control_events audit insert failed:", e.message); }
         res.status(403).json({ error: reason, missing_policies: gate.missingPolicies, missing_modules: gate.missingModules });
         return;
       }
