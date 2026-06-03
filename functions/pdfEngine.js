@@ -272,9 +272,9 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       const consentIp = userData.pdpl_consent_ip || userData.last_login_ip || "not captured (network policy)";
       const fullName = emp.full_name || emp.name || userData.display_name || docId;
 
-      doc.fontSize(18).fillColor(primaryColor).text("PDPL Consent Certificate", { align: 'center' });
+      doc.fontSize(18).fillColor(primaryColor).text("Policy Acknowledgment & Privacy Notice Receipt", { align: 'center' });
       doc.moveDown(0.4);
-      doc.fontSize(10).fillColor('#555').text("Saudi Personal Data Protection Law (PDPL) — Article 5 record of consent", { align: 'center' });
+      doc.fontSize(10).fillColor('#555').text("Employee record of policy acknowledgment under the PDPL — lawful basis: employment contract + legal obligation (Labour Law / GOSI / WPS / ZATCA), not consent", { align: 'center' });
       doc.moveDown(1.2);
 
       doc.fontSize(12).fillColor('black')
@@ -283,7 +283,7 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
         .text(`Email:              ${emp.email || userData.email || '—'}`)
         .text(`Job Title:          ${emp.job_title || '—'}`)
         .moveDown(0.6)
-        .text(`Consent state:      ${consentState}`)
+        .text(`Acknowledgment:     ${consentState}`)
         .text(`Granted at:         ${consentAt && consentAt.toDate ? consentAt.toDate().toISOString() : (consentAt || '—')}`)
         .text(`From IP address:    ${consentIp}`)
         .text(`Captured on:        Datalake Platform (datalake.sa)`);
@@ -297,15 +297,16 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       } else {
         for (const a of acks) {
           const item = a.policy_name || a.policy_id || a.item_id || a.id;
-          const atRaw = a.acknowledged_at || a.completed_at;
+          const ver = a.policy_version ? ` (v${a.policy_version})` : '';
+          const atRaw = a.granted_at || a.acknowledged_at || a.completed_at;
           const at = atRaw && atRaw.toDate ? atRaw.toDate().toISOString() : (atRaw || '—');
           const by = a.acknowledged_by || a.employee_email || '—';
           const ip = a.ip_address || '—';
           doc.fontSize(11).fillColor('black')
-            .text(`  • ${item}`)
+            .text(`  • ${item}${ver}`)
             .fillColor('#555').fontSize(10)
             .text(`     acknowledged_by: ${by}`)
-            .text(`     at:              ${at}`)
+            .text(`     granted_at:      ${at}`)
             .text(`     ip_address:      ${ip}`)
             .moveDown(0.3)
             .fillColor('black');
@@ -314,9 +315,9 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
 
       doc.moveDown(1);
       doc.fontSize(9).fillColor('#666').text(
-        "This certificate is generated from the Datalake platform's onboarding ledger at the moment of download. " +
-        "Consent rows are stored append-only at employees/{employee_id}/onboarding_evidence/ and cannot be backdated. " +
-        "If this employee has not actually clicked through the four onboarding policies, the Consent state will be NOT_GRANTED.",
+        "This receipt is generated from the Datalake platform's onboarding ledger at the moment of download. " +
+        "Acknowledgment rows are stored at employees/{employee_id}/onboarding_evidence/ with a server timestamp and the policy version acknowledged, and cannot be backdated. " +
+        "If this employee has not acknowledged the current version of all onboarding policies, the status above will not be GRANTED.",
         { align: 'justify' }
       );
     } else {

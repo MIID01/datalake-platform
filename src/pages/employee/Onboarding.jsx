@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { auth, db } from '../../lib/firebase'
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore'
 import { ChevronDown, CheckCircle, Lock, ShieldCheck } from 'lucide-react'
+import { getPolicyRegistry } from '../../lib/policies'
 
 // Error boundary so a crash never shows a white page
 class OnboardingErrorBoundary extends Component {
@@ -95,11 +96,11 @@ const ITEMS = [
   },
   {
     item_id: 'pdpl_consent',
-    title: 'Consent to Personal Data Processing (PDPL Article 5)',
-    ack: `I freely and explicitly consent to the processing of my personal data by Datalake Saudi Arabia LLC for the purposes described above, pursuant to PDPL Article 5. I understand that I may withdraw this consent at any time.`,
+    title: 'Privacy Notice — Personal Data Processing (PDPL)',
+    ack: `I acknowledge that I have received and read this Privacy Notice describing how Datalake Saudi Arabia LLC processes my personal data. I understand this processing is necessary for the performance of my employment contract and the Company's legal obligations (Saudi Labour Law, GOSI, WPS, ZATCA), and is not based on consent.`,
     blocks: [
-      { h: `Consent Form — Personal Data Processing` },
-      { p: `Pursuant to the Saudi Personal Data Protection Law (PDPL), Datalake Saudi Arabia LLC requests your explicit consent for the processing of your personal data.` },
+      { h: `Privacy Notice — Personal Data Processing` },
+      { p: `Pursuant to the Saudi Personal Data Protection Law (PDPL), this notice informs you how Datalake Saudi Arabia LLC processes your personal data. As an employee, this processing is necessary for your employment contract and the Company's legal obligations; your acknowledgment below confirms you have received and read this notice — it is not a consent.` },
       { p: `Data Controller: Datalake Saudi Arabia LLC (شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات), CR: 1009194773, NUN: 7048904952, Riyadh Al-Yarmouk 13243` },
       { h: `Categories of personal data processed:` },
       { ul: [
@@ -118,10 +119,10 @@ const ITEMS = [
         `Regulatory compliance (MHRSD, ZATCA, NCA, PDPL)`,
         `Internal audit and compliance monitoring`,
       ] },
-      { p: `Lawful basis: Your consent (PDPL Article 5) and contractual necessity (employment contract)` },
+      { p: `Lawful basis: Performance of your employment contract and compliance with the Company's legal obligations under Saudi Labour Law, GOSI, the Wage Protection System (WPS), and ZATCA. Not based on consent.` },
       { p: `Data storage: Google Cloud Platform, me-central2 region (Dammam, Saudi Arabia). No cross-border transfer.` },
       { p: `Retention period: Duration of employment plus 10 years for financial/regulatory records; 2 years minimum for employment records after termination.` },
-      { p: `Your right to withdraw: You may withdraw this consent at any time by contacting m.alqumri@datalake.sa. Withdrawal does not affect the lawfulness of processing performed before withdrawal. Note: withdrawal of consent may affect the Company's ability to fulfill its employment obligations.` },
+      { p: `Your PDPL rights: You may request access to or correction of your personal data by contacting m.alqumri@datalake.sa. Because this processing is necessary for your employment contract and the Company's legal obligations, it is not based on consent and is not subject to withdrawal — your statutory PDPL rights nonetheless continue to apply.` },
     ],
   },
   {
@@ -341,16 +342,24 @@ function OnboardingInner() {
       // Shape matches the platform spec: { policy_id, policy_name, acknowledged_at,
       // ip_address, user_agent }. Append-only — these rows back the
       // PDPL Consent Certificate the CEO downloads for SDAIA audits.
+      // Version-pin each acknowledgment against the current policy registry, so
+      // the HR register + the timesheet gate can tell who acknowledged the
+      // CURRENT versions. merge:true so a re-acknowledgment after a version bump
+      // updates the existing row in place.
+      const registry = await getPolicyRegistry()
+      const versionOf = (id) => (registry.find(p => p.id === id)?.version || null)
       await Promise.all(ITEMS.map(it =>
         setDoc(doc(db, 'employees', profile.emp_id, 'onboarding_evidence', it.item_id), {
           policy_id: it.item_id,
           policy_name: it.title,
+          policy_version: versionOf(it.item_id),
+          granted_at: serverTimestamp(),
           acknowledged_at: serverTimestamp(),
           ip_address: consentIp,
           user_agent: userAgent,
           acknowledged_by: profile.email,
           employee_email: profile.email,
-        })
+        }, { merge: true })
       ))
       // Flip the gate flag on the user's own record (AuthGate reads this).
       await updateDoc(doc(db, 'users', profile.docId), {
@@ -409,8 +418,11 @@ function OnboardingInner() {
       <main style={{ maxWidth: 820, margin: '0 auto', padding: '28px 16px 64px' }}>
         <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: NAVY, margin: '0 0 4px' }}>Welcome to Datalake</h1>
         <p style={{ color: '#475569', margin: '0 0 4px' }}>{profile.name}</p>
-        <p style={{ color: '#64748b', fontSize: '0.9rem', margin: '0 0 20px' }}>
-          Please read and acknowledge all four policies below to activate your account.
+        <p style={{ color: NAVY, fontSize: '0.95rem', margin: '0 0 6px', fontWeight: 700 }}>
+          Policy Acknowledgment &amp; Privacy Notice Receipt
+        </p>
+        <p style={{ color: '#64748b', fontSize: '0.9rem', margin: '0 0 20px', lineHeight: 1.6 }}>
+          Please read and acknowledge all four items below to activate your account. Datalake processes your personal data on the lawful basis of your <strong>employment contract</strong> and the Company&apos;s <strong>legal obligations</strong> (Saudi Labour Law, GOSI, WPS, ZATCA) — this is an acknowledgment of receipt, not a consent.
         </p>
 
         {/* Progress */}

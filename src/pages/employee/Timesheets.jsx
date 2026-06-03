@@ -1,8 +1,10 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Upload, Calendar, Clock, CheckCircle, XCircle, Plus, FileText, ChevronLeft, ChevronRight, User, Mail, ArrowRight, Briefcase, MapPin, Send, AlertTriangle, Loader, Shield } from 'lucide-react'
 import { auth, GET_ENGINEER_PROJECT_VIEW_URL, SUBMIT_TIMESHEET_URL, GET_MY_TIMESHEETS_URL, EXTRACT_TIMESHEET_URL } from '../../lib/firebase'
+import { Link } from 'react-router-dom'
 import { onAuthChange } from '../../lib/auth'
 import { getOrdinal } from '../../lib/utils'
+import { getChainGateStatus } from '../../lib/policies'
 
 const stateColors = {
   SUBMITTED: { label: 'Submitted', cls: 'badge-info' },
@@ -76,6 +78,7 @@ export default function Timesheets() {
   const [extracting, setExtracting] = useState(false)
   const [submitResult, setSubmitResult] = useState(null)
   const [error, setError] = useState(null)
+  const [gate, setGate] = useState({ active: false, onboardingComplete: true, trainingComplete: true, missingPolicies: [], missingModules: [] })
   const totalHours = myTimesheets.filter(t => t.state === 'CLIENT_SIGNED' || t.state === 'CTO_APPROVED').reduce((s, t) => s + (t.total_hours || 0), 0)
 
   // Fetch submission history from Cloud Function (no direct Firestore access)
@@ -143,6 +146,9 @@ export default function Timesheets() {
   useEffect(() => {
     const unsub = onAuthChange(async (user) => {
       if (!user) { setLiveProjects([]); setProjectsLoading(false); return }
+      // Mirror the server submitTimesheet gate so the portal shows the locked
+      // state (no silent failure). No-ops to "unlocked" when the flag is off.
+      getChainGateStatus(user.email).then(setGate).catch(() => {})
       try {
         const idToken = await user.getIdToken()
         const res = await fetch(GET_ENGINEER_PROJECT_VIEW_URL, {
@@ -249,6 +255,8 @@ export default function Timesheets() {
     )
   }
 
+  const chainLocked = gate.active && (!gate.onboardingComplete || !gate.trainingComplete)
+
   return (
     <div style={{ paddingBottom: 60, position: 'relative', minHeight: '100%' }}>
       <div className="flex-between" style={{ marginBottom: 24 }}>
@@ -259,15 +267,31 @@ export default function Timesheets() {
           </p>
         </div>
         <button
-          className={`btn ${hasProject ? 'btn-primary' : 'btn-ghost'}`}
-          onClick={() => hasProject && setShowForm(!showForm)}
-          disabled={!hasProject}
-          style={!hasProject ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
-          title={!hasProject ? 'No project assigned' : ''}
+          className={`btn ${hasProject && !chainLocked ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => hasProject && !chainLocked && setShowForm(!showForm)}
+          disabled={!hasProject || chainLocked}
+          style={(!hasProject || chainLocked) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+          title={chainLocked ? 'Complete onboarding & training first' : (!hasProject ? 'No project assigned' : '')}
         >
           <Plus size={16} /> New Timesheet
         </button>
       </div>
+
+      {/* ── Onboarding → training → timesheet chain lock (feature-flagged) ── */}
+      {chainLocked && (
+        <div style={{ padding: '14px 20px', borderRadius: 'var(--radius-md)', background: 'rgba(192,57,43,0.10)', border: '1px solid #C0392B', marginBottom: 20, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <Shield size={18} style={{ color: '#C0392B', marginTop: 2, flexShrink: 0 }} />
+          <div style={{ fontSize: '0.86rem', lineHeight: 1.6 }}>
+            <strong style={{ color: '#C0392B' }}>Complete onboarding &amp; training first</strong>
+            <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
+              Timesheet submission is locked until you finish
+              {!gate.onboardingComplete && <> <Link to="/employee/onboarding" style={{ color: '#1598CC', fontWeight: 600 }}>policy acknowledgment</Link>{gate.missingPolicies.length ? ` (${gate.missingPolicies.join(', ')})` : ''}</>}
+              {!gate.onboardingComplete && !gate.trainingComplete && ' and'}
+              {!gate.trainingComplete && <> <Link to="/employee/training" style={{ color: '#1598CC', fontWeight: 600 }}>required training</Link>{gate.missingModules.length ? ` (${gate.missingModules.join(', ')})` : ''}</>}.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Late warning banner — does NOT block submission ── */}
       {isLate && (
@@ -304,7 +328,7 @@ export default function Timesheets() {
       )}
 
       {/* Submission Form */}
-      {showForm && hasProject && (
+      {showForm && hasProject && !chainLocked && (
         <div className="card animate-fade-in-up" style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
             <button className={`btn btn-sm ${method === 'manual' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMethod('manual')}>

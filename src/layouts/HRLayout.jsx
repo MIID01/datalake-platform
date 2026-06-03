@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
-import { ClipboardCheck, FileText, LogOut, ChevronLeft, ChevronRight, Scale, Shield } from 'lucide-react'
+import { ClipboardCheck, FileText, LogOut, ChevronLeft, ChevronRight, Scale, Shield, ShieldCheck } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
@@ -10,6 +10,7 @@ import { Users, Briefcase } from 'lucide-react'
 const navItems = [
   { icon: Users, label: 'Talent Pool', path: '/hr', end: true },
   { icon: Users, label: 'Employee Directory', path: '/hr/employees' },
+  { icon: ShieldCheck, label: 'Acknowledgments', path: '/hr/acknowledgments' },
   { icon: Scale, label: 'Contracts', path: '/hr/contracts' },
   { icon: Shield, label: 'Iqama Lifecycle', path: '/hr/iqama' },
   { icon: ClipboardCheck, label: 'Interview Scoring', path: '/hr/scoring' },

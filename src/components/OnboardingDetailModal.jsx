@@ -14,8 +14,8 @@ import {
 //   - users-side consent state (pdpl_consent_state, IP, UA, timestamp)
 //   - the onboarding_evidence subcollection rows (one per policy acknowledgment)
 // What it does:
-//   - Download PDPL Consent Certificate as PDF (calls /generatePDF with
-//     template=pdpl_consent, docId=employee_id)
+//   - Download Policy Acknowledgment & Privacy Notice Receipt as PDF (calls
+//     /generatePDF with template=pdpl_consent, docId=employee_id)
 
 function fmtTs(ts) {
   if (!ts) return '—'
@@ -235,7 +235,7 @@ export default function OnboardingDetailModal({ employee, onClose }) {
               }}
             >
               {downloading ? <Loader size={13} className="spin" /> : <Download size={13} />}
-              {downloading ? 'Generating…' : 'Download PDPL Consent Certificate'}
+              {downloading ? 'Generating…' : 'Download Acknowledgment Receipt'}
             </button>
           </div>
         </div>

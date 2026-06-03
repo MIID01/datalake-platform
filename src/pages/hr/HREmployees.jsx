@@ -213,8 +213,8 @@ export default function HREmployees() {
                   </td>
                   <td style={{ padding: '16px 20px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 340, marginLeft: 'auto' }}>
-                      <button onClick={() => setConsentEmployee(e)} className="btn-action" title="Onboarding status + PDPL consent certificate" style={{ background: 'rgba(21,152,204,0.1)', color: '#1598CC', border: '1px solid rgba(21,152,204,0.3)' }}>
-                        <ShieldCheck size={12} /> Consent
+                      <button onClick={() => setConsentEmployee(e)} className="btn-action" title="Onboarding status + Policy Acknowledgment Receipt" style={{ background: 'rgba(21,152,204,0.1)', color: '#1598CC', border: '1px solid rgba(21,152,204,0.3)' }}>
+                        <ShieldCheck size={12} /> Acknowledgment
                       </button>
                       {isActive && (
                         <>

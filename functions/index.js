@@ -1347,6 +1347,85 @@ exports.getEngineerProjectView = onRequest(
 // Engineer submits monthly timesheet for a project
 // Enforces 18th-25th submission window (Riyadh time)
 // ============================================================
+// Default onboarding policy registry — mirror of src/lib/policies.js. Functions
+// can't import src/, so the canonical versions live in Firestore
+// (platform_settings/policy_registry); this is the fallback.
+const GATE_DEFAULT_POLICIES = [
+  { id: "privacy_policy", version: "1.0", title: "Privacy Policy — Data Processing Notice" },
+  { id: "pdpl_consent", version: "1.0", title: "Privacy Notice — Personal Data Processing" },
+  { id: "code_of_conduct", version: "1.0", title: "Employee Code of Conduct" },
+  { id: "infosec_awareness", version: "1.0", title: "Information Security Awareness (NCA ECC)" },
+];
+
+// Hard onboarding → training → timesheet gate. Feature-flagged via
+// platform_settings/timesheet_gate { enabled, effective_date } so it only
+// enforces after existing employees are backfilled. Returns active=false (skip)
+// when the flag is off / before the effective date — never blocks in-flight
+// billing until the CEO switches it on. When active, computes the same
+// version-pinned acknowledgment "Completed" the HR register uses, plus mandatory
+// training completion.
+async function checkOnboardingTrainingGate(email) {
+  let gate = {};
+  try {
+    const gd = await db.collection("platform_settings").doc("timesheet_gate").get();
+    gate = gd.exists ? gd.data() : {};
+  } catch { gate = {}; }
+  const eff = gate.effective_date
+    ? (gate.effective_date.toDate ? gate.effective_date.toDate() : new Date(gate.effective_date))
+    : null;
+  const active = gate.enabled === true && (!eff || Date.now() >= eff.getTime());
+  if (!active) return { active: false, blocked: false, missingPolicies: [], missingModules: [] };
+
+  const cleanEmail = String(email || "").toLowerCase();
+
+  // onboarding_evidence lives under employees/{empId}
+  let empId = null;
+  try {
+    const eq = await db.collection("employees").where("email", "==", cleanEmail).limit(1).get();
+    if (!eq.empty) empId = eq.docs[0].id;
+  } catch { /* */ }
+
+  let registry = GATE_DEFAULT_POLICIES;
+  try {
+    const pr = await db.collection("platform_settings").doc("policy_registry").get();
+    const pols = pr.exists ? pr.data().policies : null;
+    if (Array.isArray(pols) && pols.length) {
+      registry = pols.map(p => ({ id: p.id, version: p.version, title: p.title || p.id }));
+    }
+  } catch { /* */ }
+
+  let evidence = [];
+  if (empId) {
+    try {
+      const evSnap = await db.collection("employees").doc(empId).collection("onboarding_evidence").get();
+      evidence = evSnap.docs.map(d => d.data());
+    } catch { /* */ }
+  }
+  const missingPolicies = registry.filter(p => {
+    const row = evidence.find(r => (r.policy_id || r.id) === p.id);
+    return !row || String(row.policy_version || "") !== String(p.version);
+  }).map(p => p.title || p.id);
+
+  let missingModules = [];
+  try {
+    const [modSnap, compSnap] = await Promise.all([
+      db.collection("training_modules").where("mandatory", "==", true).get(),
+      db.collection("training_completions").where("engineer_email", "==", cleanEmail).get(),
+    ]);
+    const done = new Set(compSnap.docs.map(d => d.data().module_id));
+    missingModules = modSnap.docs
+      .filter(d => !done.has(d.data().module_id || d.id))
+      .map(d => d.data().title || d.data().module_id || d.id);
+  } catch { /* */ }
+
+  return {
+    active: true,
+    blocked: missingPolicies.length > 0 || missingModules.length > 0,
+    missingPolicies,
+    missingModules,
+  };
+}
+
 exports.submitTimesheet = onRequest(
   { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   async (req, res) => {
@@ -1371,6 +1450,28 @@ exports.submitTimesheet = onRequest(
     try {
       const { project_id, period_month, period_year, days } = req.body;
       if (!project_id || !period_month || !period_year || !days) { res.status(400).json({ error: "Missing required fields" }); return; }
+
+      // ── Hard onboarding → training → timesheet gate (feature-flagged) ──
+      const gate = await checkOnboardingTrainingGate(decodedToken.email);
+      if (gate.blocked) {
+        const parts = [];
+        if (gate.missingPolicies.length) parts.push(`acknowledge the current policies (${gate.missingPolicies.join(", ")})`);
+        if (gate.missingModules.length) parts.push(`complete required training (${gate.missingModules.join(", ")})`);
+        const reason = `Timesheet submission blocked — you must first ${parts.join(" and ")}.`;
+        try {
+          const { logToBigQuery } = require("./lib/bigquery");
+          await logToBigQuery("datalake_audit", "control_events", {
+            control: "ONBOARDING_TRAINING_GATE",
+            result: "BLOCKED",
+            employee_email: decodedToken.email,
+            missing_policies: gate.missingPolicies,
+            missing_modules: gate.missingModules,
+            timestamp: new Date(),
+          });
+        } catch { /* best-effort audit — never block on the log */ }
+        res.status(403).json({ error: reason, missing_policies: gate.missingPolicies, missing_modules: gate.missingModules });
+        return;
+      }
 
       // Enforce 1st-28th window (widened for testing — original: 18th-25th)
       const now = new Date();

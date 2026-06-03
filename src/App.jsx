@@ -77,6 +77,7 @@ import HRJobListings from './pages/hr/HRJobListings'
 import HREmployees from './pages/hr/HREmployees'
 import HRContracts from './pages/hr/HRContracts'
 import HRIqama from './pages/hr/HRIqama'
+import HRAcknowledgments from './pages/hr/HRAcknowledgments'
 
 // CRM
 import CRMLayout from './layouts/CRMLayout'
@@ -197,6 +198,7 @@ export default function App() {
         <Route path="/hr" element={<HRLayout />}>
           <Route index element={<HRTalentPool />} />
           <Route path="employees" element={<HREmployees />} />
+          <Route path="acknowledgments" element={<HRAcknowledgments />} />
           <Route path="contracts" element={<HRContracts />} />
           <Route path="iqama" element={<HRIqama />} />
           <Route path="scoring" element={<HRScoring />} />
