@@ -13,6 +13,14 @@ import '../styles/ceo.css'
 // account; a GUID locks it to Datalake only.)
 const MICROSOFT_TENANT_ID = 'REPLACE_WITH_ENTRA_TENANT_ID'
 
+// SSO buttons render ONLY when this build flag is true. The Firebase
+// Google/Microsoft providers must be enabled in the console first — otherwise
+// clicking throws "Sign-in failed" for live users. The public landing page
+// can't read Firestore (unauthenticated), so this is a build/env flag (set
+// VITE_SSO_ENABLED=true at build time), not a platform_settings doc. Default:
+// hidden → email/password only.
+const SSO_ENABLED = import.meta.env.VITE_SSO_ENABLED === 'true'
+
 // Translate Firebase Auth errors into language a non-engineer can read.
 // We never expose raw Firebase: codes to end users — they look like bugs.
 function friendlyAuthError(err) {
@@ -193,6 +201,7 @@ export default function LandingPage() {
           </button>
         </form>
 
+        {SSO_ENABLED && (<>
         {/* Divider */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 16px' }}>
           <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.12)' }} />
@@ -217,6 +226,7 @@ export default function LandingPage() {
             Continue with Microsoft
           </button>
         </div>
+        </>)}
 
         {authError && (
           <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(192,57,43,0.15)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 8, color: '#ff6b6b', fontSize: '0.82rem' }}>
