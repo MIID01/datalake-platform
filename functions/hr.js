@@ -129,46 +129,43 @@ async function scanContractExpiryHandler() {
   }
 }
 
-// 4. validateHireBudget (Firestore Trigger: onDocumentCreated("hire_requests/{docId}"))
+// 4. validateHireBudget (Firestore Trigger: onDocumentCreated("pending_hires/{hireId}"))
+// Defence-in-depth backstop to the synchronous gate in initiateHire: if an
+// over-PO hire is created by any path that bypasses that gate, mark it
+// BUDGET_BLOCKED so the downstream chain halts, and alert the CEO.
 async function validateHireBudgetHandler(event) {
   try {
+    const { evaluateHireBudget } = require("./lib/budget");
     const hireDoc = event.data;
     if (!hireDoc) return;
     const hire = hireDoc.data();
-    
-    if (!hire.project_id || !hire.hourly_rate) return;
-    
+
+    if (!hire.project_id) return;
+
     const projDoc = await db.collection("projects").doc(hire.project_id).get();
     if (!projDoc.exists) return;
     const project = projDoc.data();
-    
-    // Reads project PO (po_value, po_used, hourly_rate)
-    const po_value = project.po_value || 0;
-    const po_used = project.po_used || 0;
-    const remaining = po_value - po_used;
-    
-    // Assuming the hire consumes X hours or we just calculate margin based on billing rate vs hourly_rate
-    // E.g., project.billing_rate - hire.hourly_rate
-    const billing_rate = project.billing_rate || 0;
-    let margin = 0;
-    
-    if (billing_rate > 0) {
-      margin = ((billing_rate - hire.hourly_rate) / billing_rate) * 100;
+
+    // Project PO is stored as po_value_sar / po_used_sar (NOT po_value/po_used).
+    const hireCostSar = Number(hire.salary_monthly || 0) * Number(hire.contract_duration_months || 0);
+    const budget = evaluateHireBudget({
+      poValueSar: project.po_value_sar,
+      poUsedSar: project.po_used_sar,
+      hireCostSar,
+    });
+
+    const hireId = event.params.hireId || event.params.docId;
+    const update = { budget_check: { ...budget, checked_at: new Date().toISOString() } };
+    if (budget.blocked && hire.status !== "BUDGET_BLOCKED") {
+      update.status = "BUDGET_BLOCKED";
     }
-    
-    const budget_check = {
-      margin_percentage: margin,
-      po_remaining: remaining,
-      checked_at: new Date().toISOString()
-    };
-    
-    await hireDoc.ref.update({ budget_check });
-    
-    if (margin < 20) {
-      await notify("ceo", "low_margin_hire", { 
-        hire_id: event.params.docId, 
+    await hireDoc.ref.update(update);
+
+    if (budget.blocked) {
+      await notify("ceo", "hire_over_po", {
+        hire_id: hireId,
         project_id: hire.project_id,
-        margin: margin 
+        over_by_sar: budget.over_by_sar,
       });
     }
   } catch (err) {

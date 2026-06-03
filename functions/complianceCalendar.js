@@ -139,8 +139,8 @@ async function approveDraftComplianceHandler(req, res, { verifyAuth, getUserAcce
 
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // Archive to WORM
-    const wormBucket = admin.storage().bucket("datalake-worm-hr");
+    // Archive to WORM compliance bucket
+    const wormBucket = admin.storage().bucket("datalake-worm-compliance");
     const wormPath = `compliance/${draft.item_id}/${draft_id}.txt`;
     await wormBucket.file(wormPath).save(draft.draft_content, {
       metadata: { contentType: "text/plain", metadata: { approved_by: profile.email, regulatory_basis: "NCA ECC-1:2018" } },

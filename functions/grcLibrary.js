@@ -166,6 +166,10 @@ async function uploadGrcDocumentHandler(req, res, { verifyAuth, getUserAccessPro
     return res.status(200).json({ success: true, doc_id, version: newVersion });
   } catch (err) {
     console.error(err);
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") {
+      return res.status(401).json({ error: err.message });
+    }
+    if (err.code === "AUTH_DOMAIN") { return res.status(403).json({ error: err.message }); }
     return res.status(err.message.includes("Unauthorized") ? 403 : 500).json({ error: err.message });
   }
 }
@@ -199,6 +203,10 @@ async function listGrcDocumentsHandler(req, res, { verifyAuth, getUserAccessProf
     return res.status(200).json({ success: true, documents: docs });
   } catch (err) {
     console.error(err);
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") {
+      return res.status(401).json({ error: err.message });
+    }
+    if (err.code === "AUTH_DOMAIN") { return res.status(403).json({ error: err.message }); }
     return res.status(500).json({ error: err.message });
   }
 }
@@ -257,6 +265,10 @@ async function downloadGrcDocumentHandler(req, res, { verifyAuth, getUserAccessP
     return res.status(200).json({ success: true, signed_url: url, doc_title: doc.doc_title, version: doc.version, file_format: doc.file_format });
   } catch (err) {
     console.error(err);
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") {
+      return res.status(401).json({ error: err.message });
+    }
+    if (err.code === "AUTH_DOMAIN") { return res.status(403).json({ error: err.message }); }
     return res.status(500).json({ error: err.message });
   }
 }

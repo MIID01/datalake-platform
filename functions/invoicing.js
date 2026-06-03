@@ -324,23 +324,66 @@ function generateCryptographicStamp(xmlString) {
   return { hash, signature: "SIGNATURE_PLACEHOLDER" };
 }
 
-async function generateZatcaXmlHandler(event) {
-  console.log("[Controller AI] Starting generateZatcaXml...");
-  try {
-    const { invoice_id } = event.data.message.json;
-    if (!invoice_id) throw new Error("invoice_id required in event payload");
+async function generateZatcaXmlHandler(eventOrReq, resOrUndefined) {
+  // Support both:
+  //   (a) Pub/Sub push: eventOrReq = { data: { message: { json: { invoice_id } } } }
+  //   (b) HTTP direct:  eventOrReq = req, resOrUndefined = res
+  const isHttp = resOrUndefined && typeof resOrUndefined.status === "function";
+  const res = isHttp ? resOrUndefined : null;
 
+  // Input guard — extract invoice_id from either call convention
+  let invoice_id;
+  try {
+    if (isHttp) {
+      // HTTP: reject non-POST
+      if (eventOrReq.method === "OPTIONS") { res.status(204).send(""); return; }
+      if (eventOrReq.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
+      // Accept either a raw body { invoice_id } or a Pub/Sub push envelope
+      const body = eventOrReq.body || {};
+      if (body.message && body.message.data) {
+        // Pub/Sub push
+        const decoded = JSON.parse(Buffer.from(body.message.data, "base64").toString());
+        invoice_id = decoded.invoice_id;
+      } else {
+        invoice_id = body.invoice_id;
+      }
+      if (!invoice_id) {
+        res.status(400).json({ error: "invoice_id required in request body" });
+        return;
+      }
+    } else {
+      // Pub/Sub trigger
+      if (!eventOrReq?.data?.message?.json?.invoice_id) {
+        throw new Error("invoice_id required in Pub/Sub event payload");
+      }
+      invoice_id = eventOrReq.data.message.json.invoice_id;
+    }
+  } catch (parseErr) {
+    if (res) { res.status(400).json({ error: `Bad request: ${parseErr.message}` }); return; }
+    throw parseErr;
+  }
+
+  console.log("[Controller AI] Starting generateZatcaXml for", invoice_id);
+  try {
     const invoiceDoc = await db.collection("invoices").doc(invoice_id).get();
-    if (!invoiceDoc.exists) throw new Error(`Invoice ${invoice_id} not found`);
+    if (!invoiceDoc.exists) {
+      const msg = `Invoice ${invoice_id} not found`;
+      if (res) { res.status(404).json({ error: msg }); return; }
+      throw new Error(msg);
+    }
     const invoice = invoiceDoc.data();
 
     if (invoice.status !== "APPROVED" && invoice.status !== "SENT") {
-      console.warn(`[Controller AI] Invoice ${invoice_id} is ${invoice.status}, not APPROVED. Skipping ZATCA generation.`);
+      const msg = `Invoice ${invoice_id} is ${invoice.status}, not APPROVED. Skipping ZATCA generation.`;
+      console.warn(`[Controller AI] ${msg}`);
+      if (res) { res.status(200).json({ skipped: true, reason: msg }); return; }
       return;
     }
 
     if (invoice.zatca_generated) {
-      console.log(`[Controller AI] Invoice ${invoice_id} already has ZATCA XML generated.`);
+      const msg = `Invoice ${invoice_id} already has ZATCA XML generated.`;
+      console.log(`[Controller AI] ${msg}`);
+      if (res) { res.status(200).json({ skipped: true, reason: msg }); return; }
       return;
     }
 
@@ -383,11 +426,15 @@ async function generateZatcaXmlHandler(event) {
     });
 
     console.log(`[Controller AI] ZATCA XML generated and archived for invoice ${invoice.invoice_number}`);
+    if (res) { res.status(200).json({ success: true, invoice_id, xml_path: xmlPath, hash: cryptoData.hash }); }
   } catch (err) {
     console.error("[Controller AI] generateZatcaXml error:", err);
+    if (res) { res.status(500).json({ error: "Internal server error", detail: err.message }); return; }
     throw err;
   }
 }
+
+
 
 function generateZatcaUblXml(inv, qrBase64, timestampIso) {
   const issueDate = timestampIso.split("T")[0];

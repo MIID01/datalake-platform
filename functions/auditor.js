@@ -441,10 +441,13 @@ async function aiAuditorMonthlyCronHandler(eventPayload) {
     });
       
     await logToBigQuery("datalake_audit", "ai_actions", {
-      agent_name: "Auditor",
+      action_id:   require("crypto").randomUUID(),
+      agent_name:  "Auditor",
       action_type: "MONTHLY_AUDIT",
-      result: "SUCCESS",
-      timestamp: new Date()
+      triggered_by: "system:monthly_ops",
+      input_hash:  "",
+      model_name:  "qwen2.5-7b-instruct",
+      timestamp:   new Date()
     });
 
     console.log("Monthly AI audit completed.");
@@ -462,18 +465,27 @@ async function checkEvidenceIntegrityHandler() {
     const defaultBucket = admin.storage().bucket();
     const violations = [];
 
-    // Check GCS files from a sample of approval_evidence
+    // Verify the actual evidence files exist in Storage.
+    // recordApproval (src/lib/approval-evidence.js) stores evidence_storage_path
+    // as a RELATIVE object path in the DEFAULT bucket
+    // (e.g. "approval-evidence/<col>/<id>/<ts>_file.pdf") — NOT a gs:// URL.
+    // The old `.startsWith('gs://')` gate matched nothing, so no file was ever
+    // checked. Read the real object; only rows that required a document carry one.
     const evidenceSnap = await db.collectionGroup("approval_evidence").get();
     for (const doc of evidenceSnap.docs) {
       const data = doc.data();
-      if (data.evidence_storage_path && data.evidence_storage_path.startsWith('gs://')) {
-        const filePath = data.evidence_storage_path.split('gs://')[1].split('/').slice(1).join('/');
-        const bucketName = data.evidence_storage_path.split('gs://')[1].split('/')[0];
-        const bucket = admin.storage().bucket(bucketName);
-        const [exists] = await bucket.file(filePath).exists();
-        if (!exists) {
-          violations.push({ type: 'MISSING_EVIDENCE_FILE', docPath: doc.ref.path, path: data.evidence_storage_path });
-        }
+      if (!data.requires_document || !data.evidence_storage_path) continue;
+      let objectPath = data.evidence_storage_path;
+      let bucket = defaultBucket;
+      if (objectPath.startsWith('gs://')) {
+        // Tolerate the legacy gs:// form too.
+        const rest = objectPath.split('gs://')[1];
+        bucket = admin.storage().bucket(rest.split('/')[0]);
+        objectPath = rest.split('/').slice(1).join('/');
+      }
+      const [exists] = await bucket.file(objectPath).exists();
+      if (!exists) {
+        violations.push({ type: 'MISSING_EVIDENCE_FILE', docPath: doc.ref.path, path: data.evidence_storage_path });
       }
     }
 
@@ -486,10 +498,13 @@ async function checkEvidenceIntegrityHandler() {
       }
     });
 
-    // Check PDPL consents valid
-    const talentSnap = await db.collection("talent_pool").where("status", "==", "ACTIVE").get();
+    // Check PDPL consents valid. talent_pool uses `state` (e.g. ACTIVE_POOL_YEAR_1),
+    // NOT `status` — the old `where("status","==","ACTIVE")` matched 0 docs, so this
+    // check never ran. Filter active-pool candidates by the real field.
+    const talentSnap = await db.collection("talent_pool").get();
     talentSnap.docs.forEach(doc => {
       const data = doc.data();
+      if (!(data.state && String(data.state).startsWith('ACTIVE_POOL'))) return;
       if (!data.pdpl_consent_url && data.pdpl_consent_state !== 'GRANTED') {
         violations.push({ type: 'INVALID_PDPL_CONSENT', candidateId: doc.id });
       }
@@ -521,7 +536,8 @@ async function checkEvidenceIntegrityHandler() {
     }
     await logToBigQuery("datalake_audit", "system_events", {
       event_type: "EVIDENCE_INTEGRITY_CHECK",
-      details: `Violations found: ${violations.length}`,
+      actor: "system:checkEvidenceIntegrity",
+      details: JSON.stringify({ violations_found: violations.length }),
       timestamp: new Date()
     });
   } catch (err) {
@@ -573,7 +589,8 @@ async function trackCAPAStatusHandler() {
 
     await logToBigQuery("datalake_audit", "system_events", {
       event_type: "TRACK_CAPA_STATUS",
-      details: `Updates made: ${updates}`,
+      actor: "system:trackCAPAStatus",
+      details: JSON.stringify({ updates_made: updates }),
       timestamp: new Date()
     });
   } catch (err) {

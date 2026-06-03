@@ -109,4 +109,91 @@ async function generateAndSendPasswordResetHandler(req, res) {
   }
 }
 
-module.exports = { generateAndSendPasswordResetHandler };
+// ─────────────────────────────────────────────────────────────────────
+// Account-setup helpers — reused by user provisioning (addUser /
+// provisionEngineer). A newly-created Firebase Auth user has NO password;
+// instead of inventing a temp password, we send a Firebase password-reset
+// link that doubles as a "set your password" link. The user sets their own
+// (policy-compliant) password, so there is no temp credential to rotate.
+// ─────────────────────────────────────────────────────────────────────
+
+// Returns a Firebase password-reset/set-password link for an existing auth
+// user, or null on failure. NOTE: this link lands on /reset-password ONLY if
+// the Console custom action URL is configured (Auth → Templates → Password
+// reset → Customize action URL → https://datalake-production-sa.web.app/reset-password).
+// Until that is set, the link opens Firebase's default hosted handler instead.
+async function generateSetPasswordLink(email) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!cleanEmail) return null;
+  try {
+    return await admin.auth().generatePasswordResetLink(cleanEmail, {
+      url: "https://datalake-production-sa.web.app/",
+      handleCodeInApp: false,
+    });
+  } catch (err) {
+    console.error(`[AccountSetup] link generation failed for ${cleanEmail}: ${err.code || err.message}`);
+    return null;
+  }
+}
+
+// Sends a standalone "set your password" email via the shared hr@datalake.sa
+// Gmail-DWD mailbox. Best-effort: writes an email_log row, never throws (so a
+// mail failure can't block user provisioning). Returns { sent, error? }.
+async function sendAccountSetupEmail(email, displayName) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  const link = await generateSetPasswordLink(cleanEmail);
+  if (!link) return { sent: false, error: "link_generation_failed" };
+
+  const subject = "Set your Datalake account password";
+  const body = [
+    `Hello ${displayName || ""}`.trim() + ",",
+    ``,
+    `An account has been created for you on the Datalake Platform (${cleanEmail}).`,
+    `To get started, set your password using the secure link below:`,
+    ``,
+    `  ${link}`,
+    ``,
+    `This link expires in 1 hour. After setting your password, sign in at`,
+    `https://datalake-production-sa.web.app/ with your email and the password you chose.`,
+    ``,
+    `If you didn't expect this, please contact Datalake HR by replying to this email.`,
+    ``,
+    `- Datalake HR`,
+    ``,
+    `--------------------------------------------------`,
+    `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
+    `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+  ].join("\n");
+
+  const logRef = db.collection("email_log").doc();
+  await logRef.set({
+    log_id: logRef.id,
+    to: cleanEmail,
+    subject,
+    template_id: "account_setup",
+    sent_by: "system:account_setup",
+    created_at: admin.firestore.FieldValue.serverTimestamp(),
+    status: "PENDING",
+  });
+
+  try {
+    const gmail = await getGmailClient();
+    const result = await sendEmailRaw(gmail, cleanEmail, subject, body);
+    await logRef.update({
+      status: "SENT",
+      gmail_message_id: result?.data?.id || null,
+      sent_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { sent: true };
+  } catch (err) {
+    await logRef.update({
+      status: "FAILED",
+      error: String(err.message || err).slice(0, 500),
+      failed_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    console.error(`[AccountSetup] email send failed for ${cleanEmail}: ${err.message}`);
+    return { sent: false, error: err.message };
+  }
+}
+
+module.exports = { generateAndSendPasswordResetHandler, generateSetPasswordLink, sendAccountSetupEmail };

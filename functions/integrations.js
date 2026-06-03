@@ -1,4 +1,4 @@
-const admin = require("firebase-admin");
+﻿const admin = require("firebase-admin");
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const { logToBigQuery } = require("./lib/bigquery");
 
@@ -59,16 +59,17 @@ async function validateTenantAccess(req, verifyAuth, getUserAccessProfile) {
     throw new Error("Unauthorized: Must be ceo or it_admin");
   }
 
-  // Fetch user document to get tenant_id
+  // Fetch user document to get tenant_id. These are client/config faults, not
+  // server faults â€” tag them so the handler returns 400/404, never a blanket 500.
   const userDoc = await db.collection("users").doc(decoded.uid).get();
-  if (!userDoc.exists) throw new Error("User not found");
-  
+  if (!userDoc.exists) throw Object.assign(new Error("User not found"), { code: 404 });
+
   const userTenantId = userDoc.data().tenant_id;
-  if (!userTenantId) throw new Error("User has no assigned tenant_id");
+  if (!userTenantId) throw Object.assign(new Error("User has no assigned tenant_id"), { code: 400 });
 
   // Validate X-Tenant-ID header
   const headerTenantId = req.headers['x-tenant-id'];
-  if (!headerTenantId) throw new Error("Missing X-Tenant-ID header");
+  if (!headerTenantId) throw Object.assign(new Error("Missing X-Tenant-ID header"), { code: 400 });
 
   if (userTenantId !== headerTenantId) {
     throw new Error("Unauthorized: Tenant mismatch");
@@ -77,9 +78,9 @@ async function validateTenantAccess(req, verifyAuth, getUserAccessProfile) {
   return { uid: decoded.uid, email: profile.email, tenantId: userTenantId };
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // saveIntegrationConfig
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function saveIntegrationConfigHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
@@ -130,13 +131,17 @@ async function saveIntegrationConfigHandler(req, res, { verifyAuth, getUserAcces
     return res.status(200).json({ success: true, message: `Configuration saved for ${provider}` });
   } catch (err) {
     console.error("saveIntegrationConfig error:", err);
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") {
+      return res.status(401).json({ error: err.message });
+    }
+    if (err.code === "AUTH_DOMAIN") { return res.status(403).json({ error: err.message }); }
     return res.status(err.message.startsWith("Unauthorized") ? 403 : 500).json({ error: err.message });
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // getIntegrationConfig
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function getIntegrationConfigHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
@@ -171,7 +176,12 @@ async function getIntegrationConfigHandler(req, res, { verifyAuth, getUserAccess
     return res.status(200).json({ config });
   } catch (err) {
     console.error("getIntegrationConfig error:", err);
-    return res.status(err.message.startsWith("Unauthorized") ? 403 : 500).json({ error: err.message });
+    if (typeof err.code === "number") return res.status(err.code).json({ error: err.message });
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") {
+      return res.status(401).json({ error: err.message });
+    }
+    if (err.code === "AUTH_DOMAIN") { return res.status(403).json({ error: err.message }); }
+    return res.status(String(err.message).startsWith("Unauthorized") ? 403 : 500).json({ error: err.message });
   }
 }
 
@@ -179,3 +189,5 @@ module.exports = {
   saveIntegrationConfigHandler,
   getIntegrationConfigHandler
 };
+
+

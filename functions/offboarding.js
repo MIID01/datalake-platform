@@ -111,8 +111,8 @@ async function performOffboarding(engineerId, eng, actorEmail) {
     deprovision_certificate: certText,
   });
 
-  // 5. Store cert in WORM
-  const wormBucket = admin.storage().bucket("datalake-worm-hr");
+  // 5. Store cert in WORM archive
+  const wormBucket = admin.storage().bucket("datalake-worm-archive");
   const certPath = `offboarding/${engineerId}/DTLK-FORM-HRM-002_${new Date().toISOString().split("T")[0]}.txt`;
   await wormBucket.file(certPath).save(certText, {
     metadata: {

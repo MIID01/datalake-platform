@@ -87,7 +87,7 @@ async function backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProf
       console.log("[backfill] Auto-created role + matrix:", role_id);
     }
 
-    // Build user payload — uses status:"active" to match access.js expectations
+    // Build user payload â€” uses status:"active" to match access.js expectations
     console.log("[backfill] Step 6: write user doc", uid);
     const userPayload = {
       emp_id, full_name, arabic_name: arabic_name || null, email, role_id, job_title, nationality,
@@ -101,7 +101,7 @@ async function backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProf
       iam_provisioned: false
     };
 
-    // Merge into users/{uid} — preserves existing fields if doc exists (e.g. CEO seed record)
+    // Merge into users/{uid} â€” preserves existing fields if doc exists (e.g. CEO seed record)
     const existingDoc = await db.collection("users").doc(uid).get();
     if (existingDoc.exists) {
       await db.collection("users").doc(uid).set(userPayload, { merge: true });
@@ -121,7 +121,7 @@ async function backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProf
       emp_id, email, expires_at: admin.firestore.Timestamp.fromDate(expiresAt), state: "PENDING"
     });
 
-    // Send consent email via Gmail API (non-fatal — consent link still works if email fails)
+    // Send consent email via Gmail API (non-fatal â€” consent link still works if email fails)
     console.log("[backfill] Step 8: send email to", email);
     let emailSent = false;
     let emailError = null;
@@ -129,7 +129,7 @@ async function backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProf
       const bodyText = `Dear ${full_name},\n\nDatalake has implemented its new internal HR and operations platform.\nAs an existing member of the team, your records are being registered.\nBefore you can access it, please:\n\n1. Confirm the data we hold about you is correct\n2. Provide additional details we need\n3. Acknowledge how your personal data will be processed\n\nThis takes about 5 minutes. Complete within 14 days:\nhttps://datalake-production-sa.web.app/consent/${token}\n\nQuestions? Reply to this email or contact m.alqumri@datalake.sa\n\nDatalake Saudi Arabia\nRiyadh 13243 Rajeeh Street | CR:109194773 | UEN:7048904952`;
 
       const gmail = await getGmailClient();
-      await sendEmailRaw(gmail, email, "Datalake Platform — Action Required: Confirm your data and consent", bodyText);
+      await sendEmailRaw(gmail, email, "Datalake Platform â€” Action Required: Confirm your data and consent", bodyText);
       emailSent = true;
       console.log("[backfill] Email sent successfully");
     } catch (emailErr) {
@@ -149,6 +149,10 @@ async function backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProf
       email_error: emailError
     });
   } catch (err) {
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") {
+      return res.status(401).json({ error: err.message });
+    }
+    if (err.code === "AUTH_DOMAIN") { return res.status(403).json({ error: err.message }); }
     console.error("[backfill] FATAL ERROR:", err.message, err.stack);
     return res.status(500).json({ error: err.message });
   }
@@ -177,6 +181,10 @@ async function recordLeaverHandler(req, res, { verifyAuth, getUserAccessProfile 
     await writeBigQueryAudit({ event_type: "LEAVER_RECORDED", actor: decoded.email, details: JSON.stringify({ emp_id, email, reason }) });
     return res.status(200).json({ success: true, emp_id, reminder: "Manually suspend their @datalake.sa Workspace account if not already done." });
   } catch (err) {
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") {
+      return res.status(401).json({ error: err.message });
+    }
+    if (err.code === "AUTH_DOMAIN") { return res.status(403).json({ error: err.message }); }
     console.error("[recordLeaver] ERROR:", err.message);
     return res.status(500).json({ error: err.message });
   }
@@ -266,3 +274,4 @@ async function submitBackfillConsentHandler(req, res) {
 }
 
 module.exports = { backfillEmployeeHandler, recordLeaverHandler, getBackfillConsentFormHandler, submitBackfillConsentHandler };
+

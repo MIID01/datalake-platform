@@ -34,8 +34,14 @@ export default function AuthGate({ children }) {
 
   // Step 1: Listen to Firebase Auth state
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged((user) => {
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user) {
+        // Access is gated by PROVISIONED ROLE, not email domain. A provisioned
+        // account of any role (including external client users, e.g.
+        // pm@emkan.com.sa) resolves to its role below and reaches its portal;
+        // an unprovisioned account falls through to NOT_FOUND → Access Denied.
+        // Staff SSO is locked to @datalake.sa at the IdP (Google hd / Entra
+        // tenant), so the front door stays closed without a frontend domain block.
         setUid(user.uid)
         setEmail(user.email)
       } else {
@@ -47,6 +53,7 @@ export default function AuthGate({ children }) {
     })
     return () => unsubAuth()
   }, [])
+
 
   // Step 2: When email is known, look up user record by email
   useEffect(() => {
@@ -172,7 +179,7 @@ export default function AuthGate({ children }) {
     document.body.dataset.role = userRole.role_id
   }
 
-  // User not found in system
+  // User not found in system — not provisioned (domain is NOT the gate).
   if (userRole?.NOT_FOUND) {
     return (
       <div style={{ padding: '40px 24px', maxWidth: 600, margin: '100px auto', minHeight: '100vh', background: '#0a1628', color: '#e2e8f0', textAlign: 'center' }}>
@@ -196,6 +203,7 @@ export default function AuthGate({ children }) {
       </div>
     )
   }
+
 
   // User disabled
   if (userRole?.status === 'disabled') {

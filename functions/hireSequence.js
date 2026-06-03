@@ -18,6 +18,8 @@ const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
 // DTLK-PROMPT-AI-001: No external AI APIs. Self-hosted only.
 const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
+const { generateSetPasswordLink } = require("./passwordReset");
+const { evaluateHireBudget } = require("./lib/budget");
 const Busboy = require("busboy");
 const { google } = require("googleapis");
 const pdfParse = require("pdf-parse");
@@ -78,6 +80,17 @@ async function initiateHireHandler(req, res, { verifyAuth, getUserAccessProfile,
     const projectDoc = await db.collection("projects").doc(project_id).get();
     if (!projectDoc.exists) return res.status(404).json({ error: "Project not found" });
     const project = projectDoc.data();
+
+    // ── Budget gate — REJECT an over-PO hire before any record is written ──
+    const hireCostSar = Number(salary_monthly) * Number(contract_duration_months);
+    const budget = evaluateHireBudget({
+      poValueSar: project.po_value_sar,
+      poUsedSar: project.po_used_sar,
+      hireCostSar,
+    });
+    if (budget.blocked) {
+      return res.status(400).json({ error: `Hire blocked — over PO budget. ${budget.reason}`, budget });
+    }
 
     const hireId = uuidv4();
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -597,18 +610,23 @@ async function provisionEngineerHandler(event) {
       updated_at: now,
     });
 
-    // Send welcome email
+    // Send welcome email. The platform is email/password only (Google SSO was
+    // removed), and a freshly-provisioned account has no password yet — so we
+    // include a set-password link instead of the old "sign in with Google" text.
     try {
       const gmail = await getGmailClient();
+      const setPwLink = await generateSetPasswordLink(hire.candidate_email);
       const welcomeBody = [
         `Dear ${hire.candidate_name},`,
         "",
         "Welcome to Datalake Saudi Arabia LLC!",
         "",
-        `Your account has been provisioned. You can access the Engineer Portal at:`,
-        `https://datalake-production-sa.web.app/portal`,
+        `Your account has been provisioned (${hire.candidate_email}).`,
+        `First, set your password using the secure link below:`,
         "",
-        `Sign in using your Google account: ${hire.candidate_email}`,
+        `  ${setPwLink || 'Open https://datalake-production-sa.web.app/ and use the "Forgot password?" link to set your password.'}`,
+        "",
+        `Then sign in at https://datalake-production-sa.web.app/ with your email and the password you chose.`,
         "",
         `Project: ${hire.project_name}`,
         `Client: ${hire.client_name}`,

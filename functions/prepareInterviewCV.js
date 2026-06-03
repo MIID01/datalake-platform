@@ -20,6 +20,7 @@ const fetch = require("node-fetch");
 
 const admin = require("firebase-admin");
 const FormData = require("form-data");
+const { httpErrorStatus } = require("./lib/httpErrors");
 
 const db = admin.firestore();
 const cvBucket = admin.storage().bucket("datalake-cv-uploads");
@@ -211,7 +212,8 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     });
   } catch (err) {
     console.error("prepareInterviewCV error:", err);
-    return res.status(500).json({ error: "Internal server error", detail: err.message });
+    // AUTH_MISSING/AUTH_INVALID → 401, "Forbidden" → 403, validation → 400, else 500.
+    return res.status(httpErrorStatus(err)).json({ error: err.message });
   }
 }
 

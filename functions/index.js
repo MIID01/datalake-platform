@@ -8,6 +8,7 @@ const Busboy = require("busboy");
 const crypto = require("crypto");
 const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
+const { httpErrorStatus } = require("./lib/httpErrors");
 // NOTE: VertexAI / Gemini removed per DTLK-PROMPT-AI-001.
 // All AI inference now runs on self-hosted datalake-ai-inference (Qwen 2.5 7B).
 const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
@@ -57,7 +58,21 @@ exports.submitCareerApplication = onRequest({
       return;
     }
 
-    const busboy = Busboy({ headers: req.headers });
+    // Career applications are multipart/form-data (CV upload). A non-multipart
+    // body makes Busboy throw → guard it as a 400 instead of an unhandled 500.
+    if (!String(req.headers["content-type"] || "").includes("multipart/form-data")) {
+      return res.status(400).json({ error: "Content-Type must be multipart/form-data" });
+    }
+    let busboy;
+    try {
+      busboy = Busboy({ headers: req.headers });
+    } catch (e) {
+      return res.status(400).json({ error: "Malformed multipart request" });
+    }
+    busboy.on("error", (e) => {
+      console.error("submitCareerApplication busboy error:", e.message);
+      if (!res.headersSent) res.status(400).json({ error: "Malformed upload" });
+    });
     const fields = {};
     let cvFile = null;
     let cvFilename = null;
@@ -2116,13 +2131,64 @@ Rules: extract ALL skills; prefer +966 for Saudi phones; return valid JSON only,
 // All functions: verify ID token → check CEO role → execute → audit log
 // ═══════════════════════════════════════════════════════════════════
 
-/** Helper: verify Firebase ID token from Authorization header */
+/** Helper: verify Firebase ID token from Authorization header.
+ *
+ *  ⚠️ STAFF-ONLY. This helper enforces the @datalake.sa domain and is intended
+ *  ONLY for internal/staff endpoints. Do NOT wire client- or external-facing
+ *  functions through it — external users (clients, candidates) are not on the
+ *  @datalake.sa domain and would be rejected with AUTH_DOMAIN.
+ *
+ *  Client-authenticated endpoints (clientSignTimesheet, getClientTimesheets)
+ *  instead call admin.auth().verifyIdToken() directly and gate by provisioned
+ *  role / record ownership (role_id==='client', client_approver_email) — NOT by
+ *  email domain. Token-gated flows (clientApproveLeave, submitClientScorecard)
+ *  and public endpoints (submitCareerApplication) do not authenticate at all.
+ *
+ *  Domain enforcement is the server-side complement to the Firebase Console
+ *  provider restrictions (Google hd=datalake.sa, Microsoft tenant GUID). Even if
+ *  a rogue SSO token is crafted, it is rejected here before any data access. */
 async function verifyAuth(req) {
   const authHeader = req.headers.authorization || "";
-  if (!authHeader.startsWith("Bearer ")) throw new Error("Missing Authorization header");
+  if (!authHeader.startsWith("Bearer ")) {
+    const err = new Error("Missing Authorization header");
+    err.code = "AUTH_MISSING";
+    throw err;
+  }
   const token = authHeader.split("Bearer ")[1];
-  const decoded = await admin.auth().verifyIdToken(token);
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(token);
+  } catch (e) {
+    const err = new Error("Invalid or expired token");
+    err.code = "AUTH_INVALID";
+    throw err;
+  }
+  // Domain enforcement — @datalake.sa only
+  const email = (decoded.email || "").toLowerCase();
+  if (!email.endsWith("@datalake.sa")) {
+    const err = new Error("Access restricted to @datalake.sa accounts");
+    err.code = "AUTH_DOMAIN";
+    throw err;
+  }
   return decoded;
+}
+
+/** Wraps verifyAuth for HTTP handlers — returns null and sends 401/403 on auth failure,
+ *  returns the decoded token on success. Callers should `if (!decoded) return;`. */
+async function requireAuthOrReject(req, res) {
+  try {
+    return await verifyAuth(req);
+  } catch (e) {
+    if (e.code === "AUTH_MISSING" || e.code === "AUTH_INVALID") {
+      res.status(401).json({ error: e.message });
+      return null;
+    }
+    if (e.code === "AUTH_DOMAIN") {
+      res.status(403).json({ error: e.message });
+      return null;
+    }
+    throw e; // re-throw unexpected errors
+  }
 }
 
 /** Helper: verify CEO role */
@@ -2204,10 +2270,12 @@ exports.addUser = onRequest(
       }
       // Create Firebase Auth user (or get existing)
       let authUser;
+      let isNewAccount = false;
       try {
         authUser = await admin.auth().getUserByEmail(email);
       } catch (_) {
         authUser = await admin.auth().createUser({ email, displayName: display_name });
+        isNewAccount = true;
       }
       // Create users record
       await db.collection("users").doc(authUser.uid).set({
@@ -2226,10 +2294,18 @@ exports.addUser = onRequest(
         target_uid: authUser.uid, target_email: email, role_id,
         ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
       });
-      res.status(200).json({ success: true, uid: authUser.uid });
+      // New accounts have no password — email a set-password link (best-effort,
+      // non-blocking). Existing accounts are left alone (no unsolicited resets).
+      let setup_email = { sent: false };
+      if (isNewAccount) {
+        const { sendAccountSetupEmail } = require("./passwordReset");
+        setup_email = await sendAccountSetupEmail(email, display_name)
+          .catch((e) => ({ sent: false, error: e.message }));
+      }
+      res.status(200).json({ success: true, uid: authUser.uid, setup_email });
     } catch (err) {
       console.error("addUser error:", err.message);
-      res.status(err.message.includes("Forbidden") ? 403 : 500).json({ error: err.message });
+      res.status(httpErrorStatus(err)).json({ error: err.message });
     }
   }
 );
@@ -3156,8 +3232,11 @@ exports.pdplCandidatePurge = onSchedule(
   async (event) => { await pdplCandidatePurgeHandler(); }
 );
 
+// Real hires live in pending_hires (initiateHire), NOT hire_requests — the old
+// path meant this trigger never fired. The primary block is the synchronous
+// gate in initiateHire; this trigger is defence-in-depth (marks BUDGET_BLOCKED).
 exports.validateHireBudget = onDocumentCreated(
-  { document: "hire_requests/{docId}", region: "me-central2", memory: "256MiB" },
+  { document: "pending_hires/{hireId}", region: "me-central2", memory: "256MiB" },
   async (event) => { await validateHireBudgetHandler(event); }
 );
 
