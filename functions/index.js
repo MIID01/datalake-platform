@@ -1,7 +1,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { onMessagePublished } = require("firebase-functions/v2/pubsub");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
 const Busboy = require("busboy");
@@ -2904,6 +2904,7 @@ exports.approveDraftCompliance = onRequest(
 // ═══════════════════════════════════════════════════════════════════
 const {
   generateInvoiceHandler,
+  ceoApproveInvoiceHandler,
   syncToZohoBooksHandler,
   generateZatcaXmlHandler,
   getInvoiceDashboardHandler,
@@ -2914,6 +2915,12 @@ const {
 exports.generateInvoice = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
   (req, res) => generateInvoiceHandler(req, res, hireHelpers)
+);
+
+// SoD gate — CEO must approve before invoice can be dispatched / ZATCA-stamped / Zoho-synced
+exports.ceoApproveInvoice = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => ceoApproveInvoiceHandler(req, res, hireHelpers)
 );
 
 exports.syncToZohoBooks = onRequest(
@@ -3347,6 +3354,37 @@ exports.pdplCandidatePurge = onSchedule(
 exports.validateHireBudget = onDocumentCreated(
   { document: "pending_hires/{hireId}", region: "me-central2", memory: "256MiB" },
   async (event) => { await validateHireBudgetHandler(event); }
+);
+
+// Audit every change to the timesheet gate flag to BigQuery control_events
+// (evidence of who enabled/disabled the control, when, and the effective date).
+// CEO writes platform_settings/timesheet_gate from the admin UI; this trigger
+// records it. Matches the existing control_events schema (gate_enabled BOOL,
+// effective_date STRING, missing_modules REPEATED).
+exports.onTimesheetGateChange = onDocumentWritten(
+  { document: "platform_settings/timesheet_gate", region: "me-central2", memory: "256MiB" },
+  async (event) => {
+    try {
+      const after = event.data && event.data.after && event.data.after.data();
+      if (!after) return; // deletion — nothing to log
+      const eff = after.effective_date
+        ? String(after.effective_date.toDate ? after.effective_date.toDate().toISOString() : after.effective_date)
+        : null;
+      const { BigQuery } = require("@google-cloud/bigquery");
+      await new BigQuery().dataset("datalake_audit").table("control_events").insert([{
+        event_id: require("crypto").randomUUID(),
+        control_name: "TIMESHEET_GATE",
+        outcome: after.enabled === true ? "ENABLED" : "DISABLED",
+        actor_email: after.updated_by || "unknown",
+        actor_uid: null,
+        missing_onboarding: null,
+        missing_modules: [],
+        gate_enabled: after.enabled === true,
+        effective_date: eff,
+        timestamp: new Date(),
+      }]);
+    } catch (e) { console.error("onTimesheetGateChange audit insert failed:", e.message); }
+  }
 );
 
 // ==============================================================================

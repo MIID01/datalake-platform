@@ -134,7 +134,7 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
       vat_amount: vatAmount,
       total,
       currency: "SAR",
-      status: "DRAFT",
+      status: "PENDING_CEO_APPROVAL", // SoD gate — invoice is not dispatchable until CEO approves in Hub
       notes: notes || "",
       created_by: profile.email,
       created_at: now,
@@ -149,6 +149,30 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
 
     await db.collection("invoices").doc(invoiceId).set(invoice);
 
+    // ── SoD gate: surface in CEO Approvals Hub ──
+    // The Hub listens on pending_approvals; this doc is the CEO's approval item.
+    // Until the CEO approves, status stays PENDING_CEO_APPROVAL and the invoice
+    // cannot be dispatched, Zoho-synced, or ZATCA-stamped (those handlers gate on APPROVED).
+    await db.collection("pending_approvals").doc(invoiceId).set({
+      type: "invoice",
+      invoice_id: invoiceId,
+      invoice_number: invoiceNumber,
+      title: `Invoice ${invoiceNumber} — ${clientName}`,
+      requester: profile.email,
+      client: clientName,
+      client_id,
+      amount: total,
+      currency: "SAR",
+      project: (timesheet_ids && timesheet_ids.length ? timesheet_ids[0] : null),
+      created_by: profile.email,
+      created_at: now,
+      submitted: Date.now(),
+      sla: 48,
+      slaRemaining: 48,
+      actions: ["Approve", "Reject"],
+      icon: "🧾",
+    });
+
     // Audit
     await db.collection("task_audit_log").add({
       event: "INVOICE_GENERATED", action_by: profile.email, action_at: now,
@@ -156,8 +180,9 @@ async function generateInvoiceHandler(req, res, { verifyAuth, getUserAccessProfi
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
-    // PUBLISH PUB/SUB EVENT
-    await pubsub.topic("datalake.invoice.generated").publishMessage({ json: { invoice_id: invoiceId } });
+    // NOTE: datalake.invoice.generated Pub/Sub is intentionally NOT published here.
+    // It fires only after CEO approval (in ceoApproveInvoiceHandler) so Zoho/ZATCA
+    // never receive a pre-approval invoice.
 
     res.status(200).json({
       success: true,
@@ -631,8 +656,84 @@ async function zohoPaymentWebhookHandler(req, res) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// ceoApproveInvoice — CEO Approvals Hub action
+// Flips invoice PENDING_CEO_APPROVAL → APPROVED (or REJECTED),
+// deletes the pending_approvals row, then fires the downstream Pub/Sub.
+// ═══════════════════════════════════════════════════════════════════
+async function ceoApproveInvoiceHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    return res.status(204).send("");
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    const decoded = await verifyAuth(req);
+    const profile = await getUserAccessProfile(decoded.uid);
+    if (profile.role_id !== "ceo") return res.status(403).json({ error: "CEO role required" });
+
+    const { invoice_id, decision, notes } = req.body;
+    if (!invoice_id || !decision) return res.status(400).json({ error: "invoice_id and decision required" });
+    if (!["APPROVE", "REJECT"].includes(decision)) return res.status(400).json({ error: "decision must be APPROVE or REJECT" });
+    if (decision === "REJECT" && !notes) return res.status(400).json({ error: "Rejection requires notes" });
+
+    const invoiceRef = db.collection("invoices").doc(invoice_id);
+    const invoiceDoc = await invoiceRef.get();
+    if (!invoiceDoc.exists) return res.status(404).json({ error: "Invoice not found" });
+    const invoice = invoiceDoc.data();
+
+    if (invoice.status !== "PENDING_CEO_APPROVAL") {
+      return res.status(400).json({ error: `Invoice is ${invoice.status}, not PENDING_CEO_APPROVAL` });
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const newStatus = decision === "APPROVE" ? "APPROVED" : "REJECTED";
+
+    // Atomic: flip invoice status + clear pending_approvals in one batch
+    const batch = db.batch();
+    batch.update(invoiceRef, {
+      status: newStatus,
+      ceo_decision: decision,
+      ceo_approved_by: profile.email,
+      ceo_action_at: now,
+      ceo_notes: notes || null,
+      updated_at: now,
+    });
+    batch.delete(db.collection("pending_approvals").doc(invoice_id));
+    await batch.commit();
+
+    // Audit
+    await db.collection("task_audit_log").add({
+      event: decision === "APPROVE" ? "INVOICE_CEO_APPROVED" : "INVOICE_CEO_REJECTED",
+      action_by: profile.email, action_at: now,
+      details: { invoice_id, invoice_number: invoice.invoice_number, decision, notes: notes || null },
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+    });
+
+    // Only publish downstream Pub/Sub after approval — gates Zoho + ZATCA
+    if (decision === "APPROVE") {
+      await pubsub.topic("datalake.invoice.generated").publishMessage({ json: { invoice_id } });
+    }
+
+    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
+    return res.status(200).json({
+      success: true,
+      invoice_id,
+      new_status: newStatus,
+      message: decision === "APPROVE" ? "Invoice approved. Ready for dispatch and ZATCA stamping." : "Invoice rejected.",
+    });
+  } catch (err) {
+    console.error("ceoApproveInvoice error:", err);
+    return res.status(500).json({ error: "Internal server error", detail: err.message });
+  }
+}
+
 module.exports = {
   generateInvoiceHandler,
+  ceoApproveInvoiceHandler,
   syncToZohoBooksHandler,
   generateZatcaXmlHandler,
   getInvoiceDashboardHandler,

@@ -61,6 +61,24 @@ export function deriveAcknowledgmentStatus(evidenceRows, registry = DEFAULT_POLI
   return { complete: missing.length === 0, acknowledged, missing }
 }
 
+// Acknowledgment-register summary for the gate toggle: { total, completed, pending }
+// across all employee records (Completed = current-version evidence rows).
+export async function getAcknowledgmentSummary() {
+  const registry = await getPolicyRegistry()
+  const empSnap = await getDocs(collection(db, 'employees'))
+  let completed = 0
+  await Promise.all(empSnap.docs.map(async (e) => {
+    let evidence = []
+    try {
+      const ev = await getDocs(collection(db, 'employees', e.id, 'onboarding_evidence'))
+      evidence = ev.docs.map(d => d.data())
+    } catch { /* */ }
+    if (deriveAcknowledgmentStatus(evidence, registry).complete) completed++
+  }))
+  const total = empSnap.size
+  return { total, completed, pending: total - completed }
+}
+
 // Client-side mirror of the server submitTimesheet gate. Returns the chain
 // status for an employee email so the engineer portal can show the locked state
 // (and which items are outstanding) without a silent failure. When the feature

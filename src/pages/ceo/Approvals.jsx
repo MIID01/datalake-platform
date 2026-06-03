@@ -1,88 +1,187 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 import { db } from '../../lib/firebase'
-import { CheckCircle, XCircle, X, ChevronRight, AlertTriangle } from 'lucide-react'
+import { CheckCircle, XCircle, X, AlertTriangle } from 'lucide-react'
 import { useKeyboardShortcuts } from '../../hooks/useUtils'
 
-const tabs = ['All', 'Invoices', 'Hires', 'Leave', 'Expenses', 'Compliance', 'Contracts']
-const typeMap = { Invoices: 'invoice', Hires: 'hire', Leave: 'leave', Expenses: 'expense', Compliance: ['gift', 'capa', 'contract_risk'], Contracts: ['contract_risk'] }
+// ── Cloud Function base URL ──────────────────────────────────────────
+const CF_BASE = 'https://me-central2-datalake-production-sa.cloudfunctions.net'
+const CEO_APPROVE_INVOICE_URL = 'https://ceoapproveinvoice-ifzodp5svq-wx.a.run.app'
+const CTO_APPROVE_TIMESHEET_URL = 'https://ctoapprovetimesheet-ifzodp5svq-wx.a.run.app'
+
+// Tabs wired to real Firestore sources only. Dead tabs (Expenses, Compliance,
+// Contracts) removed — those collections are empty or route to separate portals.
+const TABS = ['All', 'Invoices', 'Hires', 'Leave', 'Timesheets']
+const TYPE_MAP = { Invoices: 'invoice', Hires: 'hire', Leave: 'leave', Timesheets: 'timesheet' }
+
+async function getToken() {
+  const auth = getAuth()
+  if (!auth.currentUser) throw new Error('Not signed in')
+  return auth.currentUser.getIdToken()
+}
 
 export default function Approvals() {
   const [activeTab, setActiveTab] = useState('All')
-  const [approvals, setApprovals] = useState([])
+  const [items, setItems] = useState([])
   const [selected, setSelected] = useState(new Set())
   const [detailItem, setDetailItem] = useState(null)
   const [showBulkModal, setShowBulkModal] = useState(false)
   const [focusIndex, setFocusIndex] = useState(0)
+  const [actionErr, setActionErr] = useState('')
 
   useEffect(() => {
-    const unsubApprovals = onSnapshot(collection(db, 'pending_approvals'), snap => {
-      const standardApprovals = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      setApprovals(prev => {
-        const timesheets = prev.filter(a => a.type === 'timesheet')
-        return [...timesheets, ...standardApprovals]
-      })
-    })
+    const unsubs = []
 
-    const timesheetQuery = query(collection(db, 'timesheets'), where('state', '==', 'SUBMITTED'))
-    const unsubTimesheets = onSnapshot(timesheetQuery, snap => {
-      const timesheets = snap.docs.map(d => {
+    // ── 1. pending_approvals (invoices from SoD gate, and any future types) ──
+    unsubs.push(onSnapshot(collection(db, 'pending_approvals'), snap => {
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setItems(prev => [
+        ...prev.filter(i => i._source !== 'pending_approvals'),
+        ...rows.map(r => ({ ...r, _source: 'pending_approvals' })),
+      ])
+    }))
+
+    // ── 2. timesheets awaiting CTO/CEO approval ──
+    unsubs.push(onSnapshot(
+      query(collection(db, 'timesheets'), where('state', '==', 'SUBMITTED')),
+      snap => {
+        const rows = snap.docs.map(d => {
+          const data = d.data()
+          return {
+            id: d.id,
+            type: 'timesheet',
+            title: `Timesheet — ${data.engineer_name || d.id}`,
+            requester: data.engineer_name || data.engineer_email || '—',
+            submitted: data.submitted_at?.toMillis?.() || Date.now(),
+            sla: 48,
+            slaRemaining: 48,
+            actions: ['Approve', 'Reject'],
+            icon: '⏳',
+            _source: 'timesheets',
+            _raw: data,
+          }
+        })
+        setItems(prev => [
+          ...prev.filter(i => i._source !== 'timesheets'),
+          ...rows,
+        ])
+      }
+    ))
+
+    // ── 3. pending_hires — contract approvals waiting for CEO ──
+    unsubs.push(onSnapshot(collection(db, 'pending_hires'), snap => {
+      const rows = snap.docs.map(d => {
         const data = d.data()
         return {
           id: d.id,
-          type: 'timesheet',
-          title: `Timesheet: ${data.engineer_name}`,
-          requester: data.engineer_name,
-          submitted: data.submitted_at?.toMillis?.() || Date.now(),
-          sla: 48,
-          slaRemaining: 48, // Simplify logic
+          type: 'hire',
+          title: `Hire — ${data.candidate_name || data.linked_employee_id || d.id}`,
+          requester: data.created_by || '—',
+          submitted: data.created_at?.toMillis?.() || Date.now(),
+          sla: 72,
+          slaRemaining: 72,
           actions: ['Approve', 'Reject'],
-          icon: '⏳'
+          icon: '👤',
+          _source: 'pending_hires',
+          _raw: data,
         }
       })
-      setApprovals(prev => {
-        const standardApprovals = prev.filter(a => a.type !== 'timesheet')
-        return [...standardApprovals, ...timesheets]
-      })
-    })
+      setItems(prev => [
+        ...prev.filter(i => i._source !== 'pending_hires'),
+        ...rows,
+      ])
+    }))
 
-    return () => {
-      unsubApprovals()
-      unsubTimesheets()
-    }
+    // ── 4. leave_requests — only those still pending CEO decision ──
+    unsubs.push(onSnapshot(
+      query(collection(db, 'leave_requests'),
+        where('status', 'in', ['PENDING_VALIDATION', 'PENDING_CEO', 'PENDING'])),
+      snap => {
+        const rows = snap.docs.map(d => {
+          const data = d.data()
+          return {
+            id: d.id,
+            type: 'leave',
+            title: `Leave — ${data.engineer_name || data.engineer_email || d.id} (${data.leave_type_label || data.leave_type || 'Leave'})`,
+            requester: data.engineer_name || data.engineer_email || '—',
+            submitted: data.created_at?.toMillis?.() || Date.now(),
+            sla: 48,
+            slaRemaining: 48,
+            actions: ['Approve', 'Reject'],
+            icon: '🏖️',
+            _source: 'leave_requests',
+            _raw: data,
+          }
+        })
+        setItems(prev => [
+          ...prev.filter(i => i._source !== 'leave_requests'),
+          ...rows,
+        ])
+      }
+    ))
+
+    return () => unsubs.forEach(u => u())
   }, [])
 
   const filtered = useMemo(() => {
-    if (activeTab === 'All') return approvals
-    const types = typeMap[activeTab] || []
-    if (Array.isArray(types)) return approvals.filter(a => types.includes(a.type))
-    return approvals.filter(a => a.type === types)
-  }, [activeTab, approvals])
+    if (activeTab === 'All') return items
+    const type = TYPE_MAP[activeTab]
+    return items.filter(i => i.type === type)
+  }, [activeTab, items])
 
-  const handleApprove = async (id, decision = 'APPROVE') => {
-    const item = approvals.find(a => a.id === id)
-    if (item && item.type === 'timesheet') {
-      try {
-        const { getAuth } = await import('firebase/auth')
-        const auth = getAuth()
-        const token = await auth.currentUser.getIdToken()
-        // Name the actual approver (CEO is acting in this seat until a PM is assigned).
-        const approverName = auth.currentUser.displayName || auth.currentUser.email
-        const res = await fetch('https://me-central2-datalake-production-sa.cloudfunctions.net/ctoApproveTimesheet', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ timesheet_id: id, decision, notes: `${decision === 'APPROVE' ? 'Approved' : 'Rejected'} by ${approverName} (acting PM)` })
+  // ── Approve / Reject dispatcher ──────────────────────────────────────
+  const handleAction = async (id, decision = 'APPROVE') => {
+    setActionErr('')
+    const item = items.find(i => i.id === id)
+    if (!item) return
+
+    try {
+      const token = await getToken()
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+
+      if (item.type === 'invoice') {
+        // ── SoD gate: call ceoApproveInvoice which atomically flips status + clears pending_approvals ──
+        const r = await fetch(CEO_APPROVE_INVOICE_URL, {
+          method: 'POST', headers,
+          body: JSON.stringify({ invoice_id: id, decision, notes: decision === 'REJECT' ? 'Rejected by CEO in Approvals Hub' : undefined }),
         })
-        if (!res.ok) throw new Error('API failed')
-      } catch (err) {
-        console.error('Approval failed', err)
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.error || `HTTP ${r.status}`)
+        }
+        // Firestore listener will remove the item automatically when pending_approvals row is deleted
+        return
       }
+
+      if (item.type === 'timesheet') {
+        const r = await fetch(CTO_APPROVE_TIMESHEET_URL, {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            timesheet_id: id,
+            decision,
+            notes: `${decision === 'APPROVE' ? 'Approved' : 'Rejected'} by CEO (acting PM) via Approvals Hub`,
+          }),
+        })
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.error || `HTTP ${r.status}`)
+        }
+        // Firestore listener removes from SUBMITTED set automatically
+        setItems(prev => prev.filter(i => i.id !== id))
+        setDetailItem(null)
+        return
+      }
+
+      // Hires and Leave — no dedicated Cloud Function yet; remove from local list
+      // TODO: wire approveHire / approveLeave endpoints when implemented
+      setItems(prev => prev.filter(i => i.id !== id))
+      setDetailItem(null)
+
+    } catch (err) {
+      console.error('Approval action failed', err)
+      setActionErr(`Action failed: ${err.message}`)
     }
-    setApprovals(prev => prev.filter(a => a.id !== id))
-    setDetailItem(null)
   }
 
   const toggleSelect = (id) => {
@@ -93,15 +192,17 @@ export default function Approvals() {
     })
   }
 
-  const handleBulkApprove = () => {
-    setApprovals(prev => prev.filter(a => !selected.has(a.id)))
+  const handleBulkApprove = async () => {
+    for (const id of selected) {
+      await handleAction(id, 'APPROVE')
+    }
     setSelected(new Set())
     setShowBulkModal(false)
   }
 
   useKeyboardShortcuts({
-    a: () => { if (filtered[focusIndex]) handleApprove(filtered[focusIndex].id) },
-    r: () => { if (filtered[focusIndex]) handleApprove(filtered[focusIndex].id) },
+    a: () => { if (filtered[focusIndex]) handleAction(filtered[focusIndex].id, 'APPROVE') },
+    r: () => { if (filtered[focusIndex]) handleAction(filtered[focusIndex].id, 'REJECT') },
     n: () => setFocusIndex(prev => Math.min(prev + 1, filtered.length - 1)),
   })
 
@@ -111,7 +212,7 @@ export default function Approvals() {
         <div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Approvals Hub</h1>
           <p style={{ color: 'var(--text-tertiary)', fontSize: '0.85rem', marginTop: 4 }}>
-            {approvals.length} items awaiting your decision · Keyboard: <kbd style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--bg-surface)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>A</kbd> Approve <kbd style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--bg-surface)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>R</kbd> Reject <kbd style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--bg-surface)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>N</kbd> Next
+            {items.length} items awaiting your decision · Keyboard: <kbd style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--bg-surface)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>A</kbd> Approve <kbd style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--bg-surface)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>R</kbd> Reject <kbd style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--bg-surface)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>N</kbd> Next
           </p>
         </div>
         {selected.size > 0 && (
@@ -121,16 +222,20 @@ export default function Approvals() {
         )}
       </div>
 
+      {actionErr && (
+        <div style={{ marginBottom: 16, padding: '10px 16px', background: 'rgba(192,57,43,0.15)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 8, color: '#ff6b6b', fontSize: '0.82rem' }}>
+          {actionErr}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="tabs">
-        {tabs.map(tab => (
+        {TABS.map(tab => (
           <button key={tab} className={`tab-item ${activeTab === tab ? 'active' : ''}`} onClick={() => { setActiveTab(tab); setFocusIndex(0) }}>
             {tab}
             {tab !== 'All' && (() => {
-              const types = typeMap[tab]
-              const count = Array.isArray(types)
-                ? approvals.filter(a => types.includes(a.type)).length
-                : approvals.filter(a => a.type === types).length
+              const type = TYPE_MAP[tab]
+              const count = items.filter(i => i.type === type).length
               return count > 0 ? <span className="badge badge-info" style={{ marginLeft: 6 }}>{count}</span> : null
             })()}
           </button>
@@ -155,19 +260,26 @@ export default function Approvals() {
                   checked={selected.has(item.id)}
                   onChange={(e) => { e.stopPropagation(); toggleSelect(item.id) }}
                   style={{ accentColor: 'var(--sky-blue)' }}
-                  disabled={item.type === 'invoice'}
+                  disabled={item.type === 'invoice'} // invoices must be individual (SoD)
                 />
                 <div className="approval-icon">{item.icon}</div>
                 <div className="approval-info">
                   <div className="approval-title">{item.title}</div>
-                  <div className="approval-meta">{item.requester} · {new Date(item.submitted).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                  <div className="approval-meta">
+                    {item.requester} · {new Date(item.submitted).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {item.type === 'invoice' && item.amount && (
+                      <span style={{ marginLeft: 8, fontWeight: 600, color: 'var(--sky-blue)' }}>
+                        SAR {Number(item.amount).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <span className={`approval-sla ${slaClass}`}>{item.slaRemaining}h</span>
                 <div className="approval-actions">
-                  <button className="btn btn-success btn-sm" onClick={(e) => { e.stopPropagation(); handleApprove(item.id) }}>
+                  <button className="btn btn-success btn-sm" onClick={(e) => { e.stopPropagation(); handleAction(item.id, 'APPROVE') }}>
                     {item.actions[0]}
                   </button>
-                  <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); handleApprove(item.id) }}>
+                  <button className="btn btn-danger btn-sm" onClick={(e) => { e.stopPropagation(); handleAction(item.id, 'REJECT') }}>
                     {item.actions[1]}
                   </button>
                 </div>
@@ -201,17 +313,23 @@ export default function Approvals() {
                 </button>
               </div>
 
-              <div style={{ marginBottom: 24 }}>
-                <h4 style={{ marginBottom: 12, color: 'var(--text-secondary)' }}>AI Agent Recommendation</h4>
-                <div className="card" style={{ background: 'var(--bg-surface)' }}>
-                  <p style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>
-                    Based on automated compliance analysis, this {detailItem.type} has been pre-validated by {detailItem.requester}. 
-                    All required fields are present, PO budget is within limits, and no compliance flags were detected.
-                    <br /><br />
-                    <strong>Recommendation:</strong> Approve
-                  </p>
+              {/* Invoice detail */}
+              {detailItem.type === 'invoice' && (
+                <div style={{ marginBottom: 24 }}>
+                  <h4 style={{ marginBottom: 12, color: 'var(--text-secondary)' }}>Invoice Details</h4>
+                  <div className="card" style={{ background: 'var(--bg-surface)' }}>
+                    <p style={{ fontSize: '0.9rem', lineHeight: 1.8 }}>
+                      <strong>Invoice #:</strong> {detailItem.invoice_number || detailItem.id}<br />
+                      <strong>Client:</strong> {detailItem.client}<br />
+                      <strong>Amount:</strong> SAR {Number(detailItem.amount || 0).toLocaleString()} (incl. 15% VAT)<br />
+                      <strong>Created by:</strong> {detailItem.created_by}<br />
+                    </p>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 8 }}>
+                      ⚠️ Segregation of Duties: this invoice cannot be dispatched, Zoho-synced, or ZATCA-stamped until approved here.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div style={{ marginBottom: 24 }}>
                 <h4 style={{ marginBottom: 12, color: 'var(--text-secondary)' }}>SLA Status</h4>
@@ -221,22 +339,22 @@ export default function Approvals() {
                   </span>
                 </div>
                 <div className="sla-bar" style={{ marginTop: 8 }}>
-                  <div className={`sla-fill ${(detailItem.slaRemaining / detailItem.sla) * 100 < 25 ? 'red' : (detailItem.slaRemaining / detailItem.sla) * 100 < 50 ? 'amber' : 'green'}`}
+                  <div className={`sla-fill`}
                     style={{ width: `${(1 - detailItem.slaRemaining / detailItem.sla) * 100}%`, background: (detailItem.slaRemaining / detailItem.sla) * 100 < 25 ? 'var(--red)' : (detailItem.slaRemaining / detailItem.sla) * 100 < 50 ? 'var(--amber)' : 'var(--green)' }}
                   />
                 </div>
               </div>
 
               <div className="form-group" style={{ marginBottom: 24 }}>
-                <label className="form-label">Notes (optional)</label>
-                <textarea className="form-input" rows={3} placeholder="Add a note with your decision..." />
+                <label className="form-label">Notes (required for rejection)</label>
+                <textarea className="form-input" id="approval-notes" rows={3} placeholder="Add a note with your decision..." />
               </div>
 
               <div style={{ display: 'flex', gap: 12 }}>
-                <button className="btn btn-success" onClick={() => handleApprove(detailItem.id)} style={{ flex: 1 }}>
+                <button className="btn btn-success" onClick={() => handleAction(detailItem.id, 'APPROVE')} style={{ flex: 1 }}>
                   <CheckCircle size={18} /> {detailItem.actions[0]}
                 </button>
-                <button className="btn btn-danger" onClick={() => handleApprove(detailItem.id)} style={{ flex: 1 }}>
+                <button className="btn btn-danger" onClick={() => handleAction(detailItem.id, 'REJECT')} style={{ flex: 1 }}>
                   <XCircle size={18} /> {detailItem.actions[1]}
                 </button>
               </div>
@@ -257,7 +375,7 @@ export default function Approvals() {
               Approve <strong>{selected.size}</strong> items? This action is logged and cannot be undone.
             </p>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: 24 }}>
-              Note: Invoice approvals must always be individual (segregation of duties).
+              Note: Invoice approvals must always be individual (segregation of duties) and are excluded from bulk actions.
             </p>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setShowBulkModal(false)}>Cancel</button>
