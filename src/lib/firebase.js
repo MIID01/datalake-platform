@@ -49,6 +49,11 @@ export const CTO_APPROVE_TIMESHEET_URL =
 export const CLIENT_SIGN_TIMESHEET_URL =
   "https://clientsigntimesheet-ifzodp5svq-wx.a.run.app";
 
+// Public endpoint — pinged when a client opens the sign link, for auditable
+// proof of receipt (the page is unauthenticated; token is the auth).
+export const RECORD_SIGN_LINK_OPEN_URL =
+  "https://recordtimesheetsignlinkopen-ifzodp5svq-wx.a.run.app";
+
 export const GET_MY_TIMESHEETS_URL =
   "https://getmytimesheets-ifzodp5svq-wx.a.run.app";
 

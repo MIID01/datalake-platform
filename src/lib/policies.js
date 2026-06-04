@@ -41,6 +41,24 @@ export async function getPolicyRegistry() {
   return _cache
 }
 
+// Normalize a policy id for comparison: an evidence row may key the policy as
+// `policy_id` (current) or `id` (legacy); casing/whitespace drift is ignored.
+const normPolicyId = (v) => String(v ?? '').trim().toLowerCase()
+
+// Version-equality that tolerates format drift between what the onboarding flow
+// wrote historically and what the registry pins now: number vs string, a leading
+// "v", and trailing-zero forms ("1" / "1.0" / 1.0) all compare equal. An empty /
+// missing version NEVER matches a pinned version — an unversioned legacy row is
+// genuinely "not acknowledged at the current version" and must re-acknowledge.
+export function versionsMatch(a, b) {
+  const sa = String(a ?? '').trim().toLowerCase().replace(/^v/, '')
+  const sb = String(b ?? '').trim().toLowerCase().replace(/^v/, '')
+  if (!sa || !sb) return false
+  if (sa === sb) return true
+  const na = Number(sa), nb = Number(sb)
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb
+}
+
 // Given an employee's onboarding_evidence rows ({ policy_id, policy_version, … })
 // and the current registry, returns { complete, acknowledged, missing[] }.
 // "Missing" = no row for a policy OR the acknowledged version != the current
@@ -51,8 +69,8 @@ export function deriveAcknowledgmentStatus(evidenceRows, registry = DEFAULT_POLI
   const missing = []
   const acknowledged = []
   for (const p of registry) {
-    const row = rows.find(r => (r.policy_id || r.id) === p.id)
-    if (row && String(row.policy_version || '') === String(p.version)) {
+    const row = rows.find(r => normPolicyId(r.policy_id ?? r.id) === normPolicyId(p.id))
+    if (row && versionsMatch(row.policy_version, p.version)) {
       acknowledged.push({ id: p.id, title: p.title, version: p.version })
     } else {
       missing.push({ id: p.id, title: p.title, version: p.version })

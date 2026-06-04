@@ -212,7 +212,7 @@ export default function InvoiceBuilder() {
           <FileText size={22} /> New Invoice
         </h1>
         <p style={{ color: 'var(--text-tertiary)', fontSize: '0.9rem', marginTop: 4 }}>
-          Compose an invoice from a client-signed timesheet. Saved as a DRAFT for review.
+          Compose an invoice from a client-signed timesheet. Submitted to the CEO Approvals Hub for sign-off (segregation of duties) — not dispatchable until approved.
         </p>
       </div>
 
@@ -365,7 +365,7 @@ export default function InvoiceBuilder() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
             <Link to="/finance/invoices" className="btn btn-ghost">Cancel</Link>
             <button className="btn btn-primary" onClick={handleSubmit} disabled={!!validationError || submitting}>
-              {submitting ? 'Creating…' : 'Create Draft Invoice'}
+              {submitting ? 'Submitting…' : 'Submit for CEO Approval'}
             </button>
           </div>
         </>

@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useOutletContext } from 'react-router-dom'
-import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { ArrowLeft, FileText, Loader, CheckCircle2, ShieldCheck } from 'lucide-react'
-import ApprovalButton from '../../components/ApprovalButton'
 import { SignedBadgeList } from '../../components/SignedBadge'
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 const STATUS_BADGE = {
+  PENDING_CEO_APPROVAL: 'badge-warning',
   DRAFT: 'badge-info',
   APPROVED: 'badge-warning',
   SENT: 'badge-warning',
   PAID: 'badge-success',
   OVERDUE: 'badge-critical',
+  REJECTED: 'badge-critical',
 }
+const STATUS_LABEL = { PENDING_CEO_APPROVAL: 'PENDING CEO' }
 
 function formatDate(v) {
   if (!v) return '—'
@@ -111,7 +113,7 @@ export default function InvoiceDetail() {
               </div>
             )}
           </div>
-          <span className={`badge ${STATUS_BADGE[status] || 'badge-neutral'}`} style={{ fontSize: '0.85rem' }}>{status}</span>
+          <span className={`badge ${STATUS_BADGE[status] || 'badge-neutral'}`} style={{ fontSize: '0.85rem' }}>{STATUS_LABEL[status] || status}</span>
         </div>
         {/* Historical approvals on this invoice — click any to see the full evidence trail. */}
         <div style={{ marginTop: 10 }}>
@@ -181,47 +183,26 @@ export default function InvoiceDetail() {
         </div>
       )}
 
-      {/* Approval — only shown for DRAFT invoices. requires a signed PDF
-          (the printed-and-signed invoice). On evidence write, flip the invoice
-          to APPROVED so the Pub/Sub chain (Zoho sync, ZATCA XML) fires. */}
-      {status === 'DRAFT' && (
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+      {/* Segregation of duties: a PENDING_CEO_APPROVAL invoice is approved ONLY in
+          the CEO Approvals Hub, via the ceoApproveInvoice server function (atomic
+          status flip + immutable audit + the Pub/Sub that gates Zoho sync & ZATCA).
+          This detail page never flips status client-side — doing so would bypass
+          the SoD boundary. We only surface the read-only state here. */}
+      {status === 'PENDING_CEO_APPROVAL' && (
+        <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid var(--amber)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <ShieldCheck size={16} />
-            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>CEO / Finance Approval</h3>
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>Awaiting CEO approval</h3>
           </div>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)', marginBottom: 14 }}>
-            Upload the countersigned invoice PDF. The file is hashed (SHA-256), stored
-            in the evidence bucket, and a row is written under
-            <code style={{ fontFamily: 'var(--font-mono)', marginLeft: 4 }}>invoices/{invoice.id}/approval_evidence</code>.
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+            This invoice is queued in the <strong>CEO Approvals Hub</strong> (segregation of duties).
+            Until the CEO approves it there, it <strong>cannot be dispatched, Zoho-synced, or ZATCA-stamped</strong>.
           </p>
-          <ApprovalButton
-            parentCollection="invoices"
-            parentId={invoice.id}
-            requiresDocument={true}
-            label="Approve Invoice"
-            variant="success"
-            extra={{
-              invoice_number: invoice.invoice_number || invoice.id,
-              total: invoice.total || null,
-              client_name: invoice.client_name || null,
-            }}
-            onApproved={async (evidence) => {
-              await updateDoc(doc(db, 'invoices', invoice.id), {
-                status: 'APPROVED',
-                approved_at: serverTimestamp(),
-                approved_by: evidence.approver_email,
-                approval_evidence_id: evidence.id,
-                approval_evidence_sha256: evidence.evidence_sha256,
-                updated_at: serverTimestamp(),
-              })
-            }}
-          />
         </div>
       )}
 
-      {/* Zoho sync and ZATCA XML are auto-fired (Pub/Sub on datalake.invoice.approved)
-          — status badges above will appear once they complete. */}
+      {/* Zoho sync and ZATCA XML are auto-fired (Pub/Sub on datalake.invoice.generated,
+          published only after CEO approval) — the status badges above appear once they complete. */}
     </div>
   )
 }

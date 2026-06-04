@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { collection, onSnapshot, query, where, orderBy, updateDoc, doc } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db, CTO_APPROVE_TIMESHEET_URL } from '../../lib/firebase'
 import { auth } from '../../lib/firebase'
-import { ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle, Calendar, ChevronDown, Send, MessageSquare, Bot } from 'lucide-react'
+import { ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle, Calendar, ChevronDown, Send, MessageSquare, Bot, Mail } from 'lucide-react'
 
 const STATE_CONFIG = {
   SUBMITTED: { label: 'Pending', color: '#EF5829', bg: 'rgba(239,88,41,0.12)' },
@@ -145,7 +145,6 @@ export default function Approvals() {
           {filtered.map((ts, i) => {
             const isExpanded = expandedId === ts.timesheet_id
             const sc = STATE_CONFIG[ts.state] || { label: ts.state, color: '#8898aa', bg: 'rgba(136,152,170,0.12)' }
-            const daysInMonth = new Date(ts.period_year, ts.period_month, 0).getDate()
             return (
               <div key={ts.timesheet_id} className="animate-fade-in-up" style={{ animationDelay: `${i * 0.03}s`, background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 'var(--radius-lg)', borderLeft: `4px solid ${sc.color}`, boxShadow: 'var(--shadow-card)' }}>
                 {/* Header */}
@@ -201,50 +200,101 @@ export default function Approvals() {
                       </div>
                     </div>
 
-                    {/* Daily Grid Preview */}
+                    {/* Submitted entries — the engineer's ACTUAL input (primary content) */}
                     {ts.days && (
                       <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                          <Calendar size={12} style={{ verticalAlign: -1, marginRight: 4 }} /> Daily Breakdown
+                          <Calendar size={12} style={{ verticalAlign: -1, marginRight: 4 }} /> Submitted Timesheet — {ts.period_label}
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(36px, 1fr))', gap: 3 }}>
-                          {Array.from({ length: daysInMonth }, (_, i) => {
-                            const day = String(i + 1)
-                            const entry = ts.days[day] || {}
-                            const dow = getDayOfWeek(ts.period_year, ts.period_month, i + 1)
-                            const isWknd = dow === 5 || dow === 6
-                            return (
-                              <div key={day} title={`Day ${day}: ${entry.type || 'none'} — ${entry.hours || 0}h`} style={{
-                                textAlign: 'center', padding: '4px 2px', borderRadius: 4, fontSize: '0.6rem',
-                                background: isWknd ? 'rgba(136,152,170,0.08)' : entry.hours > 0 ? `${dayTypeColor(entry.type)}15` : 'var(--bg-surface)',
-                                border: `1px solid ${entry.hours > 0 ? `${dayTypeColor(entry.type)}30` : 'var(--border-primary)'}`,
-                              }}>
-                                <div style={{ color: 'var(--text-tertiary)', fontSize: '0.5rem' }}>{day}</div>
-                                <div style={{ fontWeight: 700, color: dayTypeColor(entry.type) }}>{entry.hours || '—'}</div>
-                              </div>
-                            )
-                          })}
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
+                          <strong>Project:</strong> {ts.project_name || '—'}{ts.po_number ? <> · <strong>PO:</strong> {ts.po_number}</> : ''} · <strong>Client:</strong> {ts.client_name || '—'}
                         </div>
-                        <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: '0.6rem', color: 'var(--text-tertiary)' }}>
-                          <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#34BF3A', marginRight: 3, verticalAlign: -1 }} />Office</span>
-                          <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#1598CC', marginRight: 3, verticalAlign: -1 }} />Remote</span>
-                          <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#F39C12', marginRight: 3, verticalAlign: -1 }} />Leave</span>
-                          <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#8898aa', marginRight: 3, verticalAlign: -1 }} />Weekend/Holiday</span>
-                        </div>
+                        {ts.notes && (
+                          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8, padding: '8px 12px', background: 'var(--bg-surface)', borderRadius: 6 }}>
+                            <strong>Notes from engineer:</strong> {ts.notes}
+                          </div>
+                        )}
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                          <thead>
+                            <tr style={{ textAlign: 'left', color: 'var(--text-tertiary)', fontSize: '0.66rem', textTransform: 'uppercase' }}>
+                              <th style={{ padding: '6px 10px' }}>Date</th>
+                              <th style={{ padding: '6px 10px' }}>Day</th>
+                              <th style={{ padding: '6px 10px' }}>Type</th>
+                              <th style={{ padding: '6px 10px', textAlign: 'right' }}>Hours</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.keys(ts.days).filter(d => Number(ts.days[d]?.hours) > 0).sort((a, b) => Number(a) - Number(b)).map(d => {
+                              const entry = ts.days[d]
+                              const dow = getDayOfWeek(ts.period_year, ts.period_month, Number(d))
+                              const typeLabel = entry.type === 'in_house' ? 'Office' : entry.type === 'remote' ? 'Remote' : String(entry.type || '').startsWith('leave') ? 'Leave' : (entry.type || '—')
+                              return (
+                                <tr key={d} style={{ borderTop: '1px solid var(--border-primary)' }}>
+                                  <td style={{ padding: '6px 10px' }}>{String(d).padStart(2, '0')} {String(ts.period_label || '').split(' ')[0]}</td>
+                                  <td style={{ padding: '6px 10px', color: 'var(--text-tertiary)' }}>{DAY_LABELS[dow + 1]}</td>
+                                  <td style={{ padding: '6px 10px', color: dayTypeColor(entry.type), fontWeight: 600 }}>{typeLabel}</td>
+                                  <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>{entry.hours}h</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ borderTop: '2px solid var(--border-primary)', fontWeight: 700 }}>
+                              <td style={{ padding: '8px 10px' }} colSpan={3}>Total</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>{ts.total_hours}h</td>
+                            </tr>
+                          </tfoot>
+                        </table>
                       </div>
                     )}
 
-                    {/* Meta */}
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginBottom: 16 }}>
-                      <span>Submitted: {fmtTs(ts.submitted_at)}</span>
-                      {ts.cto_action_at && <span> · Reviewed: {fmtTs(ts.cto_action_at)} by {ts.cto_action_by}</span>}
-                      {ts.ai_validation_status === 'FAILED' && (
-                        <div style={{ marginTop: 8, padding: '8px 12px', background: '#fdecea', borderLeft: '3px solid #C0392B', borderRadius: 4, color: '#C0392B' }}>
-                          <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Bot size={14} /> AI Flag:</strong> {ts.ai_validation_reason}
+                    {/* Attribution + AI advisory — submitter and validator are NOT the same actor */}
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div><strong>Submitted by:</strong> {ts.engineer_name}{ts.engineer_email ? ` (${ts.engineer_email})` : ''} · {fmtTs(ts.submitted_at)}</div>
+                      {ts.cto_action_at && <div><strong>Reviewed / approved by:</strong> {ts.cto_action_by} · {fmtTs(ts.cto_action_at)}</div>}
+                      {ts.ai_validation_status && (
+                        <div style={{ padding: '8px 12px', borderRadius: 6, background: 'var(--bg-surface)', borderLeft: `3px solid ${ts.ai_validation_status === 'PASSED' ? '#27ae60' : ts.ai_validation_status === 'FAILED' ? '#C0392B' : '#F39C12'}` }}>
+                          <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Bot size={13} /> AI validation (advisory): {ts.ai_validation_status}
+                          </strong>
+                          {ts.ai_validation_reason && <div style={{ marginTop: 3, color: 'var(--text-tertiary)' }}>{ts.ai_validation_reason}</div>}
+                          <div style={{ marginTop: 3, fontStyle: 'italic', color: 'var(--text-tertiary)', fontSize: '0.68rem' }}>
+                            Advisory only — produced by the AI validator, not the employee. The approval decision is yours, based on the submitted entries above.
+                          </div>
                         </div>
                       )}
-                      {ts.rejection_reason && <div style={{ marginTop: 4, color: '#C0392B' }}>Reason: {ts.rejection_reason}</div>}
+                      {ts.rejection_reason && <div style={{ color: '#C0392B' }}>Rejection reason: {ts.rejection_reason}</div>}
                     </div>
+
+                    {/* Client sign-off tracking — auditable proof: sent → opened → signed */}
+                    {(ts.state === 'CTO_APPROVED' || ts.state === 'CLIENT_SIGNED' || ts.sign_link_status) && (
+                      <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-primary)', fontSize: '0.76rem' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontSize: '0.68rem' }}>
+                          <Mail size={12} style={{ verticalAlign: -1, marginRight: 4 }} /> Client sign-off tracking
+                        </div>
+                        <div style={{ marginBottom: 4 }}>
+                          {ts.sign_link_status === 'SENT' ? (
+                            <span style={{ color: '#34BF3A' }}>✓ Sign link sent to <strong>{ts.sign_link_to}</strong> on {fmtTs(ts.sign_link_sent_at)}{ts.sign_link_message_id ? <> · messageId <code style={{ fontFamily: 'var(--font-mono)' }}>{ts.sign_link_message_id}</code></> : ''}</span>
+                          ) : ts.sign_link_status === 'NO_RECIPIENT' ? (
+                            <span style={{ color: '#C0392B' }}>✗ No client approver email on the project — sign link could not be sent. Add a client contact to the project, then re-approve.</span>
+                          ) : ts.sign_link_status === 'SEND_FAILED' ? (
+                            <span style={{ color: '#C0392B' }}>✗ Sign link send FAILED to {ts.sign_link_to}: {ts.sign_link_send_error || 'unknown error'}</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-tertiary)' }}>Sign link status pending…</span>
+                          )}
+                        </div>
+                        <div style={{ marginBottom: 4 }}>
+                          {ts.sign_link_first_opened_at
+                            ? <span style={{ color: '#1598CC' }}>✓ Opened by client on {fmtTs(ts.sign_link_first_opened_at)}{ts.sign_link_open_count ? ` (${ts.sign_link_open_count}×)` : ''}</span>
+                            : <span style={{ color: 'var(--text-tertiary)' }}>Not yet opened by the client</span>}
+                        </div>
+                        <div>
+                          {(ts.state === 'CLIENT_SIGNED' || ts.client_action_at)
+                            ? <span style={{ color: '#34BF3A' }}>✓ Signed on {fmtTs(ts.client_action_at)}{ts.client_signature_method ? ` · ${ts.client_signature_method}` : ''}</span>
+                            : <span style={{ color: 'var(--text-tertiary)' }}>Awaiting client signature</span>}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Signed PDF Link */}
                     {ts.signed_pdf_url && (

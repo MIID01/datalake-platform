@@ -145,8 +145,8 @@ export default function CommandCenter() {
     // 5. CEO decisions — ONLY the 5 categories that must reach the CEO.
     //    Routine leave / expenses / IT tickets are filtered out by design.
 
-    // 5a. Draft invoices awaiting CEO sign-off
-    unsubs.push(onSnapshot(query(collection(db, 'invoices'), where('status', '==', 'DRAFT')), snap => {
+    // 5a. Invoices awaiting CEO sign-off (SoD gate — generateInvoice writes PENDING_CEO_APPROVAL)
+    unsubs.push(onSnapshot(query(collection(db, 'invoices'), where('status', '==', 'PENDING_CEO_APPROVAL')), snap => {
       const items = snap.docs.map(d => {
         const data = d.data()
         return {

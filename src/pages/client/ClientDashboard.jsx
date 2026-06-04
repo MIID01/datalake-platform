@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { collection, onSnapshot } from 'firebase/firestore'
-import { db } from '../../lib/firebase'
+import { db, RECORD_SIGN_LINK_OPEN_URL } from '../../lib/firebase'
 import { CheckCircle, Download, Pen, Printer, Type, Upload, Eraser, Clock, Mail, ShieldCheck } from 'lucide-react'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import jsPDF from 'jspdf'
@@ -203,6 +203,17 @@ export default function ClientTimesheetApproval() {
       }
     })
     return () => unsub()
+  }, [token])
+
+  // Record that the client OPENED this sign link — auditable proof of receipt.
+  // Fire-and-forget, once per token; the server stamps first/last-opened + count.
+  useEffect(() => {
+    if (!token) return
+    fetch(RECORD_SIGN_LINK_OPEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    }).catch(() => { /* non-blocking: never break the sign page over telemetry */ })
   }, [token])
 
   useEffect(() => {

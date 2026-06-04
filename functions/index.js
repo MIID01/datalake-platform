@@ -1449,7 +1449,7 @@ exports.submitTimesheet = onRequest(
     try { decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]); } catch { res.status(401).json({ error: "Invalid token" }); return; }
 
     try {
-      const { project_id, period_month, period_year, days } = req.body;
+      const { project_id, period_month, period_year, days, notes } = req.body;
       if (!project_id || !period_month || !period_year || !days) { res.status(400).json({ error: "Missing required fields" }); return; }
 
       // ── Hard onboarding → training → timesheet gate (feature-flagged) ──
@@ -1534,6 +1534,8 @@ exports.submitTimesheet = onRequest(
         project_id, project_name: project.project_name, client_name: project.client_name,
         client_approver_email: project.client_approver_email, client_approver_name: project.client_approver_name,
         period_month, period_year, period_label: periodLabel, days, total_hours, in_house_hours, remote_hours, leave_hours,
+        notes: (typeof notes === "string" && notes.trim()) ? notes.trim() : null,
+        po_number: project.po_number || null,
         state: "SUBMITTED", submitted_at: nowTS,
         cto_action_at: null, cto_action_by: null, cto_decision: null, cto_notes: null,
         ceo_escalated_at: null, ceo_action_at: null, ceo_action_by: null,
@@ -1704,6 +1706,64 @@ exports.ctoApproveTimesheet = onRequest(
           client_sign_token: clientToken,
         });
 
+        // ── Immutable approval snapshot: the exact line items + totals approved,
+        // the AI advisory result, and approver identity + timestamp. Written to
+        // the timesheet, an immutable approval_evidence row, AND a WORM PDF —
+        // so "show me the input + what was approved" is one record. Best-effort
+        // (try/catch) so an audit-write hiccup never blocks the approval itself.
+        try {
+          const lineItems = Object.keys(ts.days || {})
+            .filter(d => Number(ts.days[d] && ts.days[d].hours) > 0)
+            .sort((a, b) => Number(a) - Number(b))
+            .map(d => ({
+              date: `${ts.period_year}-${String(ts.period_month).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+              hours: Number(ts.days[d].hours),
+              type: ts.days[d].type || null,
+            }));
+          const snapshot = {
+            line_items: lineItems,
+            totals: {
+              total_hours: ts.total_hours || 0, in_house_hours: ts.in_house_hours || 0,
+              remote_hours: ts.remote_hours || 0, leave_hours: ts.leave_hours || 0,
+            },
+            notes: ts.notes || null,
+            ai_validation: { status: ts.ai_validation_status || null, reason: ts.ai_validation_reason || null },
+            submitted_by: ts.engineer_email || null,
+            approver_email: decodedToken.email,
+            approver_uid: decodedToken.uid || null,
+            approved_at_iso: new Date().toISOString(),
+          };
+          await tsRef.update({ cto_approval_snapshot: { ...snapshot, approved_at: nowTS } });
+          await tsRef.collection("approval_evidence").add({ ...snapshot, approved_at: nowTS, action: "CTO_APPROVE_TIMESHEET" });
+
+          // WORM PDF audit record (datalake-worm-finance)
+          const PDFDocument = require("pdfkit");
+          const wormBucket = admin.storage().bucket("datalake-worm-finance");
+          const pdfPath = `timesheet-approvals/${timesheet_id}/${Date.now()}_approval.pdf`;
+          const wfile = wormBucket.file(pdfPath);
+          const wstream = wfile.createWriteStream({ contentType: "application/pdf", metadata: { metadata: { timesheet_id, approver: decodedToken.email } } });
+          const pdf = new PDFDocument({ margin: 50 });
+          pdf.pipe(wstream);
+          pdf.fontSize(16).fillColor("#022873").text("Timesheet Approval Record", { align: "center" });
+          pdf.moveDown(0.4).fontSize(10).fillColor("#555").text(`${ts.project_name || ""} · ${ts.client_name || ""} · ${ts.period_label || ""}`, { align: "center" });
+          pdf.moveDown(1).fillColor("black").fontSize(11)
+            .text(`Submitted by:  ${ts.engineer_name || ""} (${ts.engineer_email || ""})`)
+            .text(`Approved by:   ${decodedToken.email}`)
+            .text(`Approved at:   ${snapshot.approved_at_iso}`)
+            .text(`AI validation (advisory): ${ts.ai_validation_status || "—"}${ts.ai_validation_reason ? " — " + ts.ai_validation_reason : ""}`);
+          if (ts.notes) pdf.moveDown(0.4).text(`Notes: ${ts.notes}`);
+          pdf.moveDown(0.8).fontSize(12).fillColor("#022873").text("Approved line items");
+          pdf.moveDown(0.3).fontSize(10).fillColor("black");
+          for (const li of lineItems) pdf.text(`  ${li.date}    ${li.hours}h    ${li.type || ""}`);
+          pdf.moveDown(0.4).fontSize(11).text(`Total: ${ts.total_hours || 0}h`, { underline: true });
+          pdf.moveDown(1).fontSize(8).fillColor("#666").text("Generated at approval time by the Datalake platform. Immutable mirror stored at timesheets/{id}/approval_evidence/. The AI result is advisory; the human approver above made the decision.", { align: "justify" });
+          pdf.end();
+          await new Promise((resolve, reject) => { wstream.on("finish", resolve); wstream.on("error", reject); });
+          await tsRef.update({ cto_approval_pdf_path: `gs://datalake-worm-finance/${pdfPath}` });
+        } catch (snapErr) {
+          console.error("[ctoApproveTimesheet] approval snapshot/PDF failed (non-blocking):", snapErr.message);
+        }
+
         const cTaskId = `TSK-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         await db.collection("tasks").doc(cTaskId).set({
           task_id: cTaskId, title: `Sign timesheet: ${ts.engineer_name} — ${ts.period_label}`,
@@ -1717,18 +1777,77 @@ exports.ctoApproveTimesheet = onRequest(
           completion_notes: null, verification_status: "PENDING_VERIFICATION", recurrence: "ONE_TIME", notes: null,
         });
 
-        // ── Simulate sending 3-way timesheet email ──
+        // ── Send the client sign-link email FOR REAL (Gmail DWD) + email_log proof ──
+        // Previously this step only console.logged a fake "[Email] Sent" line, so the
+        // token was generated but no link ever reached the client and nothing was
+        // logged. Now we actually dispatch, write an email_log row (PENDING →
+        // SENT/FAILED with the Gmail messageId), and stamp the timesheet with the
+        // sent proof so the approval view can surface it. Wrapped so an email hiccup
+        // never blocks the approval itself.
         const signUrl = `https://datalake-production-sa.web.app/client/timesheet/${clientToken}`;
-        console.log(`[Email] 3-way Timesheet Email Sent to ${ts.client_approver_email}, ${ts.engineer_email}, finance@datalake.sa.`);
-        console.log(`[Email] Sign URL: ${signUrl}`);
-        
-        await db.collection("audit_log").add({
-          event: "TIMESHEET_EMAIL_SENT",
-          timesheet_id,
-          sent_to: [ts.client_approver_email, ts.engineer_email, "finance@datalake.sa"],
-          sign_url: signUrl,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        const clientTo = ts.client_approver_email || null;
+        try {
+          const { getGmailClient, sendEmailRaw } = require("./lib/gmail");
+          const logRef = db.collection("email_log").doc();
+          const emailSubject = `Action required: sign ${ts.engineer_name}'s timesheet — ${ts.period_label}`;
+          const emailBody = [
+            `Dear ${ts.client_approver_name || "Client Approver"},`,
+            ``,
+            `${ts.engineer_name}'s timesheet for ${ts.period_label} on ${ts.project_name} has been approved and is ready for your signature.`,
+            `Total: ${ts.total_hours || 0} hours.`,
+            ``,
+            `Review and sign here (no login required):`,
+            signUrl,
+            ``,
+            `This link is unique to you — please do not forward it.`,
+            ``,
+            `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
+            `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+          ].join("\n");
+
+          await logRef.set({
+            log_id: logRef.id, to: clientTo, subject: emailSubject,
+            template_id: "timesheet_client_sign",
+            related_entity_type: "TIMESHEET", related_entity_id: timesheet_id,
+            sign_url: signUrl, sent_by: "system:ctoApproveTimesheet", created_at: nowTS,
+            status: clientTo ? "PENDING" : "SKIPPED_NO_RECIPIENT",
+          });
+
+          if (!clientTo) {
+            // The project carried no client approver email, so there is nobody to
+            // send the sign link to. Surface WHY on the timesheet — this is the most
+            // likely "the link didn't generate" cause when a project lacks a client.
+            console.error(`[ctoApproveTimesheet] timesheet ${timesheet_id} has no client_approver_email — sign link not sent.`);
+            await tsRef.update({ sign_link_status: "NO_RECIPIENT", sign_link_url: signUrl, sign_link_email_log_id: logRef.id });
+          } else {
+            try {
+              const gmail = await getGmailClient();
+              const result = await sendEmailRaw(gmail, clientTo, emailSubject, emailBody);
+              const messageId = result?.data?.id || null;
+              await logRef.update({ status: "SENT", gmail_message_id: messageId, sent_at: nowTS });
+              await tsRef.update({
+                sign_link_status: "SENT", sign_link_url: signUrl, sign_link_to: clientTo,
+                sign_link_sent_at: nowTS, sign_link_email_log_id: logRef.id, sign_link_message_id: messageId,
+              });
+            } catch (sendErr) {
+              console.error(`[ctoApproveTimesheet] Gmail send failed for ${clientTo}:`, sendErr.message);
+              await logRef.update({ status: "FAILED", error: String(sendErr.message || sendErr).slice(0, 500), failed_at: nowTS });
+              await tsRef.update({
+                sign_link_status: "SEND_FAILED", sign_link_url: signUrl, sign_link_to: clientTo,
+                sign_link_email_log_id: logRef.id, sign_link_send_error: String(sendErr.message || sendErr).slice(0, 300),
+              });
+            }
+          }
+
+          await db.collection("audit_log").add({
+            event: "TIMESHEET_SIGN_LINK_DISPATCHED", timesheet_id, to: clientTo,
+            email_log_id: logRef.id, sign_url: signUrl,
+            status: clientTo ? "ATTEMPTED" : "NO_RECIPIENT",
+            timestamp: nowTS,
+          });
+        } catch (emailStepErr) {
+          console.error(`[ctoApproveTimesheet] sign-link email step failed (non-blocking):`, emailStepErr.message);
+        }
 
         // Trigger Controller AI timesheet validation via Pub/Sub
         await pubsub.topic("datalake.timesheet.cto_approved").publishMessage({ json: { timesheet_id } });
@@ -1845,6 +1964,46 @@ exports.clientSignTimesheet = onRequest(
         message: decision === "SIGN" ? "Timesheet signed. Finance will prepare invoice." : "Timesheet rejected. Engineer will be notified.",
       });
     } catch (err) { console.error("clientSignTimesheet error:", err); res.status(500).json({ error: "Internal server error", detail: err.message }); }
+  }
+);
+
+// ============================================================
+// HTTP endpoint: recordTimesheetSignLinkOpen  (PUBLIC — token is the auth)
+// Called by the unauthenticated client sign page when the link is opened, so we
+// have auditable proof the client actually received & opened it. Admin SDK write
+// bypasses Firestore rules (the page has no Firebase user). Idempotent-ish: first
+// open is stamped once; every open increments a counter + updates last-opened.
+// ============================================================
+exports.recordTimesheetSignLinkOpen = onRequest(
+  { invoker: "public", region: "me-central2", memory: "256MiB", timeoutSeconds: 15, cors: true },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    try {
+      const token = (req.body && req.body.token) || req.query.token;
+      if (!token) { res.status(400).json({ error: "Missing token" }); return; }
+      const snap = await db.collection("timesheets").where("client_sign_token", "==", token).limit(1).get();
+      if (snap.empty) { res.status(404).json({ error: "Invalid or expired token" }); return; }
+      const ref = snap.docs[0].ref;
+      const data = snap.docs[0].data();
+      const nowTS = admin.firestore.FieldValue.serverTimestamp();
+      const patch = {
+        sign_link_last_opened_at: nowTS,
+        sign_link_open_count: admin.firestore.FieldValue.increment(1),
+      };
+      if (!data.sign_link_first_opened_at) patch.sign_link_first_opened_at = nowTS;
+      await ref.update(patch);
+      await db.collection("audit_log").add({
+        event: "TIMESHEET_SIGN_LINK_OPENED",
+        timesheet_id: data.timesheet_id || ref.id,
+        ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+        user_agent: req.headers["user-agent"] || "unknown",
+        timestamp: nowTS,
+      });
+      res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("recordTimesheetSignLinkOpen error:", err);
+      res.status(500).json({ error: "Internal error" });
+    }
   }
 );
 

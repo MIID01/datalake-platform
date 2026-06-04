@@ -73,6 +73,7 @@ export default function Timesheets() {
   const [periodStart, setPeriodStart] = useState(new Date(2026, 4, 1))   // May 1, 2026
   const [periodEnd, setPeriodEnd] = useState(new Date(2026, 4, 31))      // May 31, 2026
   const [dayHours, setDayHours] = useState({})
+  const [notes, setNotes] = useState('')
   const [myTimesheets, setMyTimesheets] = useState([])
   const [submitLoading, setSubmitLoading] = useState(false)
   const [extracting, setExtracting] = useState(false)
@@ -128,12 +129,14 @@ export default function Timesheets() {
               }
             ])
           ),
+          notes: notes.trim() || null,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || data.detail || 'Submission failed')
       setSubmitResult({ success: true, message: data.message, id: data.timesheet_id })
       setDayHours({})
+      setNotes('')
       fetchHistory()
     } catch (err) {
       setSubmitResult({ success: false, message: err.message })
@@ -578,7 +581,7 @@ export default function Timesheets() {
 
               <div className="form-group" style={{ marginBottom: 16 }}>
                 <label className="form-label">Notes (optional)</label>
-                <textarea className="form-input" rows={2} placeholder="Additional notes for the client approver..." />
+                <textarea className="form-input" rows={2} placeholder="Additional notes for the client approver..." value={notes} onChange={e => setNotes(e.target.value)} />
               </div>
 
               {submitResult && (

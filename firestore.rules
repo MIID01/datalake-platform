@@ -213,11 +213,25 @@ service cloud.firestore {
         resource.data.state == 'CTO_APPROVED' &&
         resource.data.client_sign_token != null
       );
+
+      // Immutable approval snapshot rows (written server-side by ctoApproveTimesheet
+      // via the Admin SDK, which bypasses these rules). Readable by any signed-in
+      // user for audit; never client-mutable — this is the regulator-facing record.
+      match /approval_evidence/{evId} {
+        allow read: if request.auth != null;
+        allow create: if isCeoOrCto();
+        allow update, delete: if false;
+      }
     }
 
     // ── Finance & Operations ──
     match /invoices/{docId} {
-      allow read, write: if request.auth != null;
+      // SoD: invoices are READ-ONLY to clients. Every mutation (create via
+      // generateInvoice, status flip via ceoApproveInvoice, PAID via the Zoho
+      // webhook, Zoho/ZATCA stamps) runs in Cloud Functions on the Admin SDK,
+      // which bypasses these rules. No client can flip an invoice's status itself.
+      allow read: if request.auth != null;
+      allow write: if false;
     }
     match /client_invoices/{docId} {
       allow read, write: if request.auth != null;
@@ -245,7 +259,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     match /pending_approvals/{docId} {
-      allow read, write: if request.auth != null;
+      // SoD Hub queue: rows are created by generateInvoice and cleared by
+      // ceoApproveInvoice (both Admin SDK). Read-only to clients so the queue
+      // can't be emptied without the CEO actually approving via the function.
+      allow read: if request.auth != null;
+      allow write: if false;
     }
     match /evaluations/{evalId} {
       allow read, write: if request.auth != null;

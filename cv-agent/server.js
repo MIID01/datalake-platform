@@ -405,7 +405,7 @@ async function buildDatalakePortfolioDocx(data) {
     new Paragraph({
       children: [
         new TextRun({
-          text: "CR: 109194773 | UEN: 7048904952 | www.datalake.sa",
+          text: "CR: 1009194773 | NUN: 7048904952 | www.datalake.sa",
           font: "Calibri", size: 13, color: BRAND.medGray,
         }),
       ],

@@ -2,7 +2,17 @@ import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Eye, Plus, Search } from 'lucide-react'
 
-const statusColors = { DRAFT: 'badge-info', SENT: 'badge-warning', PAID: 'badge-success', OVERDUE: 'badge-critical' }
+const statusColors = { PENDING_CEO_APPROVAL: 'badge-warning', DRAFT: 'badge-info', APPROVED: 'badge-warning', SENT: 'badge-warning', PAID: 'badge-success', OVERDUE: 'badge-critical', REJECTED: 'badge-critical' }
+const statusLabel = { PENDING_CEO_APPROVAL: 'PENDING CEO' }
+// Filter chips: label shown, value matched against the uppercased invoice status.
+const FILTERS = [
+  { label: 'All', value: 'All' },
+  { label: 'Pending CEO', value: 'PENDING_CEO_APPROVAL' },
+  { label: 'Approved', value: 'APPROVED' },
+  { label: 'Sent', value: 'SENT' },
+  { label: 'Paid', value: 'PAID' },
+  { label: 'Overdue', value: 'OVERDUE' },
+]
 
 export default function FinanceInvoices({ invoices }) {
   const navigate = useNavigate()
@@ -38,8 +48,8 @@ export default function FinanceInvoices({ invoices }) {
             />
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            {['All', 'Draft', 'Sent', 'Overdue', 'Paid'].map(f => (
-              <button key={f} className={`btn btn-sm ${filterStatus === f ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilterStatus(f)}>{f}</button>
+            {FILTERS.map(f => (
+              <button key={f.value} className={`btn btn-sm ${filterStatus === f.value ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFilterStatus(f.value)}>{f.label}</button>
             ))}
             <button className="btn btn-primary btn-sm" style={{ marginLeft: 12 }} onClick={() => navigate('/finance/invoices/new')}>
               <Plus size={16} /> New Invoice
@@ -72,7 +82,7 @@ export default function FinanceInvoices({ invoices }) {
                     <td style={{ fontWeight: 600 }}>SAR {(inv.total || inv.amount || 0).toLocaleString()}</td>
                     <td>{inv.created_at ? new Date(inv.created_at.toDate ? inv.created_at.toDate() : inv.created_at).toLocaleDateString() : '—'}</td>
                     <td>{inv.due_date ? new Date(inv.due_date).toLocaleDateString() : '—'}</td>
-                    <td><span className={`badge ${statusColors[st] || 'badge-neutral'}`}>{st}</span></td>
+                    <td><span className={`badge ${statusColors[st] || 'badge-neutral'}`}>{statusLabel[st] || st}</span></td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); openInvoice(inv.id) }}>
                         <Eye size={14} /> View

@@ -126,7 +126,7 @@ async function backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProf
     let emailSent = false;
     let emailError = null;
     try {
-      const bodyText = `Dear ${full_name},\n\nDatalake has implemented its new internal HR and operations platform.\nAs an existing member of the team, your records are being registered.\nBefore you can access it, please:\n\n1. Confirm the data we hold about you is correct\n2. Provide additional details we need\n3. Acknowledge how your personal data will be processed\n\nThis takes about 5 minutes. Complete within 14 days:\nhttps://datalake-production-sa.web.app/consent/${token}\n\nQuestions? Reply to this email or contact m.alqumri@datalake.sa\n\nDatalake Saudi Arabia\nRiyadh 13243 Rajeeh Street | CR:109194773 | UEN:7048904952`;
+      const bodyText = `Dear ${full_name},\n\nDatalake has implemented its new internal HR and operations platform.\nAs an existing member of the team, your records are being registered.\nBefore you can access it, please:\n\n1. Confirm the data we hold about you is correct\n2. Provide additional details we need\n3. Acknowledge how your personal data will be processed\n\nThis takes about 5 minutes. Complete within 14 days:\nhttps://datalake-production-sa.web.app/consent/${token}\n\nQuestions? Reply to this email or contact m.alqumri@datalake.sa\n\nDatalake Saudi Arabia LLC\nRiyadh Al-Yarmouk 13243 | CR:1009194773 | NUN:7048904952`;
 
       const gmail = await getGmailClient();
       await sendEmailRaw(gmail, email, "Datalake Platform â€” Action Required: Confirm your data and consent", bodyText);
