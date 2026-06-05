@@ -282,4 +282,60 @@ const changemypassword = onRequest({ invoker: "public", region: REGION, memory: 
   }
 });
 
-module.exports = { adminsetpassword, assignrole, getmypasswordstatus, changemypassword };
+// ── 5. setpasswordchangerequired (it_admin OR CEO) ───────────────────────────
+// The governed control behind the Credentials page: enable/disable "require
+// password change at next login" for one or more accounts (per-account or bulk).
+// Enabling writes force_reset (Flow 1's AuthGate gate enforces it on next login);
+// disabling clears it. Every per-account toggle is logged to admin_audit_log.
+// This is the reusable path that REPLACES one-off scripts — any admin-set
+// password gets flagged here, with who-flagged-whom recorded.
+//
+// SoD note: unlike adminsetpassword (it_admin-only), this is allowed for the CEO
+// too — there is currently no it_admin user, and forcing a password change is a
+// lower-privilege action than minting/rotating a credential.
+const setpasswordchangerequired = onRequest({ invoker: "public", region: REGION, memory: "256MiB", timeoutSeconds: 120, cors: true }, async (req, res) => {
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  try {
+    const caller = await verifyCaller(req);
+    const isCeo = caller.role_id === "ceo" || caller.email === CEO_EMAIL;
+    if (!(isCeo || caller.role_id === "it_admin")) {
+      return res.status(403).json({ error: "Forbidden: requires the it_admin or CEO role." });
+    }
+
+    const { target_uids, required } = req.body || {};
+    const uids = Array.isArray(target_uids) ? target_uids.filter(Boolean) : [];
+    if (!uids.length) return res.status(400).json({ error: "target_uids[] required" });
+    if (typeof required !== "boolean") return res.status(400).json({ error: "required (boolean) is required" });
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const results = [];
+    for (const uid of uids) {
+      // Validate the uid is a real Auth account (and grab its email for the audit).
+      // Flow 1's gate reads password_policies/{authUid}, so a non-auth-uid would
+      // write a dangling doc that never enforces — surface that instead.
+      let targetEmail;
+      try { targetEmail = (await admin.auth().getUser(uid)).email || uid; }
+      catch { results.push({ uid, ok: false, error: "not a valid Auth uid" }); continue; }
+
+      const patch = required
+        ? { force_reset: true, must_change: true, expires_at: admin.firestore.Timestamp.now(), required_by: caller.email, required_at: now, updated_at: now }
+        : { force_reset: false, must_change: false, cleared_by: caller.email, cleared_at: now, updated_at: now };
+      await db.collection("password_policies").doc(uid).set(patch, { merge: true });
+      await logAdminAudit({
+        actor: caller.email, actor_role: caller.role_id || (isCeo ? "ceo" : "unknown"),
+        target_user: targetEmail,
+        action: required ? "PASSWORD_CHANGE_REQUIRED_ENABLED" : "PASSWORD_CHANGE_REQUIRED_DISABLED",
+        details: { uid },
+      });
+      results.push({ uid, email: targetEmail, required, ok: true });
+    }
+    const okCount = results.filter(r => r.ok).length;
+    return res.status(200).json({ success: true, count: okCount, results });
+  } catch (err) {
+    console.error("setpasswordchangerequired error:", err.message);
+    return res.status(err.code === 401 || err.code === 400 ? err.code : 500).json({ error: err.message });
+  }
+});
+
+module.exports = { adminsetpassword, assignrole, getmypasswordstatus, changemypassword, setpasswordchangerequired };

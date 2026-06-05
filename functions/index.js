@@ -3388,11 +3388,12 @@ exports.exportExpenseToBQ = exportExpenseToBQ;
 // ═══════════════════════════════════════════════════════════════════
 // Phase 13 — IT Admin Functions
 // ═══════════════════════════════════════════════════════════════════
-const { adminsetpassword, assignrole, getmypasswordstatus, changemypassword } = require('./adminAuth');
+const { adminsetpassword, assignrole, getmypasswordstatus, changemypassword, setpasswordchangerequired } = require('./adminAuth');
 exports.adminsetpassword = adminsetpassword;
 exports.assignrole = assignrole;
 exports.getmypasswordstatus = getmypasswordstatus;
 exports.changemypassword = changemypassword;
+exports.setpasswordchangerequired = setpasswordchangerequired;
 
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5: CONTROLLER AI — FINANCE CHAIN

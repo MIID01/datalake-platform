@@ -158,6 +158,11 @@ export const GET_MY_PASSWORD_STATUS_URL =
 export const CHANGE_MY_PASSWORD_URL =
   "https://changemypassword-ifzodp5svq-wx.a.run.app";
 
+// Governed "require password change at next login" toggle (it_admin / CEO).
+// Per-account or bulk; logs every toggle to admin_audit_log.
+export const SET_PASSWORD_CHANGE_REQUIRED_URL =
+  "https://setpasswordchangerequired-ifzodp5svq-wx.a.run.app";
+
 // Auth account audit + provision (HR/CEO only)
 export const AUDIT_AUTH_ACCOUNTS_URL =
   "https://auditauthaccounts-ifzodp5svq-wx.a.run.app";
