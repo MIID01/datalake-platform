@@ -105,6 +105,29 @@ function generateTempPassword() {
   return out;
 }
 
+// Server-side mirror of src/lib/password-policy.js — keep the two in sync.
+// Returns an array of human-readable failures (empty == policy met).
+function validatePasswordPolicy(pw) {
+  const s = String(pw || "");
+  const fails = [];
+  if (s.length < 12) fails.push("at least 12 characters");
+  if (!/[A-Z]/.test(s)) fails.push("one uppercase letter");
+  if (!/[a-z]/.test(s)) fails.push("one lowercase letter");
+  if (!/[0-9]/.test(s)) fails.push("one number");
+  if (!/[^A-Za-z0-9]/.test(s)) fails.push("one special character");
+  return fails;
+}
+
+// Authenticated caller with NO role requirement — for self-service endpoints
+// (a user acting on their OWN account). Returns { uid, email }.
+async function verifyAuthed(req) {
+  const header = req.headers.authorization || "";
+  const match = header.match(/^Bearer (.+)$/);
+  if (!match) throw Object.assign(new Error("Missing Authorization header"), { code: 401 });
+  const decoded = await admin.auth().verifyIdToken(match[1]);
+  return { uid: decoded.uid, email: decoded.email };
+}
+
 async function resolveTargetUid({ target_uid, target_email }) {
   if (target_uid) return target_uid;
   if (target_email) {
@@ -208,4 +231,55 @@ const assignrole = onRequest({ region: REGION, memory: "256MiB", timeoutSeconds:
   }
 });
 
-module.exports = { adminsetpassword, assignrole };
+// ── 3. getmypasswordstatus (any authenticated user) ─────────────────────────
+// Reports whether THIS caller is on a forced temp password (force_reset === true
+// on their own password_policies doc). The employee can't read that doc directly
+// (it's it_admin-only in firestore.rules), so the forced-change login gate calls
+// this. invoker:"public" — auth is enforced in-code via the ID token.
+const getmypasswordstatus = onRequest({ invoker: "public", region: REGION, memory: "256MiB", timeoutSeconds: 15, cors: true }, async (req, res) => {
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  try {
+    const caller = await verifyAuthed(req);
+    const snap = await db.collection("password_policies").doc(caller.uid).get();
+    const must_change = snap.exists ? snap.data().force_reset === true : false;
+    return res.status(200).json({ must_change });
+  } catch (err) {
+    console.error("getmypasswordstatus error:", err.message);
+    return res.status(err.code === 401 ? 401 : 500).json({ error: err.message });
+  }
+});
+
+// ── 4. changemypassword (any authenticated user — acts on OWN account) ───────
+// Used by the forced first-login password-change gate. The caller just signed in
+// (valid ID token), so no old-password re-entry is required for the temp-pw flow.
+// The policy is enforced HERE (server-side) and force_reset is cleared in the SAME
+// call — so the login gate only lifts after a real, policy-compliant change. No
+// "skip the change" path exists: the client can't clear the flag itself.
+const changemypassword = onRequest({ invoker: "public", region: REGION, memory: "256MiB", timeoutSeconds: 30, cors: true }, async (req, res) => {
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  try {
+    const caller = await verifyAuthed(req);
+    const { new_password } = req.body || {};
+    const fails = validatePasswordPolicy(new_password);
+    if (fails.length) return res.status(400).json({ error: `Password must contain ${fails.join(", ")}.` });
+
+    await admin.auth().updateUser(caller.uid, { password: new_password });
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await db.collection("password_policies").doc(caller.uid).set(
+      {
+        force_reset: false, must_change: false,
+        last_changed_at: now, last_password_change: now,
+        last_changed_by: caller.email, changed_self: true, updated_at: now,
+      },
+      { merge: true }
+    );
+    await logAdminAudit({ actor: caller.email, actor_role: "self", target_user: caller.uid, action: "PASSWORD_CHANGED_SELF" });
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("changemypassword error:", err.message);
+    return res.status(err.code === 401 || err.code === 400 ? err.code : 500).json({ error: err.message });
+  }
+});
+
+module.exports = { adminsetpassword, assignrole, getmypasswordstatus, changemypassword };

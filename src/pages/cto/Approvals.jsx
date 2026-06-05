@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db, CTO_APPROVE_TIMESHEET_URL } from '../../lib/firebase'
+import { db, CTO_APPROVE_TIMESHEET_URL, RESEND_SIGN_LINK_URL } from '../../lib/firebase'
 import { auth } from '../../lib/firebase'
-import { ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle, Calendar, ChevronDown, Send, MessageSquare, Bot, Mail } from 'lucide-react'
+import { ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle, Calendar, ChevronDown, Send, MessageSquare, Bot, Mail, RefreshCw } from 'lucide-react'
 
 const STATE_CONFIG = {
   SUBMITTED: { label: 'Pending', color: '#EF5829', bg: 'rgba(239,88,41,0.12)' },
@@ -37,6 +37,31 @@ export default function Approvals() {
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
+  const [resendingId, setResendingId] = useState(null)
+
+  // Resend the client sign-link. The token never leaves the server — this just
+  // asks the backend to re-email the existing link to the client approver and
+  // log a fresh email_log row. The live timesheets listener reflects the new
+  // sign_link_status/sent_at/messageId automatically.
+  const resendSignLink = async (ts) => {
+    setResendingId(ts.id)
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(RESEND_SIGN_LINK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ timesheet_id: ts.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Resend failed')
+      setToast({ type: 'success', msg: `Sign link re-sent to ${data.to}${data.message_id ? ` · messageId ${data.message_id}` : ''}` })
+    } catch (err) {
+      setToast({ type: 'error', msg: err.message || 'Could not resend the sign link.' })
+    } finally {
+      setResendingId(null)
+      setTimeout(() => setToast(null), 6000)
+    }
+  }
 
   useEffect(() => {
     const q = query(collection(db, 'timesheets'), orderBy('submitted_at', 'desc'))
@@ -293,6 +318,21 @@ export default function Approvals() {
                             ? <span style={{ color: '#34BF3A' }}>✓ Signed on {fmtTs(ts.client_action_at)}{ts.client_signature_method ? ` · ${ts.client_signature_method}` : ''}</span>
                             : <span style={{ color: 'var(--text-tertiary)' }}>Awaiting client signature</span>}
                         </div>
+                        {ts.state === 'CTO_APPROVED' && (
+                          <div style={{ marginTop: 10 }}>
+                            <button
+                              onClick={() => resendSignLink(ts)}
+                              disabled={resendingId === ts.id}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-elevated, #fff)', color: '#1598CC', fontSize: '0.74rem', fontWeight: 600, cursor: resendingId === ts.id ? 'wait' : 'pointer' }}
+                            >
+                              <RefreshCw size={13} className={resendingId === ts.id ? 'spin' : ''} />
+                              {resendingId === ts.id ? 'Resending…' : (ts.sign_link_resend_count ? `Resend sign link (${ts.sign_link_resend_count}×)` : 'Resend sign link')}
+                            </button>
+                            <span style={{ marginLeft: 8, fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>
+                              Re-emails the same link to {ts.client_approver_email || 'the client approver'} — the link is never shown here.
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
 

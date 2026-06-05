@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
-import { auth, db } from '../lib/firebase'
+import { auth, db, GET_MY_PASSWORD_STATUS_URL } from '../lib/firebase'
 import { CEO_EMAIL } from '../lib/auth'
 import { homePathForRole, portalPrefixForRole } from '../lib/routes'
 import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/firestore'
 import { ShieldAlert, Loader, LogOut } from 'lucide-react'
+import ForcePasswordChange from './ForcePasswordChange'
 
 /**
  * AuthGate — Multi-role authentication and routing
@@ -31,6 +32,9 @@ export default function AuthGate({ children }) {
   const [userRole, setUserRole] = useState(null) // { role_id, status, display_name, ... }
   const [uid, setUid] = useState(null)
   const [email, setEmail] = useState(null)
+  // Forced first-login password change. null = still checking, true = on a temp
+  // password (must change before any portal), false = cleared.
+  const [mustChange, setMustChange] = useState(null)
 
   // Step 1: Listen to Firebase Auth state
   useEffect(() => {
@@ -125,9 +129,29 @@ export default function AuthGate({ children }) {
     }
 
     lookupUser()
-    
+
     return () => unsubUser()
   }, [email, uid])
+
+  // Step 3: forced first-login password change. The employee can't read their
+  // own force_reset flag (password_policies is it_admin-only in rules), so ask
+  // the server. Fail-open on error — a status-check outage must never lock the
+  // whole org out; the temp-password risk is re-checked on the next login.
+  useEffect(() => {
+    if (!uid) { setMustChange(null); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const idToken = await auth.currentUser.getIdToken()
+        const res = await fetch(GET_MY_PASSWORD_STATUS_URL, { headers: { Authorization: `Bearer ${idToken}` } })
+        const data = await res.json().catch(() => ({}))
+        if (!cancelled) setMustChange(res.ok ? data.must_change === true : false)
+      } catch {
+        if (!cancelled) setMustChange(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [uid])
 
   // Loading spinner
   if (loading) {
@@ -148,6 +172,22 @@ export default function AuthGate({ children }) {
 
   // Not logged in -> redirect to public landing page
   if (!uid) return <Navigate to="/" replace />
+
+  // ── Forced password-change gate ── highest priority after auth. A user on a
+  // temp password (force_reset) must set a new one before reaching ANY portal.
+  // Wait for the status check (null) before rendering anything protected so the
+  // portal never flashes behind the gate.
+  if (mustChange === null) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a1628' }}>
+        <Loader className="spin" color="#1598CC" />
+        <style>{`.spin { animation: spin 1s linear infinite; } @keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
+  }
+  if (mustChange === true) {
+    return <ForcePasswordChange email={email} onDone={() => setMustChange(false)} />
+  }
 
   // ── Onboarding gate ── EVERY role (including the CEO) must complete the
   // policy onboarding before accessing ANY portal. Only the onboarding page

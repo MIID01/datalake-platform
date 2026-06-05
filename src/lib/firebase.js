@@ -54,6 +54,11 @@ export const CLIENT_SIGN_TIMESHEET_URL =
 export const RECORD_SIGN_LINK_OPEN_URL =
   "https://recordtimesheetsignlinkopen-ifzodp5svq-wx.a.run.app";
 
+// Staff-triggered resend of the client sign-link (reuses existing token; never
+// exposes it). CEO/CTO/finance/HR only — enforced in-code.
+export const RESEND_SIGN_LINK_URL =
+  "https://resendtimesheetsignlink-ifzodp5svq-wx.a.run.app";
+
 export const GET_MY_TIMESHEETS_URL =
   "https://getmytimesheets-ifzodp5svq-wx.a.run.app";
 
@@ -144,6 +149,14 @@ export const LIST_EMAIL_TEMPLATES_URL =
 // Password reset (Gmail-DWD, replaces Firebase's default sender)
 export const GENERATE_PASSWORD_RESET_URL =
   "https://generateandsendpasswordreset-ifzodp5svq-wx.a.run.app";
+
+// Forced first-login password change (any authed user). The employee can't read
+// or clear their own force_reset flag (it_admin-only in rules), so these run
+// server-side: status check + policy-enforced self password change.
+export const GET_MY_PASSWORD_STATUS_URL =
+  "https://getmypasswordstatus-ifzodp5svq-wx.a.run.app";
+export const CHANGE_MY_PASSWORD_URL =
+  "https://changemypassword-ifzodp5svq-wx.a.run.app";
 
 // Auth account audit + provision (HR/CEO only)
 export const AUDIT_AUTH_ACCOUNTS_URL =

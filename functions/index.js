@@ -2008,6 +2008,119 @@ exports.recordTimesheetSignLinkOpen = onRequest(
 );
 
 // ============================================================
+// HTTP endpoint: resendTimesheetSignLink
+// Re-sends the EXISTING client sign-link to the timesheet's client_approver_email
+// and logs a fresh email_log row. Reuses the original token (resend, not re-issue)
+// and NEVER returns the token/URL to the caller — staff can trigger a resend but
+// can't see or forge the link. Authed staff only (CEO/CTO/finance/HR).
+// ============================================================
+exports.resendTimesheetSignLink = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "https://datalake-production-sa.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") { res.set("Access-Control-Max-Age", "3600"); return res.status(204).send(""); }
+    if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
+    let decodedToken;
+    try { decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]); } catch { res.status(401).json({ error: "Invalid token" }); return; }
+
+    // Staff-only — resolve the caller's role from their own record (CEO/CTO/finance/HR).
+    let callerRole = null;
+    try {
+      const ud = await db.collection("users").doc(decodedToken.uid).get();
+      if (ud.exists) callerRole = ud.data().role_id || null;
+      else {
+        const q = await db.collection("users").where("email", "==", (decodedToken.email || "").toLowerCase()).limit(1).get();
+        if (!q.empty) callerRole = q.docs[0].data().role_id || null;
+      }
+    } catch { /* role stays null → denied below unless CEO */ }
+    const isCeo = decodedToken.email === "m.alqumri@datalake.sa";
+    if (!(isCeo || decodedToken.email === "cto@datalake.sa" || ["ceo", "cto", "finance", "hr"].includes(callerRole))) {
+      res.status(403).json({ error: "Only CEO/CTO/finance/HR can resend a sign link." }); return;
+    }
+
+    try {
+      const { timesheet_id } = req.body || {};
+      if (!timesheet_id) { res.status(400).json({ error: "Missing timesheet_id" }); return; }
+      const tsRef = db.collection("timesheets").doc(timesheet_id);
+      const tsDoc = await tsRef.get();
+      if (!tsDoc.exists) { res.status(404).json({ error: "Timesheet not found" }); return; }
+      const ts = tsDoc.data();
+
+      if (ts.state === "CLIENT_SIGNED") { res.status(400).json({ error: "Timesheet is already signed — nothing to resend." }); return; }
+      if (ts.state !== "CTO_APPROVED") { res.status(400).json({ error: `Sign link can only be resent while awaiting signature; current state: ${ts.state}.` }); return; }
+      const clientTo = ts.client_approver_email || null;
+      if (!clientTo) { res.status(400).json({ error: "No client approver email on this timesheet — add a client contact to the project and re-approve." }); return; }
+      if (!ts.client_sign_token) { res.status(400).json({ error: "No sign token on this timesheet — re-approve to generate one." }); return; }
+
+      // Reuse the EXISTING token (resend, not re-issue) — never returned to the caller.
+      const signUrl = `https://datalake-production-sa.web.app/client/timesheet/${ts.client_sign_token}`;
+      const nowTS = admin.firestore.FieldValue.serverTimestamp();
+      const { getGmailClient, sendEmailRaw } = require("./lib/gmail");
+      const logRef = db.collection("email_log").doc();
+      const emailSubject = `Reminder: sign ${ts.engineer_name}'s timesheet — ${ts.period_label}`;
+      const emailBody = [
+        `Dear ${ts.client_approver_name || "Client Approver"},`,
+        ``,
+        `This is a reminder that ${ts.engineer_name}'s timesheet for ${ts.period_label} on ${ts.project_name} is approved and awaiting your signature.`,
+        `Total: ${ts.total_hours || 0} hours.`,
+        ``,
+        `Review and sign here (no login required):`,
+        signUrl,
+        ``,
+        `This link is unique to you — please do not forward it.`,
+        ``,
+        `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
+        `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+      ].join("\n");
+
+      await logRef.set({
+        log_id: logRef.id, to: clientTo, subject: emailSubject,
+        template_id: "timesheet_client_sign", related_entity_type: "TIMESHEET", related_entity_id: timesheet_id,
+        sign_url: signUrl, sent_by: decodedToken.email, created_at: nowTS, status: "PENDING", resend: true,
+      });
+
+      try {
+        const gmail = await getGmailClient();
+        const result = await sendEmailRaw(gmail, clientTo, emailSubject, emailBody);
+        const messageId = result?.data?.id || null;
+        await logRef.update({ status: "SENT", gmail_message_id: messageId, sent_at: nowTS });
+        await tsRef.update({
+          sign_link_status: "SENT", sign_link_url: signUrl, sign_link_to: clientTo,
+          sign_link_sent_at: nowTS, sign_link_email_log_id: logRef.id, sign_link_message_id: messageId,
+          sign_link_resend_count: admin.firestore.FieldValue.increment(1),
+          sign_link_last_resent_by: decodedToken.email,
+        });
+        await db.collection("audit_log").add({
+          event: "TIMESHEET_SIGN_LINK_RESENT", timesheet_id, to: clientTo,
+          email_log_id: logRef.id, resent_by: decodedToken.email, status: "SENT", timestamp: nowTS,
+        });
+        res.status(200).json({ success: true, status: "SENT", message_id: messageId, to: clientTo });
+      } catch (sendErr) {
+        console.error(`[resendTimesheetSignLink] Gmail send failed for ${clientTo}:`, sendErr.message);
+        await logRef.update({ status: "FAILED", error: String(sendErr.message || sendErr).slice(0, 500), failed_at: nowTS });
+        await tsRef.update({
+          sign_link_status: "SEND_FAILED", sign_link_to: clientTo, sign_link_email_log_id: logRef.id,
+          sign_link_send_error: String(sendErr.message || sendErr).slice(0, 300),
+        });
+        await db.collection("audit_log").add({
+          event: "TIMESHEET_SIGN_LINK_RESENT", timesheet_id, to: clientTo,
+          email_log_id: logRef.id, resent_by: decodedToken.email, status: "FAILED", timestamp: nowTS,
+        });
+        res.status(502).json({ error: "Email send failed", detail: String(sendErr.message || sendErr).slice(0, 300) });
+      }
+    } catch (err) {
+      console.error("resendTimesheetSignLink error:", err);
+      res.status(500).json({ error: "Internal server error", detail: err.message });
+    }
+  }
+);
+
+// ============================================================
 // Scheduled: escalateStaleTimesheets
 // Runs hourly, escalates SUBMITTED timesheets older than 48hrs to CEO
 // ============================================================
@@ -3275,9 +3388,11 @@ exports.exportExpenseToBQ = exportExpenseToBQ;
 // ═══════════════════════════════════════════════════════════════════
 // Phase 13 — IT Admin Functions
 // ═══════════════════════════════════════════════════════════════════
-const { adminsetpassword, assignrole } = require('./adminAuth');
+const { adminsetpassword, assignrole, getmypasswordstatus, changemypassword } = require('./adminAuth');
 exports.adminsetpassword = adminsetpassword;
 exports.assignrole = assignrole;
+exports.getmypasswordstatus = getmypasswordstatus;
+exports.changemypassword = changemypassword;
 
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5: CONTROLLER AI — FINANCE CHAIN
