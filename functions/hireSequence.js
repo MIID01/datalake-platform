@@ -17,7 +17,7 @@ const { v4: uuidv4 } = require("uuid");
 const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
 // DTLK-PROMPT-AI-001: No external AI APIs. Self-hosted only.
-const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
+const { callLLM, callOCR, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
 const { generateSetPasswordLink } = require("./passwordReset");
 const { evaluateHireBudget } = require("./lib/budget");
 const Busboy = require("busboy");
@@ -341,7 +341,7 @@ Return valid JSON only, no markdown.`,
       event: "CONTRACT_DRAFT_CREATED_BY_AI",
       action_by: profile.email,
       action_at: now,
-      details: { draft_id: draftId, candidate_id, project_id, ai_model: "qwen2.5-7b-instruct-q4_K_M", status: "DRAFT_AWAITING_CEO_APPROVAL" },
+      details: { draft_id: draftId, candidate_id, project_id, ai_model: MODEL_NAME, status: "DRAFT_AWAITING_CEO_APPROVAL" },
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
@@ -1042,7 +1042,7 @@ FIELDS:
       contract_extracted_at: now,
       contract_ocr_lines: ocrLineCount,
       contract_extraction_method: extractedVia,
-      contract_extraction_model: "qwen2.5-7b-instruct-q4_K_M",
+      contract_extraction_model: MODEL_NAME,
       extraction_error: null,
       contract_extraction_error: null,
     };
@@ -1090,7 +1090,7 @@ FIELDS:
         fields_null: Object.keys(fields).filter((k) => fields[k] == null),
         ocr_lines: ocrLineCount,
         extraction_method: extractedVia,
-        ai_model: "qwen2.5-7b-instruct-q4_K_M",
+        ai_model: MODEL_NAME,
         inference_ms: llmResult.inferenceMs,
       },
     });

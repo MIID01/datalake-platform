@@ -139,7 +139,7 @@ Return valid JSON only, no markdown.`,
         validation_status: validationStatus,
         issues_count: validation.issues?.length || 0,
         warnings_count: validation.warnings?.length || 0,
-        ai_model: "qwen2.5-7b-instruct-q4_K_M",
+        ai_model: MODEL_NAME,
       },
     });
 
@@ -261,7 +261,7 @@ Return valid JSON only, no markdown.`,
         valid: validation.valid,
         zatca_compliant: validation.zatca_compliant,
         issues_count: validation.issues?.length || 0,
-        ai_model: "qwen2.5-7b-instruct-q4_K_M",
+        ai_model: MODEL_NAME,
       },
     });
 

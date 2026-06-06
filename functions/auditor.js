@@ -15,7 +15,7 @@
 "use strict";
 
 const admin = require("firebase-admin");
-const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
+const { callLLM, callOCR, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
 const { logToBigQuery } = require("./lib/bigquery");
 
 const db = admin.firestore();
@@ -119,7 +119,7 @@ Return valid JSON only, no markdown.`,
       status: "PENDING_CEO_REVIEW",       // CEO must review before any action
       requires_ceo_approval: true,
       triggered_by: "system",
-      ai_model: "qwen2.5-7b-instruct-q4_K_M",
+      ai_model: MODEL_NAME,
       inference_ms: llmResult.inferenceMs,
     });
 
@@ -139,7 +139,7 @@ Return valid JSON only, no markdown.`,
         review_id: reviewRef.id, 
         risk_level: review.risk_level || "UNKNOWN",
         findings_count: review.findings?.length || 0,
-        ai_model: "qwen2.5-7b-instruct-q4_K_M",
+        ai_model: MODEL_NAME,
       },
     });
 
@@ -275,7 +275,7 @@ Return valid JSON only, no markdown.`,
       generated_by: "auditor_ai",
       generated_at: admin.firestore.FieldValue.serverTimestamp(),
       status: "PENDING_CEO_REVIEW",
-      ai_model: "qwen2.5-7b-instruct-q4_K_M",
+      ai_model: MODEL_NAME,
       inference_ms: llmResult.inferenceMs,
       system_state_snapshot: {
         // Store aggregate counts only, no PII
@@ -446,7 +446,7 @@ async function aiAuditorMonthlyCronHandler(eventPayload) {
       action_type: "MONTHLY_AUDIT",
       triggered_by: "system:monthly_ops",
       input_hash:  "",
-      model_name:  "qwen2.5-7b-instruct",
+      model_name:  MODEL_NAME,
       timestamp:   new Date()
     });
 

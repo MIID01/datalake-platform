@@ -2639,7 +2639,7 @@ Rules: extract ALL skills; prefer +966 for Saudi phones; return valid JSON only,
             (k) => extracted[k] !== null && extracted[k] !== ""
           ).length,
           // AI engine detail — no Gemini, self-hosted only
-          ai_engine: "qwen2.5-7b-instruct-q4_K_M",
+          ai_engine: MODEL_NAME,
           ai_region: "me-central2",
           inference_ms: llmResult.inferenceMs,
           // DO NOT log candidate name, email, phone, or raw text
