@@ -31,7 +31,7 @@ export default function AuditLogs() {
     <div style={s.page}>
       <h1 style={s.h1}>Audit Logs</h1>
       <p style={s.sub}>IT-specific events: account lifecycle, role/access changes, credential actions.</p>
-      <div style={s.notice}><ScrollText size={16} /><span>Once the credential & role Cloud Functions are deployed, every password and role action will also be written to the immutable BigQuery <code>admin_audit_log</code>. This view shows the Firestore operational trail.</span></div>
+      <div style={s.notice}><ScrollText size={16} /><span>Credential & role actions are written to the immutable BigQuery <code>admin_audit_log</code> by the it_admin/CEO Cloud Functions. This view shows the Firestore operational trail (<code>task_audit_log</code>).</span></div>
 
       {error && <div style={s.error}>Could not load audit logs: {error}</div>}
       <div style={s.card}>

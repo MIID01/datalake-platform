@@ -77,6 +77,9 @@ export const UPDATE_USER_ROLE_URL =
   "https://updateuserrole-ifzodp5svq-wx.a.run.app";
 export const DISABLE_USER_URL =
   "https://disableuser-ifzodp5svq-wx.a.run.app";
+// Full de-provisioning (auth disable, Workspace offboard, cert) — CEO only.
+export const OFFBOARD_ENGINEER_URL =
+  "https://offboardengineer-ifzodp5svq-wx.a.run.app";
 export const CREATE_CUSTOM_ROLE_URL =
   "https://createcustomrole-ifzodp5svq-wx.a.run.app";
 export const DELETE_CUSTOM_ROLE_URL =

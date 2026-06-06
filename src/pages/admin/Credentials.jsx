@@ -74,11 +74,11 @@ export default function Credentials() {
           <p style={s.sub}>Password lifecycle — require change at next login, generate, reset. IT Administrators &amp; CEO.</p>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button style={s.btnDisabled} disabled title="Pending adminsetpassword"><Layers size={13} /> Bulk Reset</button>
+          <button style={s.btnDisabled} disabled title="Requires it_admin role"><Layers size={13} /> Bulk Reset</button>
         </div>
       </div>
 
-      <div style={s.notice}><Lock size={16} /><span>Passwords are never displayed or stored. <strong>Require change at next login</strong> flags the account so it must set a new private password before reaching any portal (enforced at login) — every toggle is logged to <code>admin_audit_log</code> with who flagged whom. Generate / reset run through the it_admin-only <strong>adminsetpassword</strong> function (still staged).</span></div>
+      <div style={s.notice}><Lock size={16} /><span>Passwords are never displayed or stored. <strong>Require change at next login</strong> flags the account so it must set a new private password before reaching any portal (enforced at login) — every toggle is logged to <code>admin_audit_log</code> with who flagged whom. Generate / reset are <strong>it_admin-only</strong> (the <code>adminsetpassword</code> function, deployed) — no it_admin is currently assigned, so they stay disabled here. The require-change control above is CEO-usable and covers the immediate need.</span></div>
 
       {toast && (
         <div style={{ ...(toast.type === 'error' ? s.error : { ...s.notice, background: 'rgba(52,191,58,0.1)', border: '1px solid rgba(52,191,58,0.3)', color: '#86efac' }), display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -139,8 +139,8 @@ export default function Credentials() {
                               : <button style={isRowBusy ? btnBusy : btnPrimary} disabled={isRowBusy} onClick={() => setRequirement([u.id], true, { row: u.id })} title="Require a password change at next login">
                                   {isRowBusy ? <Loader size={13} className="spin" /> : <Clock size={13} />} Require change
                                 </button>}
-                            <button style={s.btnDisabled} disabled title="Pending adminsetpassword"><RefreshCw size={13} /> Reset</button>
-                            <button style={s.btnDisabled} disabled title="Pending adminsetpassword"><KeyRound size={13} /> Generate</button>
+                            <button style={s.btnDisabled} disabled title="Requires it_admin role"><RefreshCw size={13} /> Reset</button>
+                            <button style={s.btnDisabled} disabled title="Requires it_admin role"><KeyRound size={13} /> Generate</button>
                           </div>
                         </td>
                       </tr>
