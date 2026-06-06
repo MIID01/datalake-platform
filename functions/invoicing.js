@@ -442,7 +442,11 @@ async function generateZatcaXmlHandler(eventOrReq, resOrUndefined) {
       zatca_qr_code: qrBase64,
       zatca_invoice_hash: cryptoData.hash,
       zatca_generated_at: now,
-      zatca_status: "SUBMITTED"
+      // Honest status: this generates the LOCAL ZATCA Phase-2 UBL XML + QR + hash
+      // with a PLACEHOLDER signature. It does NOT call FATOORA — nothing has been
+      // submitted to ZATCA. Do not label this "SUBMITTED".
+      zatca_status: "LOCAL_XML_GENERATED",
+      zatca_submitted: false
     });
 
     await db.collection("task_audit_log").add({
