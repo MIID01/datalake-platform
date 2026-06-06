@@ -1952,8 +1952,12 @@ exports.clientSignTimesheet = onRequest(
       if (!tsDoc.exists) { res.status(404).json({ error: "Timesheet not found" }); return; }
       const ts = tsDoc.data();
 
-      // CEO can act as client approver during setup/testing
-      if (ts.client_approver_email !== client_email && client_email !== "m.alqumri@datalake.sa") { res.status(403).json({ error: "Not authorized to sign this timesheet" }); return; }
+      // The client's sign-off is their INDEPENDENT attestation: ONLY the named
+      // client approver's own session may sign. No CEO/staff bypass — if the
+      // approver who signs can be the same person who approves the invoice, the
+      // "client signed" evidence is forgeable and fails audit. CEO setup-testing
+      // uses the test-client + test-token path, never a production bypass.
+      if (ts.client_approver_email !== client_email) { res.status(403).json({ error: "Not authorized — only the named client approver may sign." }); return; }
       if (ts.state !== "CTO_APPROVED") { res.status(400).json({ error: `Cannot sign timesheet in state: ${ts.state}` }); return; }
 
       const nowTS = admin.firestore.FieldValue.serverTimestamp();
@@ -2151,6 +2155,113 @@ exports.resendTimesheetSignLink = onRequest(
       console.error("resendTimesheetSignLink error:", err);
       res.status(500).json({ error: "Internal server error", detail: err.message });
     }
+  }
+);
+
+// ============================================================
+// HTTP endpoint: getTimesheetsByToken  (PUBLIC — token is the auth)
+// Returns the sanitized timesheet(s) for a client sign token so the
+// unauthenticated client page can render what it's signing. Admin SDK read
+// (bypasses the auth-required firestore.rules read). The token was emailed only
+// to the client approver, so possession is the client's credential.
+// ============================================================
+exports.getTimesheetsByToken = onRequest(
+  { invoker: "public", region: "me-central2", memory: "256MiB", timeoutSeconds: 15, cors: true },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    try {
+      const token = (req.body && req.body.token) || req.query.token;
+      if (!token) { res.status(400).json({ error: "Missing token" }); return; }
+      const snap = await db.collection("timesheets").where("client_sign_token", "==", token).get();
+      if (snap.empty) { res.status(404).json({ error: "Invalid or expired sign link" }); return; }
+      const items = snap.docs.map(d => {
+        const x = d.data();
+        return {
+          id: d.id, engineer_name: x.engineer_name, engineer_email: x.engineer_email,
+          project_name: x.project_name, client_name: x.client_name, po_number: x.po_number,
+          client_approver_name: x.client_approver_name,
+          period_label: x.period_label, period_year: x.period_year, period_month: x.period_month,
+          total_hours: x.total_hours, in_house_hours: x.in_house_hours, remote_hours: x.remote_hours, leave_hours: x.leave_hours,
+          days: x.days || {}, state: x.state, status: x.status,
+          client_action_at: x.client_action_at || null, client_signature_method: x.client_signature_method || null,
+        };
+      });
+      res.status(200).json({ success: true, timesheets: items });
+    } catch (err) { console.error("getTimesheetsByToken error:", err); res.status(500).json({ error: "Internal error" }); }
+  }
+);
+
+// ============================================================
+// HTTP endpoint: signTimesheetByToken  (PUBLIC — token is the auth)
+// The client's INDEPENDENT attestation. Token possession (emailed only to the
+// client approver) is the credential — NO staff/CEO session can produce this.
+// Batch-signs every CTO_APPROVED timesheet carrying the token. Admin SDK write,
+// so firestore.rules can deny all direct CLIENT_SIGNED transitions. The token is
+// burned on use.
+// ============================================================
+exports.signTimesheetByToken = onRequest(
+  { invoker: "public", region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: true },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
+    try {
+      const { token, decision, signature_method, signature_data, rejection_reason } = req.body || {};
+      if (!token || !decision) { res.status(400).json({ error: "token and decision required" }); return; }
+      if (!["SIGN", "REJECT"].includes(decision)) { res.status(400).json({ error: "decision must be SIGN or REJECT" }); return; }
+      if (decision === "SIGN" && (!signature_method || !signature_data)) { res.status(400).json({ error: "signature_method and signature_data required" }); return; }
+      if (decision === "REJECT" && !rejection_reason) { res.status(400).json({ error: "rejection_reason required" }); return; }
+
+      const snap = await db.collection("timesheets").where("client_sign_token", "==", token).get();
+      if (snap.empty) { res.status(404).json({ error: "Invalid or expired sign link" }); return; }
+      const targets = snap.docs.filter(d => d.data().state === "CTO_APPROVED");
+      if (!targets.length) {
+        const states = [...new Set(snap.docs.map(d => d.data().state))];
+        res.status(409).json({ error: `Nothing to sign — current state(s): ${states.join(", ")}` }); return;
+      }
+
+      const nowTS = admin.firestore.FieldValue.serverTimestamp();
+      const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
+      const ua = req.headers["user-agent"] || "unknown";
+      const crypto = require("crypto");
+      const ids = [];
+      for (const docSnap of targets) {
+        const ts = docSnap.data();
+        if (decision === "SIGN") {
+          const signatureHash = crypto.createHash("sha256").update(`${docSnap.id}|${ts.client_approver_email}|${signature_method}|${Date.now()}`).digest("hex");
+          await docSnap.ref.update({
+            state: "CLIENT_SIGNED", status: "CLIENT_SIGNED",
+            client_action_at: nowTS, client_signed_at: nowTS,
+            client_signature_hash: signatureHash, client_signature_method: signature_method,
+            client_signature_image: (signature_method === "draw" || signature_method === "upload") ? signature_data : null,
+            client_signature_text: signature_method === "type" ? signature_data : null,
+            client_action_ip: ip, client_signed_by: ts.client_approver_email || null,
+            client_sign_token: admin.firestore.FieldValue.delete(),
+            updated_at: nowTS,
+            audit_trail: admin.firestore.FieldValue.arrayUnion({ timestamp: new Date().toISOString(), event: "CLIENT_SIGNED", actor: ts.client_approver_email || "client_token", signature_hash: signatureHash, via: "sign_token" }),
+          });
+          await db.collection("finance_notifications").add({
+            type: "INVOICE_READY_TO_PREPARE", timesheet_id: docSnap.id, project_id: ts.project_id,
+            project_name: ts.project_name, client_name: ts.client_name, engineer_name: ts.engineer_name,
+            period_label: ts.period_label, total_hours: ts.total_hours, created_at: nowTS, processed: false,
+          });
+        } else {
+          await docSnap.ref.update({
+            state: "REJECTED_BY_CLIENT", status: "REJECTED_BY_CLIENT",
+            rejection_reason, client_action_at: nowTS, client_action_ip: ip,
+            client_sign_token: admin.firestore.FieldValue.delete(), updated_at: nowTS,
+            audit_trail: admin.firestore.FieldValue.arrayUnion({ timestamp: new Date().toISOString(), event: "REJECTED_BY_CLIENT", actor: ts.client_approver_email || "client_token", rejection_reason, via: "sign_token" }),
+          });
+        }
+        await db.collection("task_audit_log").add({
+          event: decision === "SIGN" ? "TIMESHEET_CLIENT_SIGNED" : "TIMESHEET_CLIENT_REJECTED",
+          timesheet_id: docSnap.id, action_by: ts.client_approver_email || "client_token", action_at: nowTS,
+          details: { via: "sign_token", signature_method: signature_method || null, rejection_reason: rejection_reason || null },
+          ip_address: ip, user_agent: ua,
+        });
+        ids.push(docSnap.id);
+      }
+      res.status(200).json({ success: true, decision, timesheet_ids: ids, count: ids.length });
+    } catch (err) { console.error("signTimesheetByToken error:", err); res.status(500).json({ error: "Internal server error", detail: err.message }); }
   }
 );
 

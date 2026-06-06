@@ -59,6 +59,14 @@ export const RECORD_SIGN_LINK_OPEN_URL =
 export const RESEND_SIGN_LINK_URL =
   "https://resendtimesheetsignlink-ifzodp5svq-wx.a.run.app";
 
+// Token-as-credential client sign flow (public; token was emailed only to the
+// client). Read + sign by token — no staff/CEO session can produce a client
+// sign-off. firestore.rules denies all direct CLIENT_SIGNED writes.
+export const GET_TIMESHEETS_BY_TOKEN_URL =
+  "https://gettimesheetsbytoken-ifzodp5svq-wx.a.run.app";
+export const SIGN_TIMESHEET_BY_TOKEN_URL =
+  "https://signtimesheetbytoken-ifzodp5svq-wx.a.run.app";
+
 export const GET_MY_TIMESHEETS_URL =
   "https://getmytimesheets-ifzodp5svq-wx.a.run.app";
 
