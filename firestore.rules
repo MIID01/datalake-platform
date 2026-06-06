@@ -215,11 +215,13 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
       allow delete: if isCeo();
-      allow update: if isCeoOrCto() || (
-        request.resource.data.state == 'CLIENT_SIGNED' &&
-        resource.data.state == 'CTO_APPROVED' &&
-        resource.data.client_sign_token != null
-      );
+      // CLIENT_SIGNED is the client's INDEPENDENT attestation — produced ONLY by
+      // the token/session sign functions on the Admin SDK (which bypass these
+      // rules). No client-SDK path, not even CEO/CTO, may transition a timesheet
+      // INTO CLIENT_SIGNED, so it can't be forged. All staff transitions (submit,
+      // CTO-approve, reject) already run through Cloud Functions and are unaffected.
+      allow update: if isCeoOrCto()
+        && !(resource.data.state != 'CLIENT_SIGNED' && request.resource.data.state == 'CLIENT_SIGNED');
 
       // Immutable approval snapshot rows (written server-side by ctoApproveTimesheet
       // via the Admin SDK, which bypasses these rules). Readable by any signed-in

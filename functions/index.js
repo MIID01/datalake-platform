@@ -1704,6 +1704,9 @@ exports.ctoApproveTimesheet = onRequest(
         const clientToken = crypto.randomBytes(32).toString("hex");
         await tsRef.update({
           client_sign_token: clientToken,
+          // 30-day TTL on the sign token (resend re-extends). The token is also
+          // single-use (burned on sign/reject) and per-timesheet scoped.
+          sign_token_expires_at: admin.firestore.Timestamp.fromMillis(Date.now() + 30 * 24 * 3600 * 1000),
         });
 
         // ── Immutable approval snapshot: the exact line items + totals approved,
@@ -2132,6 +2135,8 @@ exports.resendTimesheetSignLink = onRequest(
           sign_link_sent_at: nowTS, sign_link_email_log_id: logRef.id, sign_link_message_id: messageId,
           sign_link_resend_count: admin.firestore.FieldValue.increment(1),
           sign_link_last_resent_by: decodedToken.email,
+          // Re-extend the token TTL by another 30 days on resend.
+          sign_token_expires_at: admin.firestore.Timestamp.fromMillis(Date.now() + 30 * 24 * 3600 * 1000),
         });
         await db.collection("audit_log").add({
           event: "TIMESHEET_SIGN_LINK_RESENT", timesheet_id, to: clientTo,
@@ -2174,6 +2179,9 @@ exports.getTimesheetsByToken = onRequest(
       if (!token) { res.status(400).json({ error: "Missing token" }); return; }
       const snap = await db.collection("timesheets").where("client_sign_token", "==", token).get();
       if (snap.empty) { res.status(404).json({ error: "Invalid or expired sign link" }); return; }
+      if (snap.docs.some(d => { const e = d.data().sign_token_expires_at; return e && e.toMillis && e.toMillis() < Date.now(); })) {
+        res.status(410).json({ error: "Sign link expired — request a new one." }); return;
+      }
       const items = snap.docs.map(d => {
         const x = d.data();
         return {
@@ -2205,7 +2213,7 @@ exports.signTimesheetByToken = onRequest(
     if (req.method === "OPTIONS") { res.status(204).send(""); return; }
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
     try {
-      const { token, decision, signature_method, signature_data, rejection_reason } = req.body || {};
+      const { token, decision, signature_method, signature_data, rejection_reason, signed_pdf_url } = req.body || {};
       if (!token || !decision) { res.status(400).json({ error: "token and decision required" }); return; }
       if (!["SIGN", "REJECT"].includes(decision)) { res.status(400).json({ error: "decision must be SIGN or REJECT" }); return; }
       if (decision === "SIGN" && (!signature_method || !signature_data)) { res.status(400).json({ error: "signature_method and signature_data required" }); return; }
@@ -2213,6 +2221,9 @@ exports.signTimesheetByToken = onRequest(
 
       const snap = await db.collection("timesheets").where("client_sign_token", "==", token).get();
       if (snap.empty) { res.status(404).json({ error: "Invalid or expired sign link" }); return; }
+      if (snap.docs.some(d => { const e = d.data().sign_token_expires_at; return e && e.toMillis && e.toMillis() < Date.now(); })) {
+        res.status(410).json({ error: "Sign link expired — request a new one." }); return;
+      }
       const targets = snap.docs.filter(d => d.data().state === "CTO_APPROVED");
       if (!targets.length) {
         const states = [...new Set(snap.docs.map(d => d.data().state))];
@@ -2235,7 +2246,9 @@ exports.signTimesheetByToken = onRequest(
             client_signature_image: (signature_method === "draw" || signature_method === "upload") ? signature_data : null,
             client_signature_text: signature_method === "type" ? signature_data : null,
             client_action_ip: ip, client_signed_by: ts.client_approver_email || null,
+            signed_pdf_url: signed_pdf_url || ts.signed_pdf_url || null,
             client_sign_token: admin.firestore.FieldValue.delete(),
+            sign_token_expires_at: admin.firestore.FieldValue.delete(),
             updated_at: nowTS,
             audit_trail: admin.firestore.FieldValue.arrayUnion({ timestamp: new Date().toISOString(), event: "CLIENT_SIGNED", actor: ts.client_approver_email || "client_token", signature_hash: signatureHash, via: "sign_token" }),
           });
@@ -2248,7 +2261,8 @@ exports.signTimesheetByToken = onRequest(
           await docSnap.ref.update({
             state: "REJECTED_BY_CLIENT", status: "REJECTED_BY_CLIENT",
             rejection_reason, client_action_at: nowTS, client_action_ip: ip,
-            client_sign_token: admin.firestore.FieldValue.delete(), updated_at: nowTS,
+            client_sign_token: admin.firestore.FieldValue.delete(),
+            sign_token_expires_at: admin.firestore.FieldValue.delete(), updated_at: nowTS,
             audit_trail: admin.firestore.FieldValue.arrayUnion({ timestamp: new Date().toISOString(), event: "REJECTED_BY_CLIENT", actor: ts.client_approver_email || "client_token", rejection_reason, via: "sign_token" }),
           });
         }

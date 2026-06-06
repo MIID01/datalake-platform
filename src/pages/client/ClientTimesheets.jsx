@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, query, where, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { db, auth } from '../../lib/firebase'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db, auth, CLIENT_SIGN_TIMESHEET_URL } from '../../lib/firebase'
 import { CheckCircle, XCircle, Eye, Calendar, Loader } from 'lucide-react'
 
 const STATE_MAPPING = {
@@ -48,31 +48,40 @@ export default function ClientTimesheets() {
   const filtered = filter === 'All' ? mappedItems : mappedItems.filter(t => t.displayStatus === filter)
   const pendingCount = mappedItems.filter(t => t.displayStatus === 'Pending Approval').length
 
-  const handleApprove = async (id) => {
+  // Sign via the session-authed clientSignTimesheet function — it verifies the
+  // caller's email == the timesheet's client_approver_email (no CEO/staff bypass),
+  // so only the real client approver's own session can sign. Direct CLIENT_SIGNED
+  // writes are denied by firestore.rules.
+  const postDecision = async (id, body, fallbackErr) => {
     setActionLoading(id)
     try {
-      await updateDoc(doc(db, 'timesheets', id), {
-        state: 'CLIENT_SIGNED',
-        client_signed_at: serverTimestamp(),
-        updated_at: serverTimestamp()
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(CLIENT_SIGN_TIMESHEET_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ timesheet_id: id, ...body }),
       })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || fallbackErr)
     } catch (err) {
       console.error(err)
+      window.alert(err.message || fallbackErr)
     }
     setActionLoading(false)
   }
 
+  const handleApprove = async (id) => {
+    const name = window.prompt('Type your full name to sign this timesheet:')
+    if (!name || !name.trim()) return
+    await postDecision(id, { decision: 'SIGN', signature_method: 'type', signature_data: name.trim() },
+      'Could not sign — you must be the named client approver.')
+  }
+
   const handleReject = async (id) => {
-    setActionLoading(id)
-    try {
-      await updateDoc(doc(db, 'timesheets', id), {
-        state: 'REJECTED_BY_CLIENT',
-        updated_at: serverTimestamp()
-      })
-    } catch (err) {
-      console.error(err)
-    }
-    setActionLoading(false)
+    const reason = window.prompt('Reason for rejection:')
+    if (!reason || !reason.trim()) return
+    await postDecision(id, { decision: 'REJECT', rejection_reason: reason.trim() },
+      'Could not reject this timesheet.')
   }
 
   return (

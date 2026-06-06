@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { collection, onSnapshot } from 'firebase/firestore'
-import { db, RECORD_SIGN_LINK_OPEN_URL } from '../../lib/firebase'
+import { db, RECORD_SIGN_LINK_OPEN_URL, GET_TIMESHEETS_BY_TOKEN_URL, SIGN_TIMESHEET_BY_TOKEN_URL } from '../../lib/firebase'
 import { CheckCircle, Download, Pen, Printer, Type, Upload, Eraser, Clock, Mail, ShieldCheck } from 'lucide-react'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import jsPDF from 'jspdf'
@@ -160,7 +160,6 @@ function SignaturePad({ onSave, onCancel }) {
 
 // ─── Main Component ───────────────────────────────────────
 import { useParams } from 'react-router-dom'
-import { query, where } from 'firebase/firestore'
 
 export default function ClientTimesheetApproval() {
   const { token } = useParams()
@@ -175,35 +174,36 @@ export default function ClientTimesheetApproval() {
   const [signatureImage, setSignatureImage] = useState(null)
   const [signed, setSigned] = useState(false)
   const [signedTimestamp, setSignedTimestamp] = useState('')
+  const [signError, setSignError] = useState('')
   const [reminderSent, setReminderSent] = useState(new Set())
 
-  useEffect(() => {
-    if (!token) {
-      setInvalidToken(true)
-      return
-    }
-    const q = query(collection(db, 'timesheets'), where('client_sign_token', '==', token))
-    const unsub = onSnapshot(q, snap => {
-      if (!snap.empty) {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        // Filter to only those in CLIENT_SIGNED or CTO_APPROVED state
-        const validDocs = docs.filter(d => ['CLIENT_SIGNED', 'CTO_APPROVED'].includes(d.state) || ['CLIENT_SIGNED', 'CTO_APPROVED'].includes(d.status))
-        
-        if (validDocs.length > 0) {
-          setTimesheets(validDocs)
-          // If all valid timesheets are already signed, mark as signed
-          if (validDocs.every(d => d.state === 'CLIENT_SIGNED' || d.status === 'CLIENT_SIGNED')) {
-            setSigned(true)
-          }
-        } else {
-          setInvalidToken(true)
-        }
+  // Load the timesheet(s) for this sign token via the PUBLIC token function —
+  // the client is unauthenticated, so a direct Firestore read (rules require
+  // auth) would fail. Re-callable so we can refresh after signing.
+  const loadTimesheets = useCallback(async () => {
+    if (!token) { setInvalidToken(true); return }
+    try {
+      const res = await fetch(GET_TIMESHEETS_BY_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      if (!res.ok) { setInvalidToken(true); return }   // 404 invalid · 410 expired
+      const data = await res.json().catch(() => ({}))
+      const docs = data.timesheets || []
+      const validDocs = docs.filter(d => ['CLIENT_SIGNED', 'CTO_APPROVED'].includes(d.state) || ['CLIENT_SIGNED', 'CTO_APPROVED'].includes(d.status))
+      if (validDocs.length > 0) {
+        setTimesheets(validDocs)
+        if (validDocs.every(d => d.state === 'CLIENT_SIGNED' || d.status === 'CLIENT_SIGNED')) setSigned(true)
       } else {
         setInvalidToken(true)
       }
-    })
-    return () => unsub()
+    } catch {
+      setInvalidToken(true)
+    }
   }, [token])
+
+  useEffect(() => { loadTimesheets() }, [loadTimesheets])
 
   // Record that the client OPENED this sign link — auditable proof of receipt.
   // Fire-and-forget, once per token; the server stamps first/last-opened + count.
@@ -264,33 +264,43 @@ export default function ClientTimesheetApproval() {
 
   const saveSignatureToFirestore = async (signatureData, method) => {
     if (timesheets.length === 0) return;
+    // Best-effort client PDF → Storage (supplementary; the authoritative WORM PDF
+    // is written server-side at CTO approval). Never block signing on it — an
+    // unauthenticated client may lack Storage write permission.
+    let signedPdfUrl = null
     try {
-      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore')
-      
-      // Generate PDF of the timesheet
       const pdfBlob = await generatePDFBlob()
-      let signedPdfUrl = null
-      
       if (pdfBlob) {
         const storage = getStorage()
         const pdfRef = ref(storage, `datalake-worm-hr/employee_documents/TS-CLIENT-${token}-SIGNED.pdf`)
         await uploadBytes(pdfRef, pdfBlob)
         signedPdfUrl = await getDownloadURL(pdfRef)
       }
-
-      await Promise.all(timesheets.map(ts => 
-        updateDoc(doc(db, 'timesheets', ts.id), {
-          state: 'CLIENT_SIGNED',
-          status: 'CLIENT_SIGNED',
-          client_signature_image: signatureData || null,
-          client_signature_text: method === 'type' ? signatureText : null,
-          client_signature_method: method,
+    } catch (e) {
+      console.warn('Client PDF upload skipped:', e?.message)
+    }
+    // Sign via the token function (Admin SDK) — the ONLY path that may set
+    // CLIENT_SIGNED. Direct Firestore writes are denied by firestore.rules.
+    try {
+      const res = await fetch(SIGN_TIMESHEET_BY_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          decision: 'SIGN',
+          signature_method: method,
+          signature_data: method === 'type' ? signatureText : signatureData,
           signed_pdf_url: signedPdfUrl,
-          client_signed_at: serverTimestamp()
-        })
-      ))
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not record your signature. Please try again.')
+      setSignError('')
+      await loadTimesheets()   // reflect CLIENT_SIGNED from the server
     } catch (err) {
-      console.error('Failed to save signature:', err)
+      console.error('Sign failed:', err)
+      setSigned(false)         // revert the optimistic "signed" UI
+      setSignError(err.message || 'Could not record your signature. Please try again.')
     }
   }
 
@@ -630,6 +640,11 @@ export default function ClientTimesheetApproval() {
                   <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#333', marginBottom: 2 }}>{clientProfile.company}</div>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: 4 }}>Approved by</div>
                   <div style={{ fontSize: '0.85rem', color: '#333', marginBottom: 12 }}>{clientProfile.contactName}</div>
+                  {signError && (
+                    <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 6, background: '#fdecea', border: '1px solid #C0392B', color: '#C0392B', fontSize: '0.78rem' }}>
+                      {signError}
+                    </div>
+                  )}
                   <div style={{
                     border: signed ? '2px solid #27ae60' : signing ? '2px solid #1B6B93' : '1px solid #ccc',
                     borderRadius: 4, padding: signing ? '12px' : '16px 24px', minHeight: 80,
