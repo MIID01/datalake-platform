@@ -1712,6 +1712,7 @@ exports.ctoApproveTimesheet = onRequest(
         // so "show me the input + what was approved" is one record. Best-effort
         // (try/catch) so an audit-write hiccup never blocks the approval itself.
         try {
+          // Build line items with description/task per entry
           const lineItems = Object.keys(ts.days || {})
             .filter(d => Number(ts.days[d] && ts.days[d].hours) > 0)
             .sort((a, b) => Number(a) - Number(b))
@@ -1719,44 +1720,77 @@ exports.ctoApproveTimesheet = onRequest(
               date: `${ts.period_year}-${String(ts.period_month).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
               hours: Number(ts.days[d].hours),
               type: ts.days[d].type || null,
+              // Capture any free-text the engineer entered per day
+              description: ts.days[d].description || ts.days[d].task || ts.days[d].notes || null,
             }));
+
+          // Immutable snapshot: line items + totals the approver reviewed,
+          // AI advisory result (labelled as AI — not conflated with engineer),
+          // and approver identity + timestamp.
           const snapshot = {
+            // ── Engineer submission ──────────────────────────
+            submitted_by_email: ts.engineer_email || null,
+            submitted_by_name:  ts.engineer_name  || null,
+            submitted_at_iso:   ts.submitted_at   || null,
+            period_label:       ts.period_label   || null,
+            project_name:       ts.project_name   || null,
+            po_number:          ts.po_number       || null,
             line_items: lineItems,
             totals: {
-              total_hours: ts.total_hours || 0, in_house_hours: ts.in_house_hours || 0,
-              remote_hours: ts.remote_hours || 0, leave_hours: ts.leave_hours || 0,
+              total_hours:    ts.total_hours    || 0,
+              in_house_hours: ts.in_house_hours || 0,
+              remote_hours:   ts.remote_hours   || 0,
+              leave_hours:    ts.leave_hours    || 0,
             },
-            notes: ts.notes || null,
-            ai_validation: { status: ts.ai_validation_status || null, reason: ts.ai_validation_reason || null },
-            submitted_by: ts.engineer_email || null,
+            engineer_notes: ts.notes || null,
+
+            // ── AI advisory (separate from engineer identity) ─
+            ai_validation_status: ts.ai_validation_status || null,
+            ai_validation_detail: ts.ai_validation        || null,
+            ai_validated_by:      ts.ai_validated_by      || "controller_ai",
+            ai_validation_model:  ts.ai_validation_model  || null,
+            ai_validated_at_iso:  ts.ai_validated_at      || null,
+
+            // ── Human approver ──────────────────────────────
             approver_email: decodedToken.email,
-            approver_uid: decodedToken.uid || null,
+            approver_uid:   decodedToken.uid || null,
             approved_at_iso: new Date().toISOString(),
           };
           await tsRef.update({ cto_approval_snapshot: { ...snapshot, approved_at: nowTS } });
-          await tsRef.collection("approval_evidence").add({ ...snapshot, approved_at: nowTS, action: "CTO_APPROVE_TIMESHEET" });
+          await tsRef.collection("approval_evidence").add({
+            ...snapshot, approved_at: nowTS, action: "CTO_APPROVE_TIMESHEET",
+          });
 
           // WORM PDF audit record (datalake-worm-finance)
           const PDFDocument = require("pdfkit");
           const wormBucket = admin.storage().bucket("datalake-worm-finance");
           const pdfPath = `timesheet-approvals/${timesheet_id}/${Date.now()}_approval.pdf`;
-          const wfile = wormBucket.file(pdfPath);
+          const wfile  = wormBucket.file(pdfPath);
           const wstream = wfile.createWriteStream({ contentType: "application/pdf", metadata: { metadata: { timesheet_id, approver: decodedToken.email } } });
           const pdf = new PDFDocument({ margin: 50 });
           pdf.pipe(wstream);
           pdf.fontSize(16).fillColor("#022873").text("Timesheet Approval Record", { align: "center" });
-          pdf.moveDown(0.4).fontSize(10).fillColor("#555").text(`${ts.project_name || ""} · ${ts.client_name || ""} · ${ts.period_label || ""}`, { align: "center" });
+          pdf.moveDown(0.4).fontSize(10).fillColor("#555")
+            .text(`${ts.project_name || ""} · ${ts.client_name || ""} · ${ts.period_label || ""}`, { align: "center" });
+          // Attribution block — engineer and AI are clearly separate
           pdf.moveDown(1).fillColor("black").fontSize(11)
-            .text(`Submitted by:  ${ts.engineer_name || ""} (${ts.engineer_email || ""})`)
-            .text(`Approved by:   ${decodedToken.email}`)
-            .text(`Approved at:   ${snapshot.approved_at_iso}`)
-            .text(`AI validation (advisory): ${ts.ai_validation_status || "—"}${ts.ai_validation_reason ? " — " + ts.ai_validation_reason : ""}`);
-          if (ts.notes) pdf.moveDown(0.4).text(`Notes: ${ts.notes}`);
+            .text(`Submitted by:       ${ts.engineer_name || ""} <${ts.engineer_email || ""}>  (engineer)`)
+            .text(`Approved by:        ${decodedToken.email}  (CTO/CEO)`)
+            .text(`Approved at:        ${snapshot.approved_at_iso}`);
+          if (ts.ai_validation_status) {
+            pdf.text(`AI pre-screening:   ${ts.ai_validation_status} — model: ${ts.ai_validation_model || "controller_ai"}` +
+              (ts.ai_validation?.issues?.length ? ` — flags: ${ts.ai_validation.issues.join("; ")}` : "") +
+              `  [advisory only — human approved above]`);
+          }
+          if (ts.notes) pdf.moveDown(0.4).text(`Engineer notes: ${ts.notes}`);
           pdf.moveDown(0.8).fontSize(12).fillColor("#022873").text("Approved line items");
           pdf.moveDown(0.3).fontSize(10).fillColor("black");
-          for (const li of lineItems) pdf.text(`  ${li.date}    ${li.hours}h    ${li.type || ""}`);
+          for (const li of lineItems) {
+            pdf.text(`  ${li.date}  ${li.hours}h  ${li.type || ""}${li.description ? "  — " + li.description : ""}`);
+          }
           pdf.moveDown(0.4).fontSize(11).text(`Total: ${ts.total_hours || 0}h`, { underline: true });
-          pdf.moveDown(1).fontSize(8).fillColor("#666").text("Generated at approval time by the Datalake platform. Immutable mirror stored at timesheets/{id}/approval_evidence/. The AI result is advisory; the human approver above made the decision.", { align: "justify" });
+          pdf.moveDown(1).fontSize(8).fillColor("#666")
+            .text("Generated at approval time by the Datalake platform. Immutable mirror stored at timesheets/{id}/approval_evidence/. The AI result is advisory; the human approver above made the decision.", { align: "justify" });
           pdf.end();
           await new Promise((resolve, reject) => { wstream.on("finish", resolve); wstream.on("error", reject); });
           await tsRef.update({ cto_approval_pdf_path: `gs://datalake-worm-finance/${pdfPath}` });
