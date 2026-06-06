@@ -15,7 +15,7 @@
 "use strict";
 
 const admin = require("firebase-admin");
-const { callLLM, parseJsonOutput } = require("./lib/ai-client");
+const { callLLM, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
 
 const db = admin.firestore();
 
@@ -126,7 +126,7 @@ Return valid JSON only, no markdown.`,
       ai_validation_status: validationStatus,
       ai_validated_at: now,
       ai_validated_by: "controller_ai",
-      ai_validation_model: "qwen2.5-7b-instruct-q4_K_M",
+      ai_validation_model: MODEL_NAME,
       ai_validation_ms: llmResult.inferenceMs,
     });
 

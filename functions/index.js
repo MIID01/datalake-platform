@@ -11,7 +11,7 @@ const pubsub = new PubSub();
 const { httpErrorStatus } = require("./lib/httpErrors");
 // NOTE: VertexAI / Gemini removed per DTLK-PROMPT-AI-001.
 // All AI inference now runs on self-hosted datalake-ai-inference (Qwen 2.5 7B).
-const { callLLM, callOCR, parseJsonOutput } = require("./lib/ai-client");
+const { callLLM, callOCR, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -1630,7 +1630,7 @@ Return valid JSON only, no markdown.`,
               ai_validation_status: validationStatus,
               ai_validated_at: admin.firestore.FieldValue.serverTimestamp(),
               ai_validated_by: "controller_ai",
-              ai_validation_model: "qwen2.5-7b-instruct-q4_K_M",
+              ai_validation_model: MODEL_NAME,
               ai_validation_ms: llmResult.inferenceMs,
             });
             console.log(`[Controller AI] Timesheet ${timesheetId} → ${validationStatus} (${validation.issues?.length || 0} issues)`);

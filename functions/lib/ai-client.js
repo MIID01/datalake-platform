@@ -361,4 +361,4 @@ function parseJsonOutput(rawOutput) {
   }
 }
 
-module.exports = { callLLM, callOCR, logAiAction, parseJsonOutput };
+module.exports = { callLLM, callOCR, logAiAction, parseJsonOutput, MODEL_NAME, MODEL_VERSION };
