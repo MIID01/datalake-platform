@@ -45,16 +45,16 @@ export default function CEOLayout() {
   const location = useLocation()
 
   useEffect(() => {
-    // Temporary bypass for demo
-    setUser({ email: 'm.alqumri@datalake.sa' })
-    setAuthLoading(false)
-    /*
+    // Reflect the REAL Firebase Auth session — no demo bypass. AuthGate already
+    // gates /ceo/* on the CEO identity, so this layout just mirrors that user.
+    // Critically, this keeps auth.currentUser populated for authed backend calls
+    // (e.g. the Integrations page reads auth.currentUser for its ID token — the
+    // hardcoded plain-object {email} left currentUser null and broke it).
     const unsub = onAuthChange((firebaseUser) => {
       setUser(firebaseUser)
       setAuthLoading(false)
     })
     return () => unsub()
-    */
   }, [])
 
   // Onboarding gate now lives centrally in AuthGate (applies to every role,
