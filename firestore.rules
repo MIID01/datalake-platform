@@ -80,10 +80,12 @@ service cloud.firestore {
 
       // Approval evidence subcollection — anyone signed in may write theirs;
       // the public client-PM token flow may also append an evidence row.
+      // Append-only: never editable or deletable once written (immutable record).
       match /approval_evidence/{evId} {
         allow read: if request.auth != null;
         allow create: if request.auth != null;
         allow create: if request.resource.data.token_used != null;
+        allow update, delete: if false;
       }
     }
 
