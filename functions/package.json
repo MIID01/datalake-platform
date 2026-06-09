@@ -23,7 +23,7 @@
     "cors": "^2.8.6",
     "docxtemplater": "^3.68.7",
     "expr-eval": "^2.0.2",
-    "firebase-admin": "^13.8.0",
+    "firebase-admin": "^14.0.0",
     "firebase-functions": "^7.2.5",
     "form-data": "^4.0.5",
     "google-auth-library": "^9.15.1",
