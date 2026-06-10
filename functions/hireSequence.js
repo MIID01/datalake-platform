@@ -14,6 +14,7 @@
 
 const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
+const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
 // DTLK-PROMPT-AI-001: No external AI APIs. Self-hosted only.
@@ -90,6 +91,20 @@ async function initiateHireHandler(req, res, { verifyAuth, getUserAccessProfile,
     });
     if (budget.blocked) {
       return res.status(400).json({ error: `Hire blocked — over PO budget. ${budget.reason}`, budget });
+    }
+
+    // ── Idempotency guard — no dedup before, so the SAME candidate could be
+    //    submitted repeatedly (one was submitted 7×), each spawning a pending_hire
+    //    + a full pipeline run. Cheap candidate-state check, then a pending_hires
+    //    existence check (only NEW_HIRE rows carry candidate_id; EXISTING_EMPLOYEE
+    //    contract shells do not, so they never false-match).
+    if (candidate.state === "HIRE_INITIATED" || candidate.hire_id) {
+      return res.status(409).json({ error: "A hire is already in progress for this candidate.", existing_hire_id: candidate.hire_id || null });
+    }
+    const dupSnap = await db.collection("pending_hires").where("candidate_id", "==", candidate_id).limit(1).get();
+    if (!dupSnap.empty) {
+      const ex = dupSnap.docs[0].data();
+      return res.status(409).json({ error: "A pending hire already exists for this candidate.", existing_hire_id: ex.hire_id || dupSnap.docs[0].id });
     }
 
     const hireId = uuidv4();
@@ -1138,8 +1153,7 @@ function buildContractEmail(hire, acceptUrl) {
     "Datalake HR Team",
     "hr@datalake.sa",
     "",
-    "Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243",
-    "CR: 1009194773 | NUN: 7048904952 | www.datalake.sa",
+    LEGAL_EMAIL_FOOTER,
   ].join("\n");
 }
 

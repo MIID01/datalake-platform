@@ -19,12 +19,18 @@ const fetch = require("node-fetch");
 //   details JSON]
 
 const admin = require("firebase-admin");
-const FormData = require("form-data");
 const { httpErrorStatus } = require("./lib/httpErrors");
+// NOTE: multipart to cv-agent uses the undici-native global FormData + Blob (Node 22),
+// NOT the `form-data` package — that package does not stream through global fetch.
 
 const db = admin.firestore();
-const cvBucket = admin.storage().bucket("datalake-cv-uploads");
-const wormBucket = admin.storage().bucket("datalake-worm-hr");
+const cvBucket   = admin.storage().bucket("datalake-cv-uploads");
+// Interview CVs go to the main bucket (NOT WORM) so the PDPL purge cycle
+// can delete them when the candidate's retention window expires.
+// WORM (datalake-worm-hr) is reserved for permanent legal artefacts:
+// signed contracts, HR settlement records, GOSI filings, etc.
+// — not for candidate CV reformats that must be erasable per PDPL Art.18.
+const interviewCvBucket = admin.storage().bucket("datalake-production-sa.firebasestorage.app");
 
 /**
  * Handler for prepareInterviewCV onRequest function.
@@ -111,16 +117,17 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     // ── 7. Call cv-agent microservice ──
     const cvAgentUrl = process.env.CV_AGENT_URL || "https://datalake-cv-agent-808056940626.me-central2.run.app";
     
+    // undici-native multipart: spec FormData with Blob parts. undici sets the
+    // multipart Content-Type + boundary automatically — do NOT set headers manually.
     const form = new FormData();
-    form.append("cv_file", cvBuffer, { filename: originalFilename || "cv.pdf", contentType: "application/pdf" });
+    form.append("cv_file", new Blob([cvBuffer], { type: "application/pdf" }), originalFilename || "cv.pdf");
     if (jdContent) {
-      form.append("jd_file", Buffer.from(jdContent, "utf-8"), { filename: "jd.txt", contentType: "text/plain" });
+      form.append("jd_file", new Blob([Buffer.from(jdContent, "utf-8")], { type: "text/plain" }), "jd.txt");
     }
 
     const agentRes = await fetch(`${cvAgentUrl}/reformat`, {
       method: "POST",
       body: form,
-      headers: form.getHeaders(),
     });
 
     if (!agentRes.ok) {
@@ -128,44 +135,54 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       throw new Error(`cv-agent failed with status ${agentRes.status}: ${errText}`);
     }
 
-    const outputBuffer = await agentRes.buffer();
+    const outputBuffer = Buffer.from(await agentRes.arrayBuffer());
 
-    // ── 11. Store output in WORM bucket ──
+    // ── 11. Store output in main bucket (not WORM) with PDPL retention metadata ──
+    // Interview CV reformats are candidate PII and must be erasable per PDPL Art.18.
+    // The PDPL purge scheduler (pdplCandidatePurge, daily 03:00 Asia/Riyadh) will
+    // delete this file when the candidate's pdpl_purge_after date is reached.
+    // Retention window: 90 days from today (HR interview pipeline window).
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const safeName = (candidate.full_name).replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
-    const wormPath = `interview-cvs/${project_id}/${candidate_id}/${timestamp}_DTLK-FORM-HR-CV-002_${safeName}.docx`;
+    const interviewCvPath = `interview-cvs/${project_id}/${candidate_id}/${timestamp}_DTLK-FORM-HR-CV-002_${safeName}.docx`;
+    const pdplPurgeAfter = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
 
-    const wormFile = wormBucket.file(wormPath);
-    await wormFile.save(outputBuffer, {
+    const interviewCvFile = interviewCvBucket.file(interviewCvPath);
+    await interviewCvFile.save(outputBuffer, {
       metadata: {
         contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         metadata: {
           candidate_id,
           project_id,
-          prepared_by: profile.email,
-          regulatory_basis: "PDPL Art. 4, 5; NCA ECC-1:2018",
+          prepared_by:      profile.email,
+          regulatory_basis: "PDPL Art. 4, 5, 18; NCA ECC-1:2018",
+          pdpl_purge_after: pdplPurgeAfter.toISOString(),
+          retention_note:   "Candidate interview CV reformat — erasable per PDPL Art.18 retention policy",
         },
       },
     });
+    // Expose wormPath as an alias for backward-compat (other readers expect this field)
+    const wormPath = interviewCvPath;
 
-    // ── 12. Update talent_pool doc ──
     const now = admin.firestore.FieldValue.serverTimestamp();
     await db.collection("talent_pool").doc(candidate_id).update({
-      portfolio_generated: true,
-      portfolio_path: wormPath,
-      portfolio_generated_at: now,
+      portfolio_generated:     true,
+      portfolio_path:          interviewCvPath,
+      portfolio_bucket:        "datalake-production-sa.firebasestorage.app",
+      portfolio_generated_at:  now,
+      portfolio_pdpl_purge_after: admin.firestore.Timestamp.fromDate(pdplPurgeAfter),
       internal_assessment: {
-        fit_score: null,
-        red_flags: [],
+        fit_score:          null,
+        red_flags:          [],
         interview_questions: []
       },
-      // Keep old fields for backward compatibility
-      interview_cv_path: wormPath,
-      interview_cv_bucket: "datalake-worm-hr",
+      // Backward-compat aliases
+      interview_cv_path:        interviewCvPath,
+      interview_cv_bucket:      "datalake-production-sa.firebasestorage.app",
       interview_cv_prepared_at: now,
       interview_cv_prepared_by: profile.email,
-      interview_cv_project_id: project_id,
-      interview_cv_format: "docx",
+      interview_cv_project_id:  project_id,
+      interview_cv_format:      "docx",
     });
 
     // ── 13. BigQuery audit ──
@@ -179,7 +196,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     });
 
     // ── 11. Generate signed URL (60 min) ──
-    const [signedUrl] = await wormFile.getSignedUrl({
+    const [signedUrl] = await interviewCvFile.getSignedUrl({
       action: "read",
       expires: Date.now() + 60 * 60 * 1000,
     });

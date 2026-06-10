@@ -4,6 +4,7 @@ import {
   collection, onSnapshot, query, orderBy,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
+import { matchesClient } from '../../lib/client-linkage'
 import {
   Search, X, Building2, Plus, ChevronRight, Phone, Mail, Briefcase, DollarSign, Clock,
 } from 'lucide-react'
@@ -36,20 +37,20 @@ export default function CRMClients() {
       err => { console.warn('clients:', err.message); setLoading(false) }))
     unsubs.push(onSnapshot(collection(db, 'projects'),
       snap => setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => {}))
+      e => console.warn('crm projects:', e.message)))
     unsubs.push(onSnapshot(collection(db, 'invoices'),
       snap => setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => {}))
+      e => console.warn('crm invoices:', e.message)))
     return () => unsubs.forEach(u => u())
   }, [])
 
   const enriched = useMemo(() => {
     const monthStart = new Date().toISOString().slice(0, 7)
     return clients.map(c => {
-      const myProjects = projects.filter(p => p.client_id === c.id || p.client_name === c.client_name)
+      const myProjects = projects.filter(p => matchesClient(p, c))
       const activeCount = myProjects.filter(p => (p.status || 'ACTIVE') === 'ACTIVE').length
       const revenueMtd = invoices
-        .filter(i => i.client_id === c.id || i.client_name === c.client_name)
+        .filter(i => matchesClient(i, c))
         .filter(i => {
           if (i.status !== 'PAID') return false
           const d = i.created_at?.toDate ? i.created_at.toDate().toISOString().slice(0, 7) : String(i.date || '').slice(0, 7)

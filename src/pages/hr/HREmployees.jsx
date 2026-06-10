@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore'
 import { auth, db, RESET_ONBOARDING_URL } from '../../lib/firebase'
 import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, CheckCircle, Trash2, Edit2, Send, Archive, UserMinus, Eye, RefreshCcw } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -20,6 +20,8 @@ const STATUS_COLORS = {
 
 export default function HREmployees() {
   const [employees, setEmployees] = useState([])
+  // Canonical project assignment (engineer_project_assignments), keyed by engineer_id.
+  const [assignMap, setAssignMap] = useState({})
   // Users-by-uid join lets us show role_id + onboarding_complete next to each
   // employee. employees holds HR data; users holds auth data; same person, two
   // collections — surface both in one row.
@@ -72,7 +74,24 @@ export default function HREmployees() {
       })
       setUsersMap(m)
     })
-    return () => { unsub(); unsubUsers() }
+    // Project column reads the canonical store (ACTIVE assignments only), keyed
+    // by engineer_id (== employees doc id) — NOT the legacy free-text
+    // employees.assigned_project (which drifted).
+    const unsubAssign = onSnapshot(
+      query(collection(db, 'engineer_project_assignments'), where('status', '==', 'ACTIVE')),
+      snap => {
+        const m = {}
+        snap.docs.forEach(d => {
+          const a = d.data()
+          if (!a.engineer_id || !a.project_id) return
+          if (!m[a.engineer_id]) m[a.engineer_id] = []
+          m[a.engineer_id].push(a.project_id)
+        })
+        setAssignMap(m)
+      },
+      err => console.warn('assignments listener:', err.message)
+    )
+    return () => { unsub(); unsubUsers(); unsubAssign() }
   }, [])
 
   // Pick the matching users row for an employee — try uid, then employee_id (some
@@ -81,6 +100,12 @@ export default function HREmployees() {
     usersMap[e.uid] || usersMap[e.id] || usersMap[e.employee_id]
     || (e.email && usersMap[`email:${String(e.email).toLowerCase()}`])
     || {}
+
+  // Canonical project(s) for an employee from engineer_project_assignments.
+  const projectsFor = (e) => {
+    const ids = assignMap[e.id] || []
+    return ids.length ? Array.from(new Set(ids)).join(', ') : 'Unassigned'
+  }
 
   const handleDelete = async (id) => {
     if(window.confirm('Remove this pending employee completely?')) {
@@ -209,7 +234,7 @@ export default function HREmployees() {
                     </div>
                   </td>
                   <td style={{ padding: '16px 20px', color: '#94a3b8' }}>
-                    {e.assigned_project || 'Unassigned'}
+                    {projectsFor(e)}
                   </td>
                   <td style={{ padding: '16px 20px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 340, marginLeft: 'auto' }}>
@@ -332,7 +357,8 @@ export default function HREmployees() {
                     setTimeout(() => setToast(null), 4000)
                     setResetTarget(null)
                   } catch (err) {
-                    setError(err.message)
+                    setToast(`Reset failed: ${err.message}`)
+                    setTimeout(() => setToast(null), 5000)
                   } finally {
                     setResetting(false)
                   }

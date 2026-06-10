@@ -16,8 +16,8 @@ async function seedDatalakeTenant() {
     cr_number: "1009194773",
     nun_number: "7048904952",
     vat_number: "",
-    address: "Riyadh Al-Yarmouk 13243",
-    address_ar: "الرياض اليرموك 13243",
+    address: "Rajiyah Street, Al Yarmuk District, Riyadh 13243",
+    address_ar: "شارع راجية، حي اليرموك، الرياض 13243",
     country: "Kingdom of Saudi Arabia",
     
     primary_color: "#022873",
@@ -32,7 +32,7 @@ async function seedDatalakeTenant() {
     stamp_url: "gs://datalake-grc-library/brand/company-stamp.png",
     favicon_url: "",
     
-    footer_text: "Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952",
+    footer_text: "Datalake Saudi Arabia LLC · Rajiyah Street, Al Yarmuk District, Riyadh 13243, Kingdom of Saudi Arabia · CR 1009194773 · Unified Number 7048904952",
     invoice_terms: "Payment due within 30 days",
     invoice_bank_name: "Al Rajhi Bank",
     invoice_iban: "SA...",

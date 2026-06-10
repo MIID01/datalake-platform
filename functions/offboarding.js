@@ -8,6 +8,7 @@
  */
 
 const admin = require("firebase-admin");
+const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 const { google } = require("googleapis");
 
 const db = admin.firestore();
@@ -188,9 +189,7 @@ function generateCertificate(eng, engineerId) {
     "Note: Nafath e-signature integration pending Phase 3.",
     "",
     "═══════════════════════════════════════",
-    "Datalake Saudi Arabia LLC",
-    "Riyadh Al-Yarmouk 13243",
-    "CR: 1009194773 | NUN: 7048904952 | www.datalake.sa",
+    LEGAL_EMAIL_FOOTER,
     "Processed under PDPL Art. 4; NCA ECC-1:2018",
   ].join("\n");
 }

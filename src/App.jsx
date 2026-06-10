@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
+import NotFound from './pages/NotFound'
 import AuthGate from './components/AuthGate'
 import ErrorBoundary from './components/ErrorBoundary'
 import Consent from './pages/Consent'
@@ -67,6 +68,7 @@ import EmpTravel from './pages/employee/Travel'
 import EmpTraining from './pages/employee/Training'
 import EmpSupport from './pages/employee/Support'
 import EmpProfile from './pages/employee/Profile'
+import EmployeeBusinessCard from './pages/employee/BusinessCard'
 import EmployeeOnboarding from './pages/employee/Onboarding'
 
 // HR Pages
@@ -84,6 +86,7 @@ import CRMLayout from './layouts/CRMLayout'
 import CRMClients from './pages/crm/CRMClients'
 import CRMClientDetail from './pages/crm/CRMClientDetail'
 import CRMPipeline from './pages/crm/CRMPipeline'
+import CRMDealDetail from './pages/crm/CRMDealDetail'
 
 // Legal (external — token-gated public flow)
 import LegalReview from './pages/legal/LegalReview'
@@ -178,6 +181,7 @@ export default function App() {
           <Route path="training" element={<EmpTraining />} />
           <Route path="support" element={<EmpSupport />} />
           <Route path="profile" element={<EmpProfile />} />
+          <Route path="card" element={<EmployeeBusinessCard />} />
           <Route path="*" element={<Navigate to="/employee/dashboard" replace />} />
         </Route>
 
@@ -187,6 +191,7 @@ export default function App() {
           <Route path="clients" element={<CRMClients />} />
           <Route path="clients/:id" element={<CRMClientDetail />} />
           <Route path="pipeline" element={<CRMPipeline />} />
+          <Route path="deals/:id" element={<CRMDealDetail />} />
           <Route path="*" element={<Navigate to="/crm/clients" replace />} />
         </Route>
 
@@ -224,7 +229,14 @@ export default function App() {
         {/* Public Pages */}
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/careers" element={<Careers />} />
+        {/* Common singular variant — people type /career. Redirect to the canonical
+            plural route so the public marketing URL never renders a blank SPA page. */}
+        <Route path="/career" element={<Navigate to="/careers" replace />} />
         <Route path="/consent/:token" element={<Consent />} />
+
+        {/* Catch-all 404 — must stay last. Any unmatched path renders a clean
+            "page not found" with a link home instead of a blank white screen. */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
       </ErrorBoundary>
     </AuthGate>

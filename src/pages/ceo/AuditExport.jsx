@@ -3,7 +3,8 @@ import {
   collection, collectionGroup, query, where, getDocs, Timestamp,
 } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
-import { COMPANY, LEGAL_FOOTER_EN } from '../../lib/company-legal'
+import { COMPANY } from '../../lib/company-legal'
+import { drawLetterheadHeader, drawLetterheadFooter } from '../../lib/pdf-letterhead'
 import { Calendar, Download, FileText, ShieldCheck, Loader, AlertCircle, FileSpreadsheet } from 'lucide-react'
 import jsPDF from 'jspdf'
 
@@ -15,7 +16,7 @@ import jsPDF from 'jspdf'
 const SCOPES = [
   { id: 'approvals',     label: 'Approvals & Signatures', desc: 'Every approval_evidence row (invoices, payroll, contracts, hires).' },
   { id: 'pdpl',          label: 'PDPL Consents',          desc: 'Onboarding consent rows from employees/{id}/onboarding_evidence.' },
-  { id: 'payroll',       label: 'Payroll Records',        desc: 'payroll/{run_id} runs and per-employee line items.' },
+  { id: 'payroll',       label: 'Payroll Records',        desc: 'payroll_runs/{run_id} runs and per-employee line items.' },
   { id: 'compliance',    label: 'Compliance Scans',       desc: 'compliance/* deadline + control scan records (incl. SAMA-OUT-NOC-001).' },
   { id: 'materiality',   label: 'SAMA Materiality Assessments', desc: 'projects/* sama_materiality determinations + NOC status.' },
   { id: 'iqama',         label: 'Iqama Lifecycle',        desc: 'iqama_records/* status + iqama_evidence rows (issue, renewal, transfer).' },
@@ -105,14 +106,17 @@ export default function AuditExport() {
       }
 
       if (selected.payroll) {
+        // Canonical collection is `payroll_runs` (firestore.rules grants CEO/finance/HR
+        // read). A `payroll` collection has NO rule → default-deny → the whole export
+        // failed with "Missing or insufficient permissions". Do NOT widen payroll rules.
         const snap = await getDocs(
-          query(collection(db, 'payroll'),
+          query(collection(db, 'payroll_runs'),
             where('created_at', '>=', fromTs), where('created_at', '<=', toTs))
         )
         snap.forEach(d => {
           const r = d.data()
           pushed('payroll', {
-            id: d.id, parent_collection: 'payroll', parent_id: d.id,
+            id: d.id, parent_collection: 'payroll_runs', parent_id: d.id,
             actor: r.created_by || '', role: '',
             action: `Payroll run ${r.period_label || ''} — SAR ${r.total_payroll_sar || r.total_payroll || ''}`,
             at: tsString(r.created_at), ip: '', user_agent: '',
@@ -267,22 +271,15 @@ export default function AuditExport() {
     const pageW = pdf.internal.pageSize.getWidth()
     const pageH = pdf.internal.pageSize.getHeight()
 
-    const drawHeader = (pageNum, totalPages) => {
-      pdf.setFillColor(2, 40, 115)
-      pdf.rect(0, 0, pageW, 18, 'F')
-      pdf.setTextColor(255, 255, 255)
-      pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11)
-      pdf.text('Datalake Audit Export', 10, 11)
-      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8)
-      pdf.text(`${fromDate} → ${toDate}`, pageW - 10, 8, { align: 'right' })
-      pdf.text(`Page ${pageNum} of ${totalPages}`, pageW - 10, 13, { align: 'right' })
-      pdf.setTextColor(2, 40, 115)
-    }
-    const drawFooter = () => {
-      pdf.setFontSize(7); pdf.setTextColor(100)
-      pdf.text(LEGAL_FOOTER_EN, pageW / 2, pageH - 6, { align: 'center' })
-      pdf.text(`Generated ${new Date().toISOString()} · ${rows.length} rows`, pageW / 2, pageH - 3, { align: 'center' })
-    }
+    // Company letterhead header (logo + title/meta) and footer (brand band +
+    // canonical legal line). drawLetterheadHeader returns the content-top Y.
+    const drawHeader = (pageNum, totalPages) => drawLetterheadHeader(pdf, {
+      title: 'Audit Evidence Export',
+      meta: [`${fromDate} to ${toDate}`, `Page ${pageNum} of ${totalPages}`],
+    })
+    const drawFooter = () => drawLetterheadFooter(pdf, {
+      extraLine: `Generated ${new Date().toISOString()} · ${rows.length} rows`,
+    })
 
     const cols = [
       { key: 'origin',     w: 22, h: 'Origin' },
@@ -298,7 +295,8 @@ export default function AuditExport() {
     const startX = (pageW - totalW) / 2
     let y = 24
 
-    const rowsPerPage = Math.floor((pageH - 36) / 6)
+    // Leave room for the letterhead header (~30mm) and footer band (~16mm).
+    const rowsPerPage = Math.floor((pageH - 46) / 6)
     const totalPages = Math.max(1, Math.ceil(rows.length / rowsPerPage))
 
     const drawRow = (row, isHeader) => {
@@ -315,9 +313,9 @@ export default function AuditExport() {
     }
 
     rows.forEach((r, i) => {
-      if (i === 0 || y > pageH - 18) {
-        if (i > 0) { drawFooter(); pdf.addPage(); y = 24 }
-        drawHeader(Math.ceil((i + 1) / rowsPerPage), totalPages)
+      if (i === 0 || y > pageH - 20) {
+        if (i > 0) { drawFooter(); pdf.addPage() }
+        y = drawHeader(Math.ceil((i + 1) / rowsPerPage), totalPages)
         drawRow({}, true)
       }
       drawRow(r, false)

@@ -57,7 +57,8 @@ table { border-collapse: collapse; width: 100%; }
 /* ============================================================
    CEO COMMAND CENTER — DARK THEME TOKENS
    ============================================================ */
-[data-portal="ceo"] {
+[data-portal="ceo"],
+[data-portal="crm"] {
   --navy: #022873;
   --navy-deep: #011a52;
   --navy-light: #0a3a9e;
@@ -241,9 +242,12 @@ h4 { font-size: 1.1rem; }
 .main-area {
   flex: 1;
   margin-left: var(--sidebar-width);
-  padding-top: var(--topbar-height);
+  /* Offset below the fixed topbar via margin (NOT padding) so portals whose own
+     stylesheet (e.g. ceo.css) also set margin-top collapse to a single 64px gap
+     instead of stacking padding-top + margin-top into a 128px double offset. */
+  margin-top: var(--topbar-height);
   transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  min-height: 100vh;
+  min-height: calc(100vh - var(--topbar-height));
 }
 
 .main-area.collapsed {

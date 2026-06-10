@@ -286,7 +286,8 @@ export default function Leave() {
 
       {/* Request Form */}
       {showForm && (
-        <div className="card animate-fade-in-up" style={{ marginBottom: 24 }}>
+        <div className="modal-overlay" onClick={() => setShowForm(false)}>
+        <div className="card animate-fade-in-up" style={{ width: 'min(680px, 92vw)', maxHeight: '90vh', overflowY: 'auto', margin: 0 }} onClick={e => e.stopPropagation()}>
           <h3 style={{ marginBottom: 20, fontSize: '1.1rem', fontWeight: 700 }}>New Leave Request</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div className="form-group">
@@ -381,6 +382,7 @@ export default function Leave() {
               {submitting ? ' Submitting...' : ' Submit Request'}
             </button>
           </div>
+        </div>
         </div>
       )}
 

@@ -16,6 +16,7 @@
 //   subject: hr@datalake.sa]
 
 const admin = require("firebase-admin");
+const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 const { google } = require("googleapis");
 const { writeBigQueryAudit } = require("./prepareInterviewCV");
 const { generateScorecardToken } = require("./interviewScorecard");
@@ -263,10 +264,7 @@ function buildEmailBody({ candidateName, roleInterest, projectName, clientName, 
     "Datalake HR Team",
     "hr@datalake.sa",
     "",
-    "Datalake Saudi Arabia LLC",
-    "Riyadh Al-Yarmouk 13243",
-    "CR: 1009194773 | NUN: 7048904952",
-    "www.datalake.sa",
+    LEGAL_EMAIL_FOOTER,
   ].join("\n");
 }
 

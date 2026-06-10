@@ -23,8 +23,7 @@ export default function AddEmployeeModal({ onClose, initialData, isEdit }) {
     type: initialData?.type || 'deployed',
     job_title: initialData?.job_title || '',
     salary: initialData?.salary || '',
-    contract_start_date: initialData?.contract_start_date || new Date().toISOString().split('T')[0],
-    assigned_project: initialData?.assigned_project || ''
+    contract_start_date: initialData?.contract_start_date || new Date().toISOString().split('T')[0]
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -45,7 +44,10 @@ export default function AddEmployeeModal({ onClose, initialData, isEdit }) {
         job_title: form.job_title,
         salary: Number(form.salary),
         contract_start_date: form.contract_start_date,
-        assigned_project: form.assigned_project || null,
+        // NOTE: project assignment is NOT set here. The canonical store is the
+        // engineer_project_assignments collection, written ONLY via the
+        // assignEngineerToProject flow. The legacy free-text employees.assigned_project
+        // field is retired (kept readable on old docs for migration, never written).
         updated_at: new Date()
       }
 
@@ -118,12 +120,8 @@ export default function AddEmployeeModal({ onClose, initialData, isEdit }) {
             <div><label style={s.label}>Contract Start Date</label><input type="date" style={s.input} value={form.contract_start_date} onChange={e=>u('contract_start_date',e.target.value)} /></div>
           </div>
 
-          {form.type === 'deployed' && (
-            <div style={s.field}>
-              <label style={s.label}>Assigned Project</label>
-              <input style={s.input} placeholder="e.g. PRJ-2026-001" value={form.assigned_project} onChange={e=>u('assigned_project',e.target.value)} />
-            </div>
-          )}
+          {/* Project assignment is done via the canonical Assign-Engineer flow
+              (Projects → Assign), not here. The old free-text field is retired. */}
 
           <div style={{display:'flex',justifyContent:'flex-end',gap:12,marginTop:24}}>
             <button type="button" onClick={()=>onClose(false)} style={{padding:'10px 20px',background:'transparent',border:'1px solid #1e3050',color:'#94a3b8',borderRadius:8,cursor:'pointer'}}>Cancel</button>

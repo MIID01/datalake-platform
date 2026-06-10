@@ -44,6 +44,13 @@ functions/migrate-khaled.cjs
 functions/reset-onboarding.cjs
 functions/recreate-khaled.cjs
 functions/set-all-passwords.cjs
+functions/cleanup-junk-data.cjs
+functions/inspect-ahmed-ts.cjs
+functions/pdpl-provenance-audit.cjs
+functions/pdpl-purge.cjs
+functions/verify-dlsa1003-contracts.cjs
+functions/scripts/reconcile-project-6322.js
+patch-hire.cjs
 
 # Cypress run artifacts
 cypress/screenshots/

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, Trash2, Edit2, CheckCircle, Send, Archive, UserMinus, Eye } from 'lucide-react'
 import AddEmployeeModal from '../../components/AddEmployeeModal'
@@ -18,6 +18,8 @@ const STATUS_COLORS = {
 
 export default function CEOEmployees() {
   const [employees, setEmployees] = useState([])
+  // Canonical project assignment (engineer_project_assignments), keyed by engineer_id.
+  const [assignMap, setAssignMap] = useState({})
   // Same join as HREmployees so the two directories show the exact same shape.
   const [usersMap, setUsersMap] = useState({})
   const [loading, setLoading] = useState(true)
@@ -43,13 +45,36 @@ export default function CEOEmployees() {
       })
       setUsersMap(m)
     })
-    return () => { unsub(); unsubUsers() }
+    // Project column reads the canonical store (ACTIVE assignments only), keyed
+    // by engineer_id (== employees doc id) — NOT the legacy free-text
+    // employees.assigned_project (which drifted).
+    const unsubAssign = onSnapshot(
+      query(collection(db, 'engineer_project_assignments'), where('status', '==', 'ACTIVE')),
+      snap => {
+        const m = {}
+        snap.docs.forEach(d => {
+          const a = d.data()
+          if (!a.engineer_id || !a.project_id) return
+          if (!m[a.engineer_id]) m[a.engineer_id] = []
+          m[a.engineer_id].push(a.project_id)
+        })
+        setAssignMap(m)
+      },
+      err => console.warn('assignments listener:', err.message)
+    )
+    return () => { unsub(); unsubUsers(); unsubAssign() }
   }, [])
 
   const userFor = (e) =>
     usersMap[e.uid] || usersMap[e.id] || usersMap[e.employee_id]
     || (e.email && usersMap[`email:${String(e.email).toLowerCase()}`])
     || {}
+
+  // Canonical project(s) for an employee from engineer_project_assignments.
+  const projectsFor = (e) => {
+    const ids = assignMap[e.id] || []
+    return ids.length ? Array.from(new Set(ids)).join(', ') : 'Unassigned'
+  }
 
   const handleDelete = async (id) => {
     if(window.confirm('Delete this employee completely?')) {
@@ -181,7 +206,7 @@ export default function CEOEmployees() {
                     </div>
                   </td>
                   <td style={{ padding: '16px 20px', color: '#94a3b8' }}>
-                    {e.assigned_project || 'Unassigned'}
+                    {projectsFor(e)}
                   </td>
                   <td style={{ padding: '16px 20px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 340, marginLeft: 'auto' }}>

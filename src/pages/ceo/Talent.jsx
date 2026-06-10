@@ -19,6 +19,7 @@ export default function Talent() {
   const [poolFilterSource, setPoolFilterSource] = useState('ALL')
   const [renewalToast, setRenewalToast] = useState(null)
   const [purgeToast, setPurgeToast] = useState(null)
+  const [purgeLoading, setPurgeLoading] = useState(false)
   const [liveCandidates, setLiveCandidates] = useState([])
   const [employees, setEmployees] = useState([])
   const [usersMap, setUsersMap] = useState({})
@@ -42,9 +43,13 @@ export default function Talent() {
         const m = {}; snap.docs.forEach(d => m[d.id] = d.data()); setUsersMap(m)
       })
       const unsubProj = onSnapshot(collection(db, 'engineer_project_assignments'), snap => {
+        // Canonical assignment store. Key by engineer_id (== employees doc id),
+        // counting only ACTIVE assignments so this matches the Projects view.
         const m = {}; snap.docs.forEach(d => {
-          if (!m[d.data().employee_id]) m[d.data().employee_id] = []
-          m[d.data().employee_id].push(d.data())
+          const a = d.data()
+          if (a.status !== 'ACTIVE') return
+          if (!m[a.engineer_id]) m[a.engineer_id] = []
+          m[a.engineer_id].push(a)
         }); setProjMap(m)
       })
       return () => { unsubEmp(); unsubUsers(); unsubProj(); }
@@ -193,9 +198,31 @@ export default function Talent() {
     setRenewalToast('Renewal emails queued for 5 RENEWAL_PENDING candidates. Gatekeeper AI dispatching...')
     setTimeout(() => setRenewalToast(null), 4000)
   }
-  const handlePurge = () => {
-    setPurgeToast('PDPL purge executed: 3 GRACE_PERIOD candidates purged. Audit log written to BigQuery.')
-    setTimeout(() => setPurgeToast(null), 4000)
+  const handlePurge = async () => {
+    if (purgeLoading) return
+    setPurgeLoading(true)
+    setPurgeToast(null)
+    try {
+      const { getAuth } = await import('firebase/auth')
+      const token = await getAuth().currentUser?.getIdToken()
+      if (!token) throw new Error('Not authenticated')
+
+      const fnUrl = `https://me-central2-datalake-production-sa.cloudfunctions.net/runPdplPurgeCEO`
+      const res = await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
+
+      setPurgeToast(data.message)
+    } catch (err) {
+      setPurgeToast(`Purge failed: ${err.message}`)
+    } finally {
+      setPurgeLoading(false)
+      setTimeout(() => setPurgeToast(null), 6000)
+    }
   }
 
   const toggleExpand = (id) => setExpandedCandidate(prev => prev === id ? null : id)
@@ -692,7 +719,7 @@ export default function Talent() {
               <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Pool Candidates ({filteredPoolCandidates.length}{poolFilterState !== 'ALL' || poolFilterSource !== 'ALL' ? ` of ${talentPoolCandidates.length}` : ''})</h3>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn-ghost btn-sm" onClick={handleRenewalSweep}><RefreshCw size={14} /> Trigger Renewal Sweep</button>
-                <button className="btn btn-ghost btn-sm" onClick={handlePurge} style={{ color: 'var(--red, #C0392B)' }}><Trash2 size={14} /> Run PDPL Purge</button>
+                <button className="btn btn-ghost btn-sm" onClick={handlePurge} disabled={purgeLoading} style={{ color: 'var(--red, #C0392B)', opacity: purgeLoading ? 0.6 : 1 }}><Trash2 size={14} /> {purgeLoading ? 'Running purge…' : 'Run PDPL Purge'}</button>
               </div>
             </div>
             {/* Filters */}

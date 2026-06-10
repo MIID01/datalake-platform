@@ -10,10 +10,10 @@ const CF_BASE = 'https://me-central2-datalake-production-sa.cloudfunctions.net'
 const CEO_APPROVE_INVOICE_URL = 'https://ceoapproveinvoice-ifzodp5svq-wx.a.run.app'
 const CTO_APPROVE_TIMESHEET_URL = 'https://ctoapprovetimesheet-ifzodp5svq-wx.a.run.app'
 
-// Tabs wired to real Firestore sources only. Dead tabs (Expenses, Compliance,
-// Contracts) removed — those collections are empty or route to separate portals.
-const TABS = ['All', 'Invoices', 'Hires', 'Leave', 'Timesheets']
-const TYPE_MAP = { Invoices: 'invoice', Hires: 'hire', Leave: 'leave', Timesheets: 'timesheet' }
+// Tabs wired to real Firestore sources only. "Contracts" = contract-UPLOAD approvals
+// (pending_hires with _kind EXISTING_EMPLOYEE); "Hires" = real new-hire approvals.
+const TABS = ['All', 'Invoices', 'Hires', 'Contracts', 'Leave', 'Timesheets']
+const TYPE_MAP = { Invoices: 'invoice', Hires: 'hire', Contracts: 'contract', Leave: 'leave', Timesheets: 'timesheet' }
 
 async function getToken() {
   const auth = getAuth()
@@ -75,14 +75,16 @@ export default function Approvals() {
         const data = d.data()
         return {
           id: d.id,
-          type: 'hire',
-          title: `Hire — ${data.candidate_name || data.linked_employee_id || d.id}`,
+          type: data._kind === 'EXISTING_EMPLOYEE' ? 'contract' : 'hire',
+          title: data._kind === 'EXISTING_EMPLOYEE'
+            ? `Contract upload — ${data.linked_employee_id || data.candidate_name || d.id}`
+            : `Hire — ${data.candidate_name || data.linked_employee_id || d.id}`,
           requester: data.created_by || '—',
           submitted: data.created_at?.toMillis?.() || Date.now(),
           sla: 72,
           slaRemaining: 72,
           actions: ['Approve', 'Reject'],
-          icon: '👤',
+          icon: data._kind === 'EXISTING_EMPLOYEE' ? '📄' : '👤',
           _source: 'pending_hires',
           _raw: data,
         }

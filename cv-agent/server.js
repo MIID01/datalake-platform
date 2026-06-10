@@ -5,13 +5,17 @@
  *   Accepts: multipart form — cv_file (PDF), jd_file (text)
  *   Returns: DOCX (application/vnd.openxmlformats-officedocument.wordprocessingml.document)
  *
- * Pipeline:
- *   1. Extract text from PDF via pdf-parse
- *   2. Call Vertex AI Gemini (me-central2) to reformat into structured JSON
- *   3. Build DOCX using the Datalake Skills Portfolio template
- *   4. Return DOCX buffer
+ * Pipeline (100% self-hosted, in-region me-central2 — NO external AI):
+ *   1. Extract CV text — embedded text layer (pdf-parse, local), OCR fallback
+ *      via the self-hosted PaddleOCR service (datalake-ocr) for scanned PDFs.
+ *   2. Call the self-hosted Qwen LLM (datalake-ai-inference) to reformat into
+ *      structured JSON — the same internal services the Cloud Functions use via
+ *      functions/lib/ai-client.js.
+ *   3. Build DOCX using the Datalake Skills Portfolio template.
+ *   4. Return DOCX buffer.
  *
- * Sovereignty: Vertex AI endpoint is me-central2 only. No external AI services.
+ * Sovereignty: all inference stays on self-hosted Cloud Run in me-central2. No
+ * external/managed AI providers — inference is 100% in-region self-hosted Cloud Run.
  * PDPL: This service processes data that has already been consent-verified by the
  *        calling Cloud Function. No additional consent check here — that is the
  *        responsibility of prepareInterviewCV.
@@ -21,7 +25,8 @@
 
 const express = require("express");
 const multer = require("multer");
-const { GoogleGenAI } = require("@google/genai");
+const pdfParse = require("pdf-parse");
+const { GoogleAuth } = require("google-auth-library");
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
   Table, TableRow, TableCell, WidthType, BorderStyle,
@@ -31,16 +36,36 @@ const {
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-// ── Vertex AI setup (me-central2 ONLY) ──
-const PROJECT_ID = process.env.GCP_PROJECT || "datalake-production-sa";
-const LOCATION = "me-central2";
-const MODEL = "gemini-2.5-flash";
+// ── Self-hosted, in-region AI (me-central2) — Qwen LLM + PaddleOCR. NO external AI. ──
+// Same internal Cloud Run services the Cloud Functions call via functions/lib/ai-client.js.
+const AI_INFERENCE_URL = process.env.AI_INFERENCE_URL || "https://datalake-ai-inference-808056940626.me-central2.run.app";
+const OCR_URL = process.env.OCR_URL || "https://datalake-ocr-808056940626.me-central2.run.app";
+const MODEL = "qwen2.5:3b-instruct-q4_K_M";
+const REGION = "me-central2";
 
-const ai = new GoogleGenAI({ project: PROJECT_ID, location: LOCATION });
+const gauth = new GoogleAuth();
+// Service-to-service ID token for the authenticated self-hosted Cloud Run services.
+async function idToken(targetUrl) {
+  const client = await gauth.getIdTokenClient(targetUrl);
+  const headers = await client.getRequestHeaders();
+  return headers.Authorization;
+}
 
 // ── Health check ──
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "datalake-cv-agent", region: LOCATION, model: MODEL });
+// Self-test using a STATIC dummy fixture ONLY: exercises the DOCX pipeline. It
+// makes NO AI call and uses NO candidate data (it runs every 5 min via the
+// uptime check). End-to-end CV verdicts come from the 5xx/success rate, not here.
+app.get("/health", async (req, res) => {
+  const checks = { service: "datalake-cv-agent", region: REGION, model: MODEL, ai: "self-hosted Qwen + PaddleOCR" };
+  try {
+    const buf = await buildDatalakePortfolioDocx({ full_name: "healthcheck", core_skills: ["ok"] });
+    checks.docx_pipeline = buf && buf.length > 0 ? "ok" : "empty";
+    if (!buf || buf.length === 0) throw new Error("self-test failed");
+    res.json({ status: "ok", ...checks });
+  } catch (e) {
+    checks.error = e.message;
+    res.status(503).json({ status: "unhealthy", ...checks });
+  }
 });
 
 // ── Main endpoint ──
@@ -60,8 +85,8 @@ app.post("/reformat", upload.fields([
     const jdBuffer = req.files.jd_file?.[0]?.buffer;
     const jdText = jdBuffer ? jdBuffer.toString("utf-8") : "";
 
-    // 2. Pass PDF directly to Gemini for native extraction and OCR
-    const structuredData = await extractWithVertexAI(cvBuffer, jdText);
+    // 2. Extract structured data via the self-hosted stack (PaddleOCR + Qwen).
+    const structuredData = await extractWithSelfHosted(cvBuffer, jdText);
 
     // 4. Build DOCX
     const docxBuffer = await buildDatalakePortfolioDocx(structuredData);
@@ -80,26 +105,40 @@ app.post("/reformat", upload.fields([
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// VERTEX AI — Structured extraction
+// Self-hosted structured extraction — PaddleOCR (datalake-ocr) + Qwen
+// (datalake-ai-inference). In-region me-central2, NO external AI.
 // ═══════════════════════════════════════════════════════════════════
-async function extractWithVertexAI(cvBuffer, jdText) {
-  const prompt = `You are a professional HR document formatter for Datalake Information Technology, a Saudi Arabian IT outsourcing company.
 
-Your task: Extract structured candidate information from the attached raw CV (PDF) and reformat it for the Datalake Skills Portfolio template.
-The PDF may be scanned; use your OCR capabilities to read all text accurately.
+// Get CV text: embedded text layer first (local pdf-parse), OCR fallback for
+// scanned PDFs via the self-hosted PaddleOCR service.
+async function extractCvText(cvBuffer) {
+  try {
+    const parsed = await pdfParse(cvBuffer);
+    const text = (parsed.text || "").replace(/[ \t]+\n/g, "\n").trim();
+    if (text.length >= 200) return text;
+  } catch (e) {
+    console.warn("pdf-parse text layer failed, falling back to OCR:", e.message);
+  }
+  const token = await idToken(OCR_URL);
+  const r = await fetch(`${OCR_URL}/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: token },
+    body: JSON.stringify({ file_base64: cvBuffer.toString("base64"), lang: "en" }),
+  });
+  if (!r.ok) throw new Error(`OCR HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const data = await r.json();
+  return (data.lines || []).map((l) => (typeof l === "string" ? l : l.text || "")).join("\n").trim();
+}
 
-IMPORTANT RULES:
-- Extract ONLY information explicitly present in the CV. Do NOT invent or guess.
-- For any field not found in the CV, use null.
-- Skills must be actual technologies/tools mentioned, not generic descriptions.
-- Experience entries must have real company names and dates from the CV.
-- Certifications must be real certifications mentioned in the CV.
-- Education must be real degrees and institutions from the CV.
-- The professional_summary should be 3-5 sentences summarizing the candidate's profile.
+async function extractWithSelfHosted(cvBuffer, jdText) {
+  const cvText = await extractCvText(cvBuffer);
+  if (!cvText || cvText.length < 20) {
+    throw new Error("Could not extract readable text from the CV (empty or garbled).");
+  }
 
-${jdText ? `\nJOB DESCRIPTION CONTEXT (use to emphasize relevant skills):\n${jdText}\n` : ""}
+  const systemPrompt = "You are a professional HR document formatter for Datalake Saudi Arabia LLC. Extract structured candidate information from the CV text and return ONLY a JSON object. Use ONLY information explicitly present in the text; use null for anything not found. Do NOT invent values.";
 
-Return a JSON object with this exact schema:
+  const userPrompt = `${jdText ? `JOB DESCRIPTION CONTEXT (use to emphasize relevant skills):\n${jdText}\n\n` : ""}Return a JSON object with EXACTLY this schema:
 {
   "full_name": "string",
   "title": "string — current professional title",
@@ -110,51 +149,41 @@ Return a JSON object with this exact schema:
   "professional_summary": "string — 3-5 sentence professional summary",
   "years_of_experience": "string — e.g. '10+ years'",
   "core_skills": ["string array — key technical skills"],
-  "certifications": [
-    { "name": "string", "issuer": "string or null", "year": "string or null" }
-  ],
-  "education": [
-    { "degree": "string", "institution": "string", "year": "string or null", "field": "string or null" }
-  ],
-  "experience": [
-    {
-      "company": "string",
-      "role": "string",
-      "period": "string — e.g. 'Jan 2020 - Present'",
-      "location": "string or null",
-      "highlights": ["string array — 3-5 key achievements/responsibilities"]
-    }
-  ],
-  "languages": [
-    { "language": "string", "proficiency": "string — e.g. 'Native', 'Fluent', 'Professional'" }
-  ]
-}`;
+  "certifications": [ { "name": "string", "issuer": "string or null", "year": "string or null" } ],
+  "education": [ { "degree": "string", "institution": "string", "year": "string or null", "field": "string or null" } ],
+  "experience": [ { "company": "string", "role": "string", "period": "string", "location": "string or null", "highlights": ["string array — 3-5 achievements"] } ],
+  "languages": [ { "language": "string", "proficiency": "string — e.g. 'Native', 'Fluent'" } ]
+}
 
-  const result = await ai.models.generateContent({
-    model: MODEL,
-    contents: [
-      { role: "user", parts: [
-        { text: prompt },
-        { inlineData: { data: cvBuffer.toString("base64"), mimeType: "application/pdf" } }
-      ]}
-    ],
-    config: {
+CV TEXT:
+${cvText}`;
+
+  const token = await idToken(AI_INFERENCE_URL);
+  const r = await fetch(`${AI_INFERENCE_URL}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: token },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
       temperature: 0.1,
-      maxOutputTokens: 8192,
-      responseMimeType: "application/json",
-    }
+      max_tokens: 2000,
+      stream: false,
+      format: "json",
+      response_format: { type: "json_object" },
+    }),
   });
-
-  const responseText = result.text;
-
+  if (!r.ok) throw new Error(`Inference HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const data = await r.json();
+  const out = data.choices?.[0]?.message?.content || "";
   try {
-    return JSON.parse(responseText);
-  } catch (parseErr) {
-    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[1]);
-    }
-    throw new Error("Vertex AI returned non-JSON response: " + responseText.slice(0, 200));
+    return JSON.parse(out);
+  } catch {
+    const m = out.match(/\{[\s\S]*\}/);
+    if (m) return JSON.parse(m[0]);
+    throw new Error("Qwen returned non-JSON response: " + out.slice(0, 200));
   }
 }
 
@@ -445,5 +474,5 @@ function noBorders() {
 // ── Start server ──
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`datalake-cv-agent running on :${PORT} — Vertex AI ${MODEL}@${LOCATION}`);
+  console.log(`datalake-cv-agent running on :${PORT} — self-hosted ${MODEL} @ ${REGION}`);
 });

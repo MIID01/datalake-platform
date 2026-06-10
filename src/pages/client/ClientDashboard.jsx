@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { db, RECORD_SIGN_LINK_OPEN_URL, GET_TIMESHEETS_BY_TOKEN_URL, SIGN_TIMESHEET_BY_TOKEN_URL } from '../../lib/firebase'
+import { LEGAL_FOOTER_EN } from '../../lib/company-legal'
 import { CheckCircle, Download, Pen, Printer, Type, Upload, Eraser, Clock, Mail, ShieldCheck } from 'lucide-react'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import jsPDF from 'jspdf'
@@ -410,7 +411,7 @@ export default function ClientTimesheetApproval() {
         padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <img src="/images/icon.svg" alt="Datalake" style={{ height: 32 }} />
+          <img src="/images/icon-color.svg" alt="Datalake" style={{ height: 32 }} />
           <div>
             <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1B2A4A' }}>Datalake — Timesheet Approval</div>
             <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{activeProject?.name}</div>
@@ -746,12 +747,16 @@ export default function ClientTimesheetApproval() {
                 </div>
               </div>
 
-              {/* Legal Footer */}
-              <div style={{
-                padding: '16px 32px', borderTop: '1px solid #eee',
-                textAlign: 'center', fontSize: '0.72rem', color: '#64748b',
-              }}>
-                Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952
+              {/* Legal Footer — company letterhead band + canonical legal line */}
+              <div style={{ padding: '16px 32px 18px' }}>
+                <div style={{ display: 'flex', height: 5, borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
+                  <span style={{ flex: 1, background: '#1598CC' }} />
+                  <span style={{ flex: 1, background: '#34BF3A' }} />
+                  <span style={{ flex: 1, background: '#EF5829' }} />
+                </div>
+                <div style={{ textAlign: 'center', fontSize: '0.72rem', color: '#022873' }}>
+                  {LEGAL_FOOTER_EN}
+                </div>
               </div>
               </>
               )}

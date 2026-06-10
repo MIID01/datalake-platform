@@ -1,0 +1,48 @@
+/* Shared company letterhead for exported / printed documents.
+   White page, color logo header, 3-colour brand footer band + legal line.
+   Used by <Letterhead> (src/components/Letterhead.jsx). */
+
+.letterhead-doc {
+  background: #ffffff;
+  color: #1a1a2e;
+  font-family: 'DM Sans', 'Inter', Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+.letterhead-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 28px 14px;
+  border-bottom: 1px solid #022873;
+}
+.letterhead-logo { height: 52px; width: auto; display: block; }
+
+.letterhead-meta { text-align: right; }
+.letterhead-title {
+  font-size: 1.05rem; font-weight: 700; color: #022873; line-height: 1.25;
+}
+.letterhead-metaline { font-size: 0.72rem; color: #6e6e6e; margin-top: 2px; }
+
+.letterhead-body { padding: 18px 28px 8px; }
+
+.letterhead-foot { padding: 0 28px 16px; }
+.letterhead-band {
+  display: flex; height: 5px; border-radius: 2px; overflow: hidden; margin-bottom: 8px;
+}
+.letterhead-band > span { flex: 1; }
+.letterhead-legal {
+  font-size: 0.7rem; color: #022873; text-align: center; line-height: 1.4;
+}
+
+/* Print: drop app chrome, force white background, keep the letterhead clean. */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #ffffff !important; }
+  .no-print, .sidebar, nav[role="navigation"] { display: none !important; }
+  .letterhead-doc {
+    box-shadow: none !important; border: none !important; margin: 0 !important;
+  }
+  .letterhead-foot { position: running(footer); }
+}

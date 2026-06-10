@@ -44,7 +44,7 @@ async function generateMonthlyReportHandler(event) {
     const engineerIds = new Set(usersSnap.docs.map(d => d.id));
 
     const employeesSnap = await db.collection("employees")
-      .where("employment_status", "==", "active")
+      .where("employment_status", "==", "ACTIVE")
       .get();
     
     const expiringContracts = [];

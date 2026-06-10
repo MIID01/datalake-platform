@@ -59,7 +59,7 @@ Roles: `ceo`, `cto`, `hr`, `employee`, `client`, `finance`.
 
 Shared library in `functions/lib/`:
 - `access.js` — RBAC: `getUserAccessProfile`, data-class `canRead`/`filterByAccess`, audit logging.
-- `ai-client.js` — the **only** path to AI. LLM (Qwen via Ollama) and OCR (PaddleOCR) are **self-hosted on Cloud Run over VPC, no external APIs**. Every call is logged append-only to BigQuery with a SHA-256 input hash (no raw prompts stored).
+- `ai-client.js` — the AI path for Cloud Functions: LLM (Qwen via Ollama → `datalake-ai-inference`) and OCR (PaddleOCR → `datalake-ocr`), **100% self-hosted on Cloud Run in `me-central2`, no external AI APIs**. Every call is logged append-only to BigQuery with a SHA-256 input hash (no raw prompts stored). The CV-reformatting **`cv-agent`** service (a separate Cloud Run service) uses the **same self-hosted stack** — PaddleOCR for text + Qwen for structured extraction — also region-locked to `me-central2`. It previously used Vertex AI Gemini; that was **removed 2026-06-08** after a residency probe proved Gemini isn't reachable in `me-central2` for this project (`gemini-2.5-flash` 404s in me-central2, only us-central1 serves it). **There is no Vertex / Gemini / external-AI inference path anywhere.** (Known exception, flagged separately: `telephony.js` call-transcription is a non-functional *mock* that names "gemini" and fabricates a transcript — it makes **no** real API call; it needs a real self-hosted audio model and violates the No-Fabricated-Data rule until fixed.)
 - `gmail.js` — transactional email via Workspace domain-wide delegation (IAM `signJwt`, no key files).
 - `zoho-connector.js` / `accounting-connector.js` — Zoho Books OAuth/sync; credentials from Secret Manager.
 - `invoicing.js` — invoice lifecycle + ZATCA Phase-2 UBL XML (15% VAT).
@@ -132,14 +132,15 @@ VACANT. CEO acts as CTO for timesheet approval. CTO portal stays built but unuse
 Navy #022873, Sky Blue #1598CC, Orange #EF5829, Green #34BF3A. Background #F4F6F9, Cards #FFFFFF, Border #E5E7EB. Sidebar 260px fixed left navy. Font DM Sans fallback Arial. Icons Lucide React.
 
 ### Company legal details (single source of truth)
-All footers, PDPL notices, contracts, and any printed/PDF surface must read from `src/lib/company-legal.js` — never hardcode the name / CR / address inline. Canonical values:
-- Legal name (EN): **Datalake Saudi Arabia LLC**
+All footers, PDPL notices, contracts, and any printed/PDF surface must read from `src/lib/company-legal.js` (frontend) or its verbatim backend mirror `functions/lib/company-legal.js` — never hardcode the name / CR / address inline. The two `company-legal.js` files MUST stay in sync. Canonical values (CEO-locked 2026-06-06):
+- Legal name (EN): **Datalake Saudi Arabia LLC** (always WITH "LLC")
 - Legal name (AR): **شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات**
 - Entity type (AR): **شركة ذات مسؤولية محدودة (LLC)**
-- CR: **1009194773** · NUN: **7048904952**
-- Address: **Riyadh Al-Yarmouk 13243**
-- Canonical English footer (use `LEGAL_FOOTER_EN`): `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952`
-- Wrong-and-must-never-be-reintroduced: CR `109194773` (missing leading zero), district `Rajeh Street` / `Rajeeh Street`, names `Datalake Saudi Arabia` (no LLC) / `Datalake Information Technology`, field `UEN:7048904952` (should be NUN).
+- CR: **1009194773** · Unified Number (NUN): **7048904952**
+- Address: **Rajiyah Street, Al Yarmuk District, Riyadh 13243, Kingdom of Saudi Arabia** (street = `Rajiyah Street`; district = `Al Yarmuk District`)
+- Canonical English footer (use `LEGAL_FOOTER_EN`): `Datalake Saudi Arabia LLC · Rajiyah Street, Al Yarmuk District, Riyadh 13243, Kingdom of Saudi Arabia · CR 1009194773 · Unified Number 7048904952`
+- Wrong-and-must-never-be-reintroduced: CR `109194773` (missing leading zero), street misspellings `Rajeh Street` / `Rajeeh Street` (correct is `Rajiyah Street`), names `Datalake Saudi Arabia` (no LLC) / `Datalake Information Technology`, field label `UEN` (should be `NUN` / "Unified Number"), and `Al-Yarmouk`/`Al Yarmuk` used as the STREET (it is the DISTRICT).
+- **Held for a dedicated ZATCA/legal review (NOT yet switched to the new address):** the ZATCA e-invoice seller fields (`functions/invoicing.js`) and the employment-contract employer identity + AI drafting prompts (`functions/hireSequence.js`, `functions/complianceCalendar.js`) still carry `Riyadh Al-Yarmouk 13243`. Update those only with explicit CEO/ZATCA sign-off.
 
 ### Approval evidence pattern
 Every material approval (invoice, payroll, contract, …) must capture an evidence row. Use the universal components, do not roll your own:
@@ -163,6 +164,42 @@ Every material approval (invoice, payroll, contract, …) must capture an eviden
 - `users`: `onboarding_complete` (no `-d`). `last_password_change` does not exist in the frontend write path; do not query it for "password expired" rules.
 - `approval_evidence.evidence_url`: a Firebase Storage **download URL** (https://). The `gs://`-prefixed bucket path is in `evidence_storage_path` — that's what integrity scans must read.
 
+### Status vocabulary (canonical — standardize, do not re-fork)
+The field-name + casing split was the root cause of the dashboard "0 vs real" drift (Active Projects/Employees). Canonical rules — every query must obey:
+- **Employees**: use `employment_status` (NOT `status`), values **UPPERCASE** (`ACTIVE`, `ONBOARDING`, `PENDING_APPROVAL`, `PENDING_OFFBOARDING`, `TERMINATED`). Every employee query = `employment_status == 'ACTIVE'`. (`users` is a separate collection that legitimately uses `status` = `active`/`disabled`.)
+- **All entity status enum values are UPPERCASE** (`ACTIVE`, `PAID`, `SUBMITTED`, `OPEN`, `DRAFT`, …). Never `'active'` / `'Active'` / `'Paid'` / `'open'`.
+- **Data dependency:** the 11 pre-platform employee records still carry legacy `status:'active'` and need `employment_status:'ACTIVE'` backfilled for the canonical query to return them (migration handoff).
+- Known stragglers on the wrong convention (fix per-collection, data-check first): `job_listings` uses lowercase `'open'` (Careers.jsx, HRJobListings.jsx); the **client portal** uses capitalized `'Active'`/`'Paid'`/`'Pending'` (ClientPOs/ClientInvoices/ClientEngineers); some ticket/contract client-side filters use `'Resolved'`/`'Closed'`/`'Expiring'`.
+- Lifecycle collections key on `state`, not `status`: `talent_pool`, `timesheets`.
+
+### New-page connection rule (single source of truth)
+No new page or view may introduce its own copy of a fact, data source, or feature that already
+exists. Before building or editing any page:
+1. Enumerate the facts/data/features it reads or writes.
+2. Locate the existing canonical source for each (**search first**).
+3. Read/write THAT source only — no parallel field, collection, or store.
+4. If none exists, create ONE canonical source future pages reuse.
+5. Report the connections made BEFORE writing code.
+A new page that duplicates an existing store is rejected.
+- ✅ Model: the business-card photo step — searched, found canonical `employees/{id}.photo_url`,
+  reused it, reported the connection.
+- ❌ Anti-pattern: the free-text `employees.assigned_project` field built in parallel to the
+  canonical `engineer_project_assignments` collection — caused cross-view drift (Directory vs
+  Talent vs Projects showed different answers); now retired in favour of the one canonical store.
+
+### No-Fabricated-Data rule (extends status-integrity)
+- The platform **NEVER** displays or stores placeholder / dummy / sample / invented values as if
+  they were real. A field with no real data shows **"Unknown" / "Not connected" / "No data"** —
+  never a fabricated value, never a positive default (no green-by-default, no fake "Running", no
+  sample/seed row shown as live).
+- When a feature needs real data or a connection that doesn't exist yet, **STOP and ASK the CEO**
+  for the reference (source collection / API / link / credential). Do not invent data to fill a
+  screen.
+- **Allowed and required:** synthetic inputs used ONLY for self-tests / health probes that are
+  **never displayed and never stored** as real records — they verify the truth, they don't fake it
+  (e.g. the cv-agent `/health` dummy fixture; `getAiServiceHealth` showing "Not checked" grey, and
+  IDLE/BROKEN instead of a green default).
+
 ### Hard Rules
 - Every page: loading, error, empty states. Never blank.
 - No mock data. No hardcoded values. Read from Firestore.
@@ -172,3 +209,32 @@ Every material approval (invoice, payroll, contract, …) must capture an eviden
 - All data in me-central2.
 - Test with npm run build not just dev.
 - Do not add features not in the master tracker.
+
+### Status Integrity Rule (CEO-mandated — applies to every status surface)
+**No status indicator may render a healthy / passed / compliant / running / green state unless
+derived from a real, verifiable signal queried at render time.**
+
+Specific enforcement:
+- **Unverified or uncheckable states MUST show "Unknown / Not checked" (grey/neutral) — NEVER a green/positive default.**
+- A `setTimeout` that sets status to "Running" after a delay is fabrication, not a health check. Forbidden.
+- Hardcoded `status: 'Running'`, `errorCount: 0`, or a client-stamped `new Date()` as "last invocation" are all fabrication. Forbidden.
+- A service that does not exist (absent from Cloud Run) MUST show "Not deployed" — never "Running" or "Healthy".
+- The check MUST be server-side (Cloud Function querying Cloud Run API / Cloud Monitoring) to avoid browser→Cloud Run CORS and IAM blockers.
+
+Surfaces this applies to (non-exhaustive):
+- **AI Operations dashboard** (`/ceo/ai-ops`, DTLK-ARCH-AI-002) — now backed by `getAiServiceHealth` CF.
+- **PDPL "Passed" audit badge** — must reflect actual evidence records, not a hardcoded pass.
+- **Onboarding / consent flags** — must be read from Firestore, not assumed complete.
+- **Every status column, badge, or pill** in the CEO Command Center, HR, Finance, and Compliance surfaces.
+- **GRC document status** — APPROVED/COMPLIANT requires a real approval_evidence row, not a flag set client-side.
+
+### AI Cloud Run Service Registry (DTLK-ARCH-AI-002 ground truth)
+Three Cloud Run services are deployed in `me-central2`. **Do not list others as deployed — they exist only in planning docs.**
+
+| Service name | Role | URL pattern |
+|---|---|---|
+| `datalake-ai-inference` | LLM (Qwen 2.5 3B, Ollama) | `datalake-ai-inference-808056940626.me-central2.run.app` |
+| `datalake-ocr` | OCR (PaddleOCR) | `datalake-ocr-808056940626.me-central2.run.app` |
+| `datalake-cv-agent` | CV reformatter — **self-hosted** PaddleOCR (`datalake-ocr`) + Qwen (`datalake-ai-inference`), in-region me-central2, no external AI | `datalake-cv-agent-808056940626.me-central2.run.app` |
+
+`gatekeeper-ai-service`, `controller-ai-service`, `auditor-ai-service`, `qwen-inference-service` — **not deployed**. The agents named gatekeeper/controller/auditor in `ai-client.js` are logical roles (the `agent:` field in LLM calls), not separate Cloud Run services. All three logical agents call `datalake-ai-inference` via `callLLM()`.

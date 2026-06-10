@@ -14,6 +14,7 @@
 
 const admin = require("firebase-admin");
 const { getGmailClient, sendEmailRaw } = require("./lib/gmail");
+const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 
 const db = admin.firestore();
 
@@ -46,8 +47,7 @@ const TEMPLATES = {
       `- Datalake HR`,
       ``,
       `--------------------------------------------------`,
-      `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
-      `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+      LEGAL_EMAIL_FOOTER,
       `PRIVATE & CONFIDENTIAL - This message may contain personal data processed under PDPL Art. 5.`,
     ].join("\n"),
   },

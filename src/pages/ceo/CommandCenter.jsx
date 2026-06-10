@@ -117,25 +117,18 @@ export default function CommandCenter() {
       setLiveKPIs(p => ({ ...p, monthlyRevenue: { value: revenue, trend: 0 }, pendingInvoices: { value: drafts, trend: 0 } }))
     }, e => console.warn(e)))
 
-    // 2. Employees (count where status=active)
-    unsubs.push(onSnapshot(query(collection(db, 'employees'), where('status', '==', 'active')), snap => {
+    // 2. Active employees — CANONICAL: employees.employment_status == 'ACTIVE' (UPPERCASE).
+    //    Requires the data migration backfilling employment_status on the 11 records that
+    //    still carry the legacy status:'active' (see status-vocabulary handoff in report).
+    unsubs.push(onSnapshot(query(collection(db, 'employees'), where('employment_status', '==', 'ACTIVE')), snap => {
       setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap.size, trend: 0 } }))
-    }, () => {
-      // Fallback capitalized
-      onSnapshot(query(collection(db, 'employees'), where('status', '==', 'Active')), snap2 => {
-        setLiveKPIs(p => ({ ...p, activeEngineers: { value: snap2.size, trend: 0 } }))
-      })
-    }))
+    }, e => console.warn('activeEngineers:', e.message)))
 
-    // 3. Projects (count where status=active)
-    unsubs.push(onSnapshot(query(collection(db, 'projects'), where('status', '==', 'active')), snap => {
+    // 3. Active projects — canonical value is 'ACTIVE' (matches the Projects page;
+    //    excludes TEST_DO_NOT_BILL fixtures). Was querying 'active'/'Active' → always 0.
+    unsubs.push(onSnapshot(query(collection(db, 'projects'), where('status', '==', 'ACTIVE')), snap => {
       setLiveKPIs(p => ({ ...p, activeProjects: { value: snap.size, trend: 0 } }))
-    }, () => {
-      // Fallback capitalized
-      onSnapshot(query(collection(db, 'projects'), where('status', '==', 'Active')), snap2 => {
-        setLiveKPIs(p => ({ ...p, activeProjects: { value: snap2.size, trend: 0 } }))
-      })
-    }))
+    }, e => console.warn('activeProjects:', e.message)))
 
     // 4. Timesheets (count where status=SUBMITTED)
     unsubs.push(onSnapshot(query(collection(db, 'timesheets'), where('status', '==', 'SUBMITTED')), snap => {

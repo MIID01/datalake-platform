@@ -4,9 +4,44 @@ Priority order. "Active" = work on these now; "Parked" = blocked on a dependency
 
 ## Active Tasks (work on these)
 
+### T9: Employee digital card — SHIPPED (QR-only) + PARKED (photo/print)
+CEO trimmed scope to JUST the QR, residency-locked (no photo, no .vcf-with-photo, no print, no automation).
+
+**SHIPPED (hosting only):** `/employee/card` (`src/pages/employee/BusinessCard.jsx`) — QR-only,
+fully client-side. The vCard is assembled in-browser from the employee's Firestore record (photo-free);
+the QR is rendered by the LOCAL `qrcode` lib (**no external QR API** — confirmed: no qrserver/goqr/
+quickchart/etc. anywhere); an optional `.vcf` download is built client-side. No photo, no print, no
+automation, **no call to generateBusinessCard**. Meets the residency rule (nothing leaves the platform).
+
+**PARKED — pending CEO park-vs-kill (built, NOT deployed, DO NOT DELETE):**
+- `functions/businessCard.js` (`generateBusinessCard`) — server-side card that resizes the canonical
+  `employees/{employee_id}.photo_url` via `sharp` (~400px) and embeds it as `PHOTO;ENCODING=b` in the
+  `.vcf` only (opt-in, no public URL), plus the `processing_activities/employee-photo` RoPA writer.
+- Its `index.js` export, the `sharp` functions dep, and `GENERATE_BUSINESS_CARD_URL` (firebase.js) are
+  **commented out** so nothing ships until the CEO decides.
+- **To REVIVE:** un-comment the export in `index.js` + the URL in `firebase.js`, then deploy
+  `functions:generateBusinessCard`. **To KILL:** delete `functions/businessCard.js`, remove `sharp`
+  from `functions/package.json`, and drop the commented blocks.
+
 ### T2: Remaining mock-data cleanup (most done — see Done)
 - **Finance Cash Flow** — replace `baseCash=0` with a real forecast from the `recalculateForecast` function. ⏸ deferred: overlaps the in-flight finance backend work on `feature/controller-finance`.
 - **AI Operations** — replace the `setTimeout` fake "Running" status with real Cloud Run health pings. ⏸ deferred: browser→Cloud Run health pings need an unauthenticated health endpoint + CORS; random errorCount already removed.
+
+### T3: DTLK-SPEC-GRC-002 — GRC document approvals/attestation (SANCTIONED — spec pending CEO sign-off)
+Adds a genuine-review approval/attestation workflow over the existing GRC document library
+(`functions/grcLibrary.js`). **Sequence: full spec → plan → CEO sign-off → build.** Not yet
+built. Build guardrails (corrections agreed with CEO):
+- **auth_method** is DERIVED from the verified Firebase token (`sign_in_provider`, plus
+  `sign_in_second_factor` when present) — never hardcoded (today's real value: `password`).
+- **DOCX export footer** uses `LEGAL_FOOTER_EN` (`src/lib/company-legal.js`) — NUN, CR 1009194773,
+  correct address. The spec's `UEN`/`Rajeeh` footer is BANNED. Footer stays GATED until the CEO
+  confirms the canonical line.
+- **Branding** reuses `src/lib/pdf-letterhead.js` + `src/components/Letterhead.jsx` +
+  `functions/assets/letterhead-logo.png` for the DOCX cover/header/footer.
+- **`grc_change_log`** is Admin-SDK-write only — `firestore.rules` denies client `create`.
+- **Lane:** this repo builds functions + frontend + rules. **Antigravity** creates the BigQuery
+  `grc_approvals` table + append-only IAM; we hand them the exact write-schema.
+- **UX:** build the approve modal with the consequences-list design (genuine review, not a bulk stamp).
 
 ## Security Controls (status)
 
@@ -36,7 +71,44 @@ Needs Invoice Builder (T1) first. Wire `generateZatcaXml` after approval.
 ### T7: WPS Payroll File Generation
 Needs the Payroll Procedure document (Phase 6) first. Build the WPS file format for bank submission.
 
+### T8: Canonical employer address in the hiring contract flow (DEFERRED — pipeline not live)
+The employment-contract **employer identity/address** still carries the OLD address
+`Riyadh Al-Yarmouk 13243` in `functions/hireSequence.js`:
+- `generateContractWithAI` system prompt (~L193: `CR: 1009194773, NUN: 7048904952, Riyadh Al-Yarmouk 13243`)
+- the `employer:` strings (~L214 and ~L309)
+Left unchanged ON PURPOSE — the contract-issuing pipeline is **not live**: `initiateHire` →
+`generateContract` → `dispatchContractForSignature` → offer-letter email has **no UI trigger**
+(`initiateHire` is never called from the frontend; `src/lib/firebase.js` has no URL for it; the
+`/ceo/hire-request` page only tracks `hire_requests` statuses and never issues a contract). So no
+offer/contract can be issued to anyone today.
+**When the hiring pipeline goes live, before issuing any contract:**
+1. Update those strings to the canonical registered address
+   `Rajiyah Street, Al Yarmuk District, Riyadh 13243, Kingdom of Saudi Arabia`.
+2. **Decide registered legal name vs trading name** for the contract employer line — a Saudi
+   employment contract should carry the **registered legal name** (`Datalake Saudi Arabia LLC`);
+   confirm with CEO/legal before first issuance.
+Separate from this: the **ZATCA e-invoice seller address** (`functions/invoicing.js`) is deferred
+to the final ZATCA/FATOORA phase — do NOT touch it.
+
 ## Done (completed)
+- **cv-agent → 100% self-hosted, in-region** (2026-06-08): removed Vertex AI Gemini / `@google/genai`
+  from `cv-agent/server.js`; CV reformatting now uses PaddleOCR (`datalake-ocr`) + Qwen
+  (`datalake-ai-inference`), me-central2. Residency probe proved Gemini unreachable in me-central2
+  (`gemini-2.5-flash` 404 in me-central2, 200 only in us-central1), so the in-region Gemini path
+  the CEO asked for can't exist here → CEO decision: stay 100% self-hosted. Also shipped the held
+  `prepareInterviewCV` fix (undici-native FormData + arrayBuffer) — the original cv-agent 500s
+  ("Unexpected end of form") were node `form-data` truncating under global undici fetch.
+
+## No-Fabricated-Data — telephony transcript (RESOLVED + deferred)
+- **FIXED (2026-06-08): `functions/telephony.js` fabricated transcript removed.** Deleted the
+  `"gemini"` default and the fabricated-transcript code path. `transcribeCall` now stores NO invented
+  text — it writes `transcript: null` + `transcription_status: "NOT_AVAILABLE"` (+ a note) and does
+  NOT trigger call analysis (nothing real to analyse). No frontend ever displayed the transcript, so
+  nothing showed a fake; the fake is no longer written or stored.
+- **DEFERRED — self-hosted in-region call transcription (STT):** call audio + transcripts are personal
+  data, so if ever built it MUST be a self-hosted, in-region model in `me-central2` (same constraint as
+  the rest of the AI layer — no external/managed STT). Until then, transcripts stay `NOT_AVAILABLE`.
+
 - Routing fix (`homePathForRole`); TaskInbox persistence; Policies page; 13 Cloud Function IAM fixes; full 64-function audit; git history security audit; DNS docs
 - **Onboarding gate** centralized in `AuthGate` (all roles incl. CEO); 4-policy acknowledgment page at `/employee/onboarding` writing real consent
 - **White-page fix**: `firebase.json` serves `index.html` `no-cache` + hashed assets `immutable`; app-level `ErrorBoundary` surfaces real errors instead of blanking

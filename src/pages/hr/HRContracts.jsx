@@ -558,7 +558,7 @@ export default function HRContracts() {
             <SearchablePicker
               items={employees}
               selectedId={selectedEmployeeId}
-              onSelect={(id) => setSelectedEmployeeId(id)}
+              onSelect={(id) => { setSelectedEmployeeId(id); setUploadError('') }}
               getLabel={e => e.full_name || e.name || e.id}
               getSubtitle={e => [e.employee_id, e.job_title, e.email].filter(Boolean).join(' · ')}
               searchFields={e => [e.full_name, e.name, e.employee_id, e.email, e.job_title]}
@@ -576,17 +576,25 @@ export default function HRContracts() {
           style={{ display: 'none' }}
           onChange={e => handleFiles(e.target.files)}
         />
+        {/* In existing-employee mode the contract must be attached to someone,
+            so the dropzone stays disabled until HR picks the employee. This makes
+            "a selection enables upload" explicit instead of letting HR pick a file
+            and only then hit the gate error. */}
+        {(() => { const needsEmployee = uploadMode === 'existing' && !selectedEmployeeId; return (
         <div
-          style={styles.dropzone(dragActive)}
-          onClick={() => fileInputRef.current?.click()}
-          onDragEnter={handleDrag}
-          onDragOver={handleDrag}
-          onDragLeave={handleDrag}
-          onDrop={handleDrop}
+          style={{ ...styles.dropzone(dragActive), opacity: needsEmployee ? 0.5 : 1, cursor: needsEmployee ? 'not-allowed' : 'pointer' }}
+          onClick={() => {
+            if (needsEmployee) { setUploadError('Pick which employee this contract belongs to before uploading.'); return }
+            fileInputRef.current?.click()
+          }}
+          onDragEnter={needsEmployee ? undefined : handleDrag}
+          onDragOver={needsEmployee ? undefined : handleDrag}
+          onDragLeave={needsEmployee ? undefined : handleDrag}
+          onDrop={needsEmployee ? (e) => { e.preventDefault(); e.stopPropagation(); setUploadError('Pick which employee this contract belongs to before uploading.') } : handleDrop}
         >
           <Upload size={36} color={dragActive ? '#1598CC' : 'rgba(255,255,255,0.4)'} />
           <div style={{ marginTop: 12, fontSize: '0.95rem', fontWeight: 600, color: '#fff' }}>
-            {uploading ? 'Uploading…' : 'Drop the signed contract PDF here'}
+            {uploading ? 'Uploading…' : needsEmployee ? 'Select an employee above first' : 'Drop the signed contract PDF here'}
           </div>
           <div style={{ marginTop: 4, fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)' }}>
             or click to browse · PDF / PNG / JPG, max 15MB
@@ -597,20 +605,22 @@ export default function HRContracts() {
             </div>
           )}
         </div>
+        ) })()}
         {uploadError && (
           <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(192,57,43,0.12)', border: '1px solid rgba(192,57,43,0.3)', color: '#fca5a5', fontSize: '0.82rem' }}>
             <AlertCircle size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{uploadError}
           </div>
         )}
 
-        {/* Manual entry fallback — when AI extraction is broken or there's
-            no PDF at all (backfilling pre-platform employees). Creates a
-            contracts/{auto} row with status MANUAL_ENTRY, no storage path,
-            and routes the operator straight to the review form. */}
+        {/* Manual entry fallback — for backfilling a pre-platform employee who
+            has no PDF to upload, or when HR would rather type the fields. AI
+            extraction is available; this is an alternative, not a substitute.
+            Creates a contracts/{auto} row with status MANUAL_ENTRY, no storage
+            path, and routes the operator straight to the review form. */}
         {uploadMode === 'existing' && selectedEmployeeId && (
           <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 14px', background: 'rgba(156,39,176,0.08)', border: '1px solid rgba(156,39,176,0.25)', borderRadius: 8 }}>
             <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)' }}>
-              No PDF? Fill the 15 fields by hand — same Save Review path. Recommended for pre-platform employees while AI extraction is offline.
+              No PDF, or prefer to type? Fill the 15 fields by hand — same Save Review path. Useful for pre-platform employees without a contract file.
             </div>
             <button
               onClick={handleCreateManual}

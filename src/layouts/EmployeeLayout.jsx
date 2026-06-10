@@ -6,22 +6,23 @@ import { auth, db } from '../lib/firebase'
 import { doc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore'
 import {
   LayoutDashboard, Clock, Palmtree, CreditCard, FileText,
-  Plane, GraduationCap, LifeBuoy, User, Settings,
+  Plane, GraduationCap, LifeBuoy, User, Settings, IdCard,
   Search, Bell, ChevronLeft, ChevronRight, Sun, Moon, Lock
 } from 'lucide-react'
 import '../styles/engineer.css'
 import PortalSwitcher from '../components/PortalSwitcher'
 
 const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/employee', badge: null, end: true },
-  { icon: Clock, label: 'Timesheets', path: '/employee/timesheets', badge: 1, locked: true },
-  { icon: Palmtree, label: 'Leave & Holidays', path: '/employee/leave', badge: 1, locked: true },
-  { icon: CreditCard, label: 'Expenses', path: '/employee/expenses', badge: 1, locked: true },
-  { icon: FileText, label: 'Documents', path: '/employee/documents', badge: 1, locked: true },
-  { icon: Plane, label: 'Travel & Logistics', path: '/employee/travel', locked: true },
-  { icon: GraduationCap, label: 'Training', path: '/employee/training', badge: 3 },
-  { icon: LifeBuoy, label: 'Support Tickets', path: '/employee/support' },
-  { icon: User, label: 'My Profile', path: '/employee/profile' },
+  { icon: LayoutDashboard, label: 'Dashboard',         path: '/employee', end: true },
+  { icon: Clock,           label: 'Timesheets',         path: '/employee/timesheets', locked: true },
+  { icon: Palmtree,        label: 'Leave & Holidays',   path: '/employee/leave',      locked: true },
+  { icon: CreditCard,      label: 'Expenses',           path: '/employee/expenses',   locked: true },
+  { icon: FileText,        label: 'Documents',          path: '/employee/documents',  locked: true },
+  { icon: Plane,           label: 'Travel & Logistics', path: '/employee/travel',     locked: true },
+  { icon: GraduationCap,   label: 'Training',           path: '/employee/training' },
+  { icon: LifeBuoy,        label: 'Support Tickets',    path: '/employee/support' },
+  { icon: User,            label: 'My Profile',         path: '/employee/profile' },
+  { icon: IdCard,          label: 'My Digital Card',    path: '/employee/card' },
 ]
 
 export default function EmployeeLayout() {
@@ -29,12 +30,14 @@ export default function EmployeeLayout() {
   const [darkMode, setDarkMode] = useState(false)
   const [userData, setUserData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [pendingCount, setPendingCount] = useState(0)
   const time = useRiyadhTime()
   const location = useLocation()
 
   useEffect(() => {
     let unsubUid = () => {}
     let unsubEmail = () => {}
+    let unsubPending = () => {}
 
     const unsubAuth = auth.onAuthStateChanged(user => {
       if (user) {
@@ -59,11 +62,38 @@ export default function EmployeeLayout() {
             }).catch(() => setLoading(false))
           }
         }, () => setLoading(false))
+
+        // Live pending count for topbar bell:
+        // pending leave requests + pending expense claims + open support tickets
+        const email = user.email
+        const pendingLeave = query(
+          collection(db, 'leave_requests'),
+          where('engineer_email', '==', email),
+          where('status', 'in', ['PENDING_VALIDATION', 'SUBMITTED', 'PM_APPROVED'])
+        )
+        const pendingExpenses = query(
+          collection(db, 'expenses'),
+          where('engineer_email', '==', email),
+          where('status', 'in', ['PENDING', 'SUBMITTED', 'PM_APPROVED'])
+        )
+        const openTickets = query(
+          collection(db, 'support_tickets'),
+          where('engineer_email', '==', email),
+          where('status', 'in', ['OPEN', 'IN_PROGRESS'])
+        )
+
+        let leaveN = 0, expN = 0, tktN = 0
+        const update = () => setPendingCount(leaveN + expN + tktN)
+
+        const u1 = onSnapshot(pendingLeave,    s => { leaveN = s.size; update() })
+        const u2 = onSnapshot(pendingExpenses,  s => { expN   = s.size; update() })
+        const u3 = onSnapshot(openTickets,      s => { tktN   = s.size; update() })
+        unsubPending = () => { u1(); u2(); u3() }
       } else {
         setLoading(false)
       }
     })
-    return () => { unsubAuth(); unsubUid(); unsubEmail(); }
+    return () => { unsubAuth(); unsubUid(); unsubEmail(); unsubPending() }
   }, [])
 
   if (loading) return <div style={{ height: '100vh', background: '#0a1628' }}></div>
@@ -108,9 +138,8 @@ export default function EmployeeLayout() {
                 style={isLocked ? { opacity: 0.5 } : {}}
                 id={`nav-emp-${item.path.replace(/\//g, '-')}`}
               >
-                <span className="nav-icon">{isLocked ? <Lock size={20} /> : <Icon size={20} />}</span>
+                {!isLocked && <span className="nav-icon"><Icon size={20} /></span>}
                 <span className="nav-label">{item.label}</span>
-                {!isLocked && item.badge && <span className="nav-badge">{item.badge}</span>}
               </NavLink>
             )
           })}
@@ -142,7 +171,7 @@ export default function EmployeeLayout() {
           </button>
           <div className="topbar-notification" id="eng-notification-bell">
             <Bell size={20} />
-            <span className="notif-badge">2</span>
+            {pendingCount > 0 && <span className="notif-badge">{pendingCount}</span>}
           </div>
           <div className="topbar-avatar" id="eng-avatar" title={userData?.email || auth.currentUser?.email}>
             {userData?.full_name 

@@ -3,6 +3,7 @@ import { ShieldCheck, Send, User, Briefcase, MapPin, Clock, DollarSign, Phone, S
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore'
 import { db, auth, SUBMIT_HR_SCORE_URL, UPDATE_CANDIDATE_STAGE_URL } from '../../lib/firebase'
 import { signIn, signOut, onAuthChange } from '../../lib/auth'
+import { LEGAL_FOOTER_EN } from '../../lib/company-legal'
 
 const criteriaConfig = [
   { key: 'communication_clarity', label: 'Communication Clarity', weight: 15, type: 'scale',
@@ -157,8 +158,19 @@ export default function HRScoring() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6f8', fontFamily: "'Inter', 'DM Sans', sans-serif" }}>
+      {/* Print-only company letterhead header (hidden on screen) */}
+      <div className="hrs-print-letterhead" style={{ padding: '0 20px', maxWidth: 900, margin: '16px auto 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #022873', paddingBottom: 10 }}>
+          <img src="/images/logo-dark.svg" alt="Datalake" style={{ height: 48 }} />
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 700, color: '#022873', fontSize: '0.95rem' }}>Interview Scorecard</div>
+            <div style={{ fontSize: '0.7rem', color: '#6e6e6e' }}>DTLK-OPS-PRC-002</div>
+          </div>
+        </div>
+      </div>
+
       {/* Header */}
-      <header style={{ background: 'linear-gradient(135deg, #1B2A4A, #2C5F7C)', borderBottom: '1px solid rgba(255,255,255,0.1)', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}>
+      <header className="hrs-no-print" style={{ background: 'linear-gradient(135deg, #1B2A4A, #2C5F7C)', borderBottom: '1px solid rgba(255,255,255,0.1)', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <img src="/images/icon.svg" alt="Datalake" style={{ height: 32 }} />
           <div>
@@ -223,8 +235,8 @@ export default function HRScoring() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                     <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#333', margin: 0 }}>{cand.full_name || 'Unnamed'}</h2>
                     <span style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: '#64748b', background: '#f0f0f0', padding: '2px 8px', borderRadius: 4 }}>{cand.id}</span>
-                    <button onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setHrInterviewNotes(''); setSubmitted(false); setSubmitResult(null) }} style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#1598CC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>← Change candidate</button>
-                    <button onClick={() => window.print()} style={{ fontSize: '0.75rem', color: '#475569', background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={13} /> Print</button>
+                    <button className="hrs-no-print" onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setHrInterviewNotes(''); setSubmitted(false); setSubmitResult(null) }} style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#1598CC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>← Change candidate</button>
+                    <button className="hrs-no-print" onClick={() => window.print()} style={{ fontSize: '0.75rem', color: '#475569', background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={13} /> Print</button>
                   </div>
                   {cand.consent_granted_at && (
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: '0.72rem', color: '#27ae60', background: '#e8fbe5', padding: '4px 10px', borderRadius: 6, border: '1px solid #b7e8bc' }}>
@@ -395,6 +407,26 @@ export default function HRScoring() {
           </>
         )}
       </div>
+
+      {/* Print-only company letterhead footer (hidden on screen) */}
+      <div className="hrs-print-letterhead" style={{ padding: '0 20px 8px', maxWidth: 900, margin: '0 auto' }}>
+        <div style={{ display: 'flex', height: 5, borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
+          <span style={{ flex: 1, background: '#1598CC' }} />
+          <span style={{ flex: 1, background: '#34BF3A' }} />
+          <span style={{ flex: 1, background: '#EF5829' }} />
+        </div>
+        <div style={{ textAlign: 'center', fontSize: '0.7rem', color: '#022873' }}>{LEGAL_FOOTER_EN}</div>
+      </div>
+
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 12mm; }
+          body { background: #fff !important; }
+          .hrs-no-print { display: none !important; }
+          .hrs-print-letterhead { display: block !important; }
+        }
+        .hrs-print-letterhead { display: none; }
+      `}</style>
     </div>
   )
 }

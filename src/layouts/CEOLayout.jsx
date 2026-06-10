@@ -4,36 +4,121 @@ import { useRiyadhTime } from '../hooks/useUtils'
 import {
   Zap, BarChart3, Users, DollarSign, FileText, CheckSquare,
   Shield, TrendingUp, Bell, Settings, ChevronLeft, ChevronRight,
-  Search, Menu, Bot, Inbox, LogOut, FolderKanban, Lock, Library, Building2, ShieldCheck,
+  Search, Bot, Inbox, LogOut, FolderKanban, Lock, Library, Building2, ShieldCheck,
 } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
+import { db } from '../lib/firebase'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
 
+/**
+ * useCEOBadges — subscribes to real pending-action counts from Firestore.
+ *
+ * GUARDRAIL: every badge query must be the SAME source (or an explicit
+ * actionable subset) as the page it links to, so badge count ≤ page count
+ * and the two never contradict each other.
+ *
+ * Returns { approvalsCount, talentCount, financeCount, contractsCount, ticketsCount }.
+ * All default to 0 — no badge appears when there is nothing to act on.
+ */
+function useCEOBadges() {
+  const [counts, setCounts] = useState({
+    approvalsCount: 0,
+    talentCount: 0,
+    financeCount: 0,
+    contractsCount: 0,
+    ticketsCount: 0,
+  })
+
+  useEffect(() => {
+    const unsubs = []
+
+    // ── Approvals (/ceo/approvals) ─────────────────────────────────────────
+    // Approvals.jsx aggregates exactly these 4 sources into one list.
+    // The badge = their sum, so sidebar count == page "X items awaiting" count.
+    let paCount = 0, tsCount = 0, phCount = 0, lrCount = 0
+    const updateApprovals = () =>
+      setCounts(c => ({ ...c, approvalsCount: paCount + tsCount + phCount + lrCount }))
+
+    unsubs.push(onSnapshot(collection(db, 'pending_approvals'),                                      // SoD-gated invoices
+      snap => { paCount = snap.size; updateApprovals() }))
+    unsubs.push(onSnapshot(query(collection(db, 'timesheets'), where('state', '==', 'SUBMITTED')),   // same as Approvals.jsx L47
+      snap => { tsCount = snap.size; updateApprovals() }))
+    unsubs.push(onSnapshot(collection(db, 'pending_hires'),                                          // same as Approvals.jsx L73
+      snap => { phCount = snap.size; updateApprovals() }))
+    unsubs.push(onSnapshot(                                                                           // same as Approvals.jsx L98-99
+      query(collection(db, 'leave_requests'),
+        where('status', 'in', ['PENDING_VALIDATION', 'PENDING_CEO', 'PENDING'])),
+      snap => { lrCount = snap.size; updateApprovals() }))
+
+    // ── Talent & HR (/ceo/talent) ──────────────────────────────────────────
+    // Page shows all talent_pool rows. Badge = OFFER_PENDING only (needs a
+    // CEO decision). Badge ≤ page count always.
+    unsubs.push(onSnapshot(
+      query(collection(db, 'talent_pool'), where('state', '==', 'OFFER_PENDING')),
+      snap => setCounts(c => ({ ...c, talentCount: snap.size }))
+    ))
+
+    // ── Finance (/ceo/finance) ─────────────────────────────────────────────
+    // Page shows all invoices. Badge = those needing CEO sign-off.
+    // Badge ≤ page count always.
+    unsubs.push(onSnapshot(
+      query(collection(db, 'invoices'), where('status', 'in', ['DRAFT', 'PENDING_APPROVAL'])),
+      snap => setCounts(c => ({ ...c, financeCount: snap.size }))
+    ))
+
+    // ── Contracts (/ceo/contracts) ─────────────────────────────────────────
+    // Contracts.jsx reads the 'contracts' collection (not hire_requests).
+    // Badge = contracts that are not yet EXECUTED/ARCHIVED/CANCELLED.
+    unsubs.push(onSnapshot(collection(db, 'contracts'), snap => {
+      const pending = snap.docs.filter(d => {
+        const s = (d.data().status || '').toUpperCase()
+        return s !== 'EXECUTED' && s !== 'ARCHIVED' && s !== 'CANCELLED'
+      }).length
+      setCounts(c => ({ ...c, contractsCount: pending }))
+    }))
+
+    // ── Support Tickets (/ceo/tickets) ────────────────────────────────────
+    // CEOTickets.jsx reads all support_tickets. Badge = OPEN tickets from
+    // the same collection — no extra filter that could make badge > page count.
+    unsubs.push(onSnapshot(
+      query(collection(db, 'support_tickets'), where('status', '==', 'OPEN')),
+      snap => setCounts(c => ({ ...c, ticketsCount: snap.size }))
+    ))
+
+    return () => unsubs.forEach(u => u())
+  }, [])
+
+  return counts
+}
+
+// navItems no longer carry hardcoded badge numbers.
+// Badges are injected dynamically from useCEOBadges() in the component below.
 const navItems = [
-  { icon: Zap, label: 'Command Center', path: '/ceo', badge: 2, end: true },
-  { icon: Inbox, label: 'Task Inbox', path: '/ceo/tasks', badge: 10, glow: true },
-  { icon: BarChart3, label: 'Revenue Pipeline', path: '/ceo/pipeline', badge: null, info: 'SAR 11.2M' },
-  { icon: FolderKanban, label: 'Projects', path: '/ceo/projects' },
-  { icon: Building2, label: 'Clients', path: '/ceo/clients' },
-  { icon: Users, label: 'Employee Directory', path: '/ceo/employees' },
-  { icon: Users, label: 'Talent & HR', path: '/ceo/talent', badge: 3 },
-  { icon: DollarSign, label: 'Finance', path: '/ceo/finance', badge: 2 },
-  { icon: FileText, label: 'Contracts', path: '/ceo/contracts', badge: 2 },
-  { icon: CheckSquare, label: 'Approvals', path: '/ceo/approvals', badge: 8, glow: true },
-  { icon: FileText, label: 'Leave Requests', path: '/ceo/leave' },
-  { icon: Inbox, label: 'Support Tickets', path: '/ceo/tickets' },
-  { icon: DollarSign, label: 'Expenses', path: '/ceo/expenses' },
-  { icon: Shield, label: 'Compliance', path: '/ceo/compliance', badge: 3 },
-  { icon: Users, label: 'Training Matrix', path: '/ceo/training' },
-  { icon: Library, label: 'Policy Library', path: '/ceo/policies' },
-  { icon: TrendingUp, label: 'Analytics', path: '/ceo/analytics' },
-  { icon: BarChart3, label: 'Monthly Reports', path: '/ceo/reports' },
-  { icon: Bot, label: 'AI Operations', path: '/ceo/ai-ops', badge: 6 },
-  { icon: Bell, label: 'Alerts & Logs', path: '/ceo/alerts', badge: 3 },
-  { icon: Settings, label: 'System Health', path: '/ceo/system' },
-  { icon: Lock, label: 'Admin Panel', path: '/ceo/admin' },
-  { icon: ShieldCheck, label: 'Audit Export', path: '/ceo/audit-export' },
+  { icon: Zap,          label: 'Command Center',    path: '/ceo',              badgeKey: 'approvalsCount', end: true },
+  { icon: Inbox,        label: 'Task Inbox',         path: '/ceo/tasks',        badgeKey: 'tasksCount' },
+  { icon: BarChart3,    label: 'Revenue Pipeline',   path: '/ceo/pipeline' },
+  { icon: FolderKanban, label: 'Projects',            path: '/ceo/projects' },
+  { icon: Building2,    label: 'Clients',             path: '/ceo/clients' },
+  { icon: Users,        label: 'Employee Directory',  path: '/ceo/employees' },
+  { icon: Users,        label: 'Talent & HR',         path: '/ceo/talent',      badgeKey: 'talentCount' },
+  { icon: DollarSign,   label: 'Finance',             path: '/ceo/finance',     badgeKey: 'financeCount' },
+  { icon: FileText,     label: 'Contracts',           path: '/ceo/contracts',   badgeKey: 'contractsCount' },
+  { icon: CheckSquare,  label: 'Approvals',           path: '/ceo/approvals',   badgeKey: 'approvalsCount', glow: true },
+  { icon: FileText,     label: 'Leave Requests',      path: '/ceo/leave' },
+  { icon: Inbox,        label: 'Support Tickets',     path: '/ceo/tickets',     badgeKey: 'ticketsCount' },
+  { icon: DollarSign,   label: 'Expenses',            path: '/ceo/expenses' },
+  { icon: Shield,       label: 'Compliance',          path: '/ceo/compliance' },
+  { icon: Users,        label: 'Training Matrix',     path: '/ceo/training' },
+  { icon: Library,      label: 'Policy Library',      path: '/ceo/policies' },
+  { icon: TrendingUp,   label: 'Analytics',           path: '/ceo/analytics' },
+  { icon: BarChart3,    label: 'Monthly Reports',     path: '/ceo/reports' },
+  { icon: Bot,          label: 'AI Operations',       path: '/ceo/ai-ops' },
+  { icon: Bell,         label: 'Alerts & Logs',       path: '/ceo/alerts' },
+  { icon: Settings,     label: 'System Health',       path: '/ceo/system' },
+  { icon: Lock,         label: 'Admin Panel',         path: '/ceo/admin' },
+  { icon: ShieldCheck,  label: 'Audit Export',        path: '/ceo/audit-export' },
 ]
 
 export default function CEOLayout() {
@@ -43,6 +128,10 @@ export default function CEOLayout() {
   const [authError, setAuthError] = useState('')
   const time = useRiyadhTime()
   const location = useLocation()
+  const badges = useCEOBadges()
+
+  // Total actionable items for the topbar bell
+  const totalPending = badges.approvalsCount + badges.talentCount + badges.financeCount + badges.contractsCount + badges.ticketsCount
 
   useEffect(() => {
     // Reflect the REAL Firebase Auth session — no demo bypass. AuthGate already
@@ -134,18 +223,19 @@ export default function CEOLayout() {
             const isActive = item.end 
               ? location.pathname === item.path
               : location.pathname.startsWith(item.path) && item.path !== '/ceo'
+            const badgeCount = item.badgeKey ? (badges[item.badgeKey] || 0) : 0
             return (
               <NavLink
                 key={item.path}
                 to={item.path}
                 end={item.end}
-                className={`nav-item ${isActive ? 'active' : ''} ${item.glow && item.badge ? 'approvals-glow' : ''}`}
+                className={`nav-item ${isActive ? 'active' : ''} ${item.glow && badgeCount > 0 ? 'approvals-glow' : ''}`}
                 id={`nav-${item.path.replace(/\//g, '-')}`}
               >
                 <span className="nav-icon"><Icon size={20} /></span>
                 <span className="nav-label">{item.label}</span>
-                {item.badge && <span className="nav-badge">{item.badge}</span>}
-                {item.info && !item.badge && <span className="nav-label" style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textAlign: 'right' }}>{item.info}</span>}
+                {badgeCount > 0 && <span className="nav-badge">{badgeCount}</span>}
+                {item.info && badgeCount === 0 && <span className="nav-label" style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textAlign: 'right' }}>{item.info}</span>}
               </NavLink>
             )
           })}
@@ -173,7 +263,7 @@ export default function CEOLayout() {
           <span className="topbar-time">{time} AST</span>
           <div className="topbar-notification" id="notification-bell">
             <Bell size={20} />
-            <span className="notif-badge">3</span>
+            {totalPending > 0 && <span className="notif-badge">{totalPending}</span>}
           </div>
           {user?.photoURL && <img src={user.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)' }} />}
           <div className="topbar-avatar" id="ceo-avatar" title={user?.email}>CEO</div>

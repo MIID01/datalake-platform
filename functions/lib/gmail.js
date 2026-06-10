@@ -67,10 +67,16 @@ function mimeEncodeSubject(s) {
 async function sendEmailRaw(gmail, to, subject, bodyText) {
   console.log("[gmail] Sending email to", to, "subject:", subject.substring(0, 50));
 
-  // Convert plain text body to simple HTML
+  // Convert plain text body to simple HTML.
+  // ORDER MATTERS: linkify URLs FIRST, while newlines still delimit them, then
+  // turn newlines into <br>. If we did it the other way round, a URL sitting on
+  // its own line (e.g. a sign link followed by a blank line) would become
+  // "https://…/{token}<br><br>Next line" — and the greedy URL match would pull
+  // "<br><br>Next line" INTO the href, corrupting the token. Excluding "<" from
+  // the URL char class is a second guard against that.
   const htmlBody = bodyText
-    .replace(/\n/g, "<br>")
-    .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1">$1</a>');
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
+    .replace(/\n/g, "<br>");
 
   const boundary = "boundary_datalake_" + Date.now().toString(16);
   const messageId = `<${Date.now()}@datalake.sa>`;

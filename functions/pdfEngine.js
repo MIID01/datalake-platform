@@ -2,7 +2,23 @@
 
 const admin = require("firebase-admin");
 const PDFDocument = require("pdfkit");
+const fs = require("fs");
+const path = require("path");
+const { COMPANY, LEGAL_FOOTER_EN } = require("./lib/company-legal");
 const db = admin.firestore();
+
+// Bundled company letterhead logo (Datalake color logo, transparent PNG) used in
+// every generated PDF header. Loaded once at cold start; a missing asset must
+// never block PDF generation (we fall back to the company name text).
+let LETTERHEAD_LOGO = null;
+try {
+  LETTERHEAD_LOGO = fs.readFileSync(path.join(__dirname, "assets", "letterhead-logo.png"));
+} catch (e) {
+  console.warn("[PDF Engine] letterhead logo asset not loaded:", e.message);
+}
+
+// Brand band colours (Sky Blue / Green / Orange) for the footer strip.
+const BRAND_BAND = ["#1598CC", "#34BF3A", "#EF5829"];
 
 // ══════════════════════════════════════════════════════════════════
 // generatePDFHandler (HTTP Endpoint)
@@ -61,10 +77,10 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
 
     // Default tenant branding
     let branding = {
-      company_name: "Datalake Saudi Arabia LLC",
+      company_name: COMPANY.legal_name_en,
       primary_color: "#022873",
       secondary_color: "#1598CC",
-      footer_text: "Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952",
+      footer_text: LEGAL_FOOTER_EN,
       logo_url: "gs://datalake-grc-library/brand/logo.png",
       stamp_url: "gs://datalake-grc-library/brand/company-stamp.png",
     };
@@ -74,10 +90,14 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
     if (brandingDoc.exists) {
       branding = { ...branding, ...brandingDoc.data() };
     }
+    // The legal identity line is CEO-locked and single-sourced — a stale tenant
+    // override must never reintroduce an old footer/name on a legal PDF.
+    branding.footer_text = LEGAL_FOOTER_EN;
+    branding.company_name = COMPANY.legal_name_en;
 
     // Build the PDF
     const buffers = [];
-    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
     
     doc.on('data', buffers.push.bind(buffers));
     
@@ -88,12 +108,24 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
 
     // Handle branding colors
     const primaryColor = branding.primary_color || "#022873";
-    const secondaryColor = branding.secondary_color || "#1598CC";
 
-    // Header
-    doc.fillColor(primaryColor).fontSize(20).text(branding.company_name, { align: 'left' });
-    doc.fontSize(12).fillColor('black').text(`Document ID: ${docId}`, { align: 'right' });
-    doc.moveDown(2);
+    // Header — company letterhead logo (top-left) + document id (top-right),
+    // a navy rule, then content below. Falls back to the company name text if
+    // the logo asset is unavailable.
+    const headerTop = doc.y;
+    if (LETTERHEAD_LOGO) {
+      try { doc.image(LETTERHEAD_LOGO, 50, headerTop, { width: 150 }); }
+      catch (e) { doc.fillColor(primaryColor).fontSize(20).text(branding.company_name, 50, headerTop, { align: 'left' }); }
+    } else {
+      doc.fillColor(primaryColor).fontSize(20).text(branding.company_name, 50, headerTop, { align: 'left' });
+    }
+    doc.fillColor('black').fontSize(10).text(`Document ID: ${docId}`, 50, headerTop + 4, { align: 'right' });
+    // Logo aspect ≈2.79 → height ≈54mm-equiv at width 150; drop below it.
+    doc.y = headerTop + (LETTERHEAD_LOGO ? 62 : 30);
+    doc.strokeColor(primaryColor).lineWidth(1)
+       .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+    doc.moveDown(1);
+    doc.fillColor('black');
 
     // Fetch data based on template
     if (template === "invoice") {
@@ -324,14 +356,19 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       throw new Error(`Unknown template: ${template}`);
     }
 
-    // Footer
+    // Footer — 3-colour brand band + canonical legal line on every page.
     const pages = doc.bufferedPageRange();
     for (let i = 0; i < pages.count; i++) {
       doc.switchToPage(i);
-      doc.fontSize(8).fillColor(secondaryColor).text(
+      const fy = doc.page.height - 50;
+      const bandW = (doc.page.width - 100) / 3;
+      BRAND_BAND.forEach((c, k) => {
+        doc.fillColor(c).rect(50 + k * bandW, fy - 8, bandW, 3).fill();
+      });
+      doc.fontSize(8).fillColor(primaryColor).text(
         `${branding.footer_text} | Page ${i + 1} of ${pages.count}`,
-        50, doc.page.height - 50,
-        { align: 'center' }
+        50, fy,
+        { align: 'center', width: doc.page.width - 100 }
       );
     }
 

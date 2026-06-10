@@ -12,6 +12,7 @@ const { httpErrorStatus } = require("./lib/httpErrors");
 // NOTE: VertexAI / Gemini removed per DTLK-PROMPT-AI-001.
 // All AI inference now runs on self-hosted datalake-ai-inference (Qwen 2.5 7B).
 const { callLLM, callOCR, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
+const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -1838,8 +1839,7 @@ exports.ctoApproveTimesheet = onRequest(
             ``,
             `This link is unique to you — please do not forward it.`,
             ``,
-            `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
-            `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+            LEGAL_EMAIL_FOOTER,
           ].join("\n");
 
           await logRef.set({
@@ -2115,8 +2115,7 @@ exports.resendTimesheetSignLink = onRequest(
         ``,
         `This link is unique to you — please do not forward it.`,
         ``,
-        `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
-        `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+        LEGAL_EMAIL_FOOTER,
       ].join("\n");
 
       await logRef.set({
@@ -3178,6 +3177,13 @@ const {
 
 const hireHelpers = { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS };
 
+// CRM — send + log an email from a deal (reuses the CRM role-gate + gmail DWD).
+const { sendDealEmailHandler } = require("./deals");
+exports.sendDealEmail = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => sendDealEmailHandler(req, res, hireHelpers)
+);
+
 exports.initiateHire = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => initiateHireHandler(req, res, hireHelpers)
@@ -3413,6 +3419,16 @@ exports.backfillEmployee = onRequest(
   { region: "me-central2", memory: "512MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
   (req, res) => backfillEmployeeHandler(req, res, { verifyAuth, getUserAccessProfile })
 );
+
+// PARKED (DTLK T9 — pending CEO park-vs-kill): the server-side photo/print card.
+// The shipped card is QR-only and fully client-side (src/pages/employee/BusinessCard.jsx).
+// This export is intentionally commented out so it is NOT deployed (incl. on a full
+// functions deploy) and `sharp` is never loaded. Do NOT delete — un-comment to revive.
+// const { generateBusinessCardHandler } = require("./businessCard");
+// exports.generateBusinessCard = onRequest(
+//   { region: "me-central2", memory: "512MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+//   (req, res) => generateBusinessCardHandler(req, res, hireHelpers)
+// );
 
 exports.recordLeaver = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
@@ -3737,7 +3753,7 @@ exports.whatsappWebhook = onRequest(
 // ==============================================================================
 const { validateLeaveRequestHandler, clientApproveLeaveHandler, approveLeaveHandler, controllerAdjustPayrollHandler } = require("./leave");
 const { validateExpenseHandler, routeTicketHandler } = require("./requests");
-const { resetLeaveBalancesHandler, pdplCandidatePurgeHandler, scanContractExpiryHandler, validateHireBudgetHandler, gatekeeperMonthlyOpsHandler } = require("./hr");
+const { resetLeaveBalancesHandler, pdplCandidatePurgeHandler, pdplCandidatePurgeOnRequestHandler, scanContractExpiryHandler, validateHireBudgetHandler, gatekeeperMonthlyOpsHandler } = require("./hr");
 
 exports.clientApproveLeave = onRequest(
   { region: "me-central2", memory: "256MiB" },
@@ -3778,8 +3794,15 @@ exports.resetLeaveBalances = onSchedule(
 );
 
 exports.pdplCandidatePurge = onSchedule(
-  { schedule: "0 3 * * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB" },
+  { schedule: "0 3 * * *", timeZone: "Asia/Riyadh", region: "me-central2", memory: "256MiB", timeoutSeconds: 300 },
   async (event) => { await pdplCandidatePurgeHandler(); }
+);
+
+// CEO / HR "Run PDPL Purge" button — same logic as the scheduler, but
+// callable from the UI with real-time feedback (purged count + audit log ID).
+exports.runPdplPurgeCEO = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 300, cors: ALLOWED_ORIGINS },
+  (req, res) => pdplCandidatePurgeOnRequestHandler(req, res, { verifyAuth, getUserAccessProfile })
 );
 
 // Real hires live in pending_hires (initiateHire), NOT hire_requests — the old
@@ -3894,4 +3917,11 @@ exports.generatePDF = onRequest(
   { region: "me-central2", memory: "1GiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
   async (req, res) => { await generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }); }
 );
+
+// ==============================================================================
+// DTLK-ARCH-AI-002: AI Service Health — real Cloud Run + Monitoring data
+// CEO-only. No mocking, no setTimeout, no hardcoded status.
+// ==============================================================================
+const { getAiServiceHealth } = require("./aiHealth");
+exports.getAiServiceHealth = getAiServiceHealth;
 

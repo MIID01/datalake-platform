@@ -137,6 +137,23 @@ service cloud.firestore {
       }
     }
 
+    // ── CRM deals (opportunities) ──
+    // `deals` = canonical opportunity (references a client via client_id; never
+    // copies account facts). Same audience as clients/client_notes: CEO + the
+    // business/sales CRM roles. deal_activities is an append-only timeline.
+    match /deals/{dealId} {
+      allow read:   if isCeo() || isBusinessOrSales();
+      allow create: if isCeo() || isBusinessOrSales();
+      allow update: if isCeo() || isBusinessOrSales();
+      allow delete: if isCeo();
+
+      match /deal_activities/{actId} {
+        allow read:   if isCeo() || isBusinessOrSales();
+        allow create: if isCeo() || isBusinessOrSales();
+        allow update, delete: if false; // immutable audit trail
+      }
+    }
+
     // ── Employees & HR ──
     match /employees/{docId} {
       allow read: if request.auth != null;
@@ -202,10 +219,25 @@ service cloud.firestore {
     match /projects/{projectId} {
       allow read: if request.auth != null;
       allow write: if isCeoOrCto();
+
+      // Approval evidence (e.g. SAMA materiality sign-off). Immutable audit row;
+      // the status change itself stays server-side. Without this rule the write
+      // hit the default-deny catch-all ("Missing or insufficient permissions").
+      match /approval_evidence/{evId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update, delete: if false;
+      }
     }
     match /client_projects/{projectId} {
       allow read: if request.auth != null;
       allow write: if isCeoOrCto();
+
+      match /approval_evidence/{evId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update, delete: if false;
+      }
     }
     match /engineer_project_assignments/{assignmentId} {
       allow read: if request.auth != null;
@@ -241,6 +273,15 @@ service cloud.firestore {
       // which bypasses these rules. No client can flip an invoice's status itself.
       allow read: if request.auth != null;
       allow write: if false;
+
+      // Approval evidence — immutable record of who signed off the invoice.
+      // The status flip stays server-side (write:false above); this is the
+      // signed audit row. Without it, signing an invoice was default-denied.
+      match /approval_evidence/{evId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update, delete: if false;
+      }
     }
     match /client_invoices/{docId} {
       allow read, write: if request.auth != null;
@@ -250,6 +291,16 @@ service cloud.firestore {
     }
     match /contracts/{docId} {
       allow read, write: if request.auth != null;
+
+      // Approval evidence — contract sign-off. Created by an authenticated user
+      // (CEO/HR) OR by the token-based external-counsel flow (LegalReview, which
+      // is UNauthenticated and stamps review_token_used:true on the row). Immutable.
+      match /approval_evidence/{evId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow create: if request.resource.data.review_token_used == true;
+        allow update, delete: if false;
+      }
     }
     // AI auditor proposal/contract review trail (written server-side; CEO-managed).
     match /proposal_reviews/{docId} {

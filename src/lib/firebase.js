@@ -31,6 +31,10 @@ export const SUBMIT_HR_SCORE_URL =
 export const CREATE_PROJECT_URL =
   "https://createproject-ifzodp5svq-wx.a.run.app";
 
+// CRM — send + log an email from a deal (functions/deals.js sendDealEmail).
+export const SEND_DEAL_EMAIL_URL =
+  "https://senddealemail-ifzodp5svq-wx.a.run.app";
+
 export const ASSIGN_ENGINEER_URL =
   "https://assignengineertoproject-ifzodp5svq-wx.a.run.app";
 
@@ -112,8 +116,12 @@ export const RECORD_LEAVER_URL =
   "https://recordleaver-ifzodp5svq-wx.a.run.app";
 export const GET_BACKFILL_CONSENT_URL =
   "https://getbackfillconsentform-ifzodp5svq-wx.a.run.app";
-export const SUBMIT_BACKFILL_CONSENT_URL = 
+export const SUBMIT_BACKFILL_CONSENT_URL =
   "https://submitbackfillconsent-ifzodp5svq-wx.a.run.app";
+// PARKED (DTLK T9): server-side photo/print card — NOT deployed. The shipped card
+// is QR-only and client-side. Un-comment + un-park the function to revive.
+// export const GENERATE_BUSINESS_CARD_URL =
+//   "https://generatebusinesscard-ifzodp5svq-wx.a.run.app";
 export const UPLOAD_GRC_DOC_URL =
   "https://uploadgrcdocument-ifzodp5svq-wx.a.run.app";
 export const LIST_GRC_DOCUMENTS_URL =
@@ -189,3 +197,8 @@ export const SAVE_INTEGRATION_CONFIG_URL =
   "https://saveintegrationconfig-ifzodp5svq-wx.a.run.app";
 export const GET_INTEGRATION_CONFIG_URL =
   "https://getintegrationconfig-ifzodp5svq-wx.a.run.app";
+
+// DTLK-ARCH-AI-002: Real AI service health (server-side Cloud Run + Monitoring query)
+// URL pattern: lowercase function name + project suffix. Update after first deploy.
+export const GET_AI_SERVICE_HEALTH_URL =
+  "https://getaiservicehealth-ifzodp5svq-wx.a.run.app";

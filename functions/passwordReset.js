@@ -22,6 +22,7 @@
 
 const admin = require("firebase-admin");
 const { getGmailClient, sendEmailRaw } = require("./lib/gmail");
+const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 
 const db = admin.firestore();
 
@@ -63,8 +64,7 @@ async function generateAndSendPasswordResetHandler(req, res) {
       `- Datalake HR`,
       ``,
       `--------------------------------------------------`,
-      `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
-      `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+      LEGAL_EMAIL_FOOTER,
       `PRIVATE & CONFIDENTIAL - This message contains a one-time security link.`,
     ].join("\n");
 
@@ -161,8 +161,7 @@ async function sendAccountSetupEmail(email, displayName) {
     `- Datalake HR`,
     ``,
     `--------------------------------------------------`,
-    `Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243`,
-    `CR: 1009194773 | NUN: 7048904952 | www.datalake.sa`,
+    LEGAL_EMAIL_FOOTER,
   ].join("\n");
 
   const logRef = db.collection("email_log").doc();

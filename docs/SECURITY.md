@@ -1,7 +1,7 @@
 # Datalake Platform — Security Architecture
 
 **Entity:** Datalake Saudi Arabia LLC — شركة بحيرة البيانات للاستشارات في مجال الاتصالات وتقنية المعلومات
-**CR:** 1009194773 · **NUN:** 7048904952 · **Address:** Riyadh, Al-Yarmouk 13243, Saudi Arabia
+**CR:** 1009194773 · **Unified Number (NUN):** 7048904952 · **Address:** Rajiyah Street, Al Yarmuk District, Riyadh 13243, Kingdom of Saudi Arabia
 **Platform:** `datalake-production-sa` (Google Cloud / Firebase), region `me-central2` (Dammam, KSA)
 **Document owner:** CEO (acting CISO) · **Last updated:** 2026-06-01
 
@@ -134,7 +134,7 @@ UID-keyed `users` doc → `users` query by email → hardcoded email fallbacks.
 | PDPL alignment | ✅ | Saudi Personal Data Protection Law: in-app **Right to Access** (Art. 15 — "Download My Data" export) and **Right to Erasure** (Art. 18 — deletion request to HR with 30-day SLA) in `src/pages/employee/Profile.jsx`; PDPL consent captured at onboarding with IP + user-agent. |
 | Encryption at rest | ✅ (platform) | Google Cloud default **AES-256** encryption on Firestore, Cloud Storage, and BigQuery. |
 | Encryption in transit | ✅ (platform) | **TLS 1.2+** for all client↔Firebase, client↔Cloud Run, and service↔service traffic. |
-| Self-hosted AI (no external APIs) | ✅ | LLM (Qwen/Ollama) and OCR (PaddleOCR) run on Cloud Run over VPC. No prompt data leaves Google Cloud / `me-central2`; no third-party AI API is called. |
+| Self-hosted AI (no external APIs) | ✅ | LLM (Qwen/Ollama), OCR (PaddleOCR), and CV reformatting (`cv-agent`: PaddleOCR + Qwen) all run on self-hosted Cloud Run in `me-central2`. No prompt or candidate data leaves Google Cloud / `me-central2`; **no third-party AI API (Vertex, Gemini, OpenAI, etc.) is called.** cv-agent's prior Vertex-Gemini path was removed 2026-06-08 (Gemini is not reachable in me-central2). |
 | Secrets management | ✅ | Credentials (Zoho OAuth, etc.) in Google Secret Manager. Gmail uses IAM `signJwt` domain-wide delegation — **no service-account key files**. Integration secrets are masked (`********`) on read in the Admin UI. |
 | WORM storage | ✅ | HR documents in a Write-Once-Read-Many bucket (`datalake-worm-hr`); object delete/overwrite restricted to CEO in `storage.rules`. |
 | Tier-1 PII (salary) | ✅ | No blanket read on `payroll_runs` (see §2 / CAPA-PAY-001). |

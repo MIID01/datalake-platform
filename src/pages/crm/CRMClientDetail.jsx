@@ -4,6 +4,7 @@ import {
   doc, getDoc, collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, updateDoc,
 } from 'firebase/firestore'
 import { auth, db } from '../../lib/firebase'
+import { matchesClient } from '../../lib/client-linkage'
 import {
   ArrowLeft, Mail, Phone, MapPin, FileText, Briefcase, DollarSign, Calendar,
   MessageSquare, Plus, Loader, AlertCircle, Building2,
@@ -54,17 +55,14 @@ export default function CRMClientDetail() {
     if (!client) return
     const unsubs = []
     unsubs.push(onSnapshot(collection(db, 'projects'),
-      snap => setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .filter(p => p.client_id === client.id || p.client_name === client.client_name)),
-      () => {}))
+      snap => setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => matchesClient(p, client))),
+      e => console.warn('client projects:', e.message)))
     unsubs.push(onSnapshot(collection(db, 'invoices'),
-      snap => setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .filter(i => i.client_id === client.id || i.client_name === client.client_name)),
-      () => {}))
+      snap => setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => matchesClient(i, client))),
+      e => console.warn('client invoices:', e.message)))
     unsubs.push(onSnapshot(collection(db, 'timesheets'),
-      snap => setTimesheets(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .filter(t => t.client_id === client.id || t.client_name === client.client_name)),
-      () => {}))
+      snap => setTimesheets(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => matchesClient(t, client))),
+      e => console.warn('client timesheets:', e.message)))
     unsubs.push(onSnapshot(query(collection(db, 'clients', client.id, 'client_notes'), orderBy('created_at', 'desc')),
       snap => setNotes(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
       () => {}))
@@ -104,6 +102,16 @@ export default function CRMClientDetail() {
 
   const setStatus = async (next) => {
     if (!client) return
+    const cur = (client.status || 'ACTIVE').toUpperCase()
+    if (next === cur) return
+    const effect = next === 'ACTIVE'
+      ? ' Marking ACTIVE removes the client from the prospect pipeline.'
+      : next === 'INACTIVE'
+      ? ' Marking INACTIVE removes the client from active views.'
+      : next === 'PROSPECT'
+      ? ' Marking PROSPECT moves the client into the sales pipeline.'
+      : ''
+    if (!window.confirm(`Change ${client.client_name || 'this client'} status from ${cur} to ${next}?${effect}`)) return
     setStageUpdating(true)
     try {
       await updateDoc(doc(db, 'clients', client.id), {

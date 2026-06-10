@@ -142,47 +142,30 @@ async function transcribeCallHandler(event) {
     if (!tenant_id || !call_id) throw new Error("tenant_id and call_id required");
 
     const aiConfigDoc = await db.collection("tenants").doc(tenant_id).collection("integrations").doc("ai").get();
-    const aiConfig = aiConfigDoc.exists ? aiConfigDoc.data() : { transcription_model: "gemini", auto_transcribe_calls: true };
+    const aiConfig = aiConfigDoc.exists ? aiConfigDoc.data() : { auto_transcribe_calls: true };
 
     if (aiConfig.auto_transcribe_calls === false) {
       console.log(`[Telephony AI] Auto-transcribe disabled for tenant ${tenant_id}`);
       return;
     }
 
-    // In a full implementation, download audio from recording_url and pass to model API.
-    // We simulate transcription generation based on model config.
-    const preferredModel = aiConfig.transcription_model || "gemini";
-    let transcript = "";
-
-    try {
-      if (preferredModel === "gemini") {
-        // Mock Gemini audio-to-text call
-        // throw new Error("Quota Exceeded"); // Used for testing fallback
-        transcript = `[Gemini Transcription] Hello, this is a test call for ${callId}. Client is requesting a follow up.`;
-      } else {
-        throw new Error("Unsupported default model");
-      }
-    } catch (modelErr) {
-      console.warn(`[Telephony AI] ${preferredModel} failed, falling back to Qwen...`, modelErr.message);
-      // Fallback to Qwen
-      transcript = `[Qwen Fallback Transcription] Hello, this is a test call for ${callId}. Client is requesting a follow up.`;
-    }
-
+    // No real transcription backend exists yet. Per the No-Fabricated-Data rule we
+    // do NOT invent or store a transcript. Mark it explicitly unavailable, store NO
+    // transcript text, and do NOT trigger downstream analysis (nothing real to
+    // analyse). Deferred: self-hosted, in-region (me-central2) STT — see TODO.md.
     const callRef = db.collection("tenants").doc(tenant_id).collection("calls").doc(call_id);
     await callRef.update({
-      transcript: transcript,
-      transcribed_at: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // Trigger analysis
-    await pubsub.topic("datalake.call.transcribed").publishMessage({
-      json: { tenant_id, call_id }
+      transcript: null,
+      transcription_status: "NOT_AVAILABLE",
+      transcription_note: "Transcription not configured — no self-hosted in-region STT backend.",
+      transcribed_at: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     await logToBigQuery("datalake_audit", "ai_actions", {
       agent_name: "Telephony Engine", action_type: "TRANSCRIBE_CALL", entity_id: call_id, tenant_id: tenant_id,
-      result: "SUCCESS", timestamp: new Date()
+      result: "SKIPPED_NO_STT_BACKEND", timestamp: new Date()
     });
+    console.log(`[Telephony AI] No STT backend — transcript NOT_AVAILABLE for call ${call_id} (recording present: ${!!recording_url})`);
 
   } catch (err) {
     console.error("[Telephony AI] transcribeCall error:", err);
@@ -219,8 +202,7 @@ async function analyzeCallHandler(event) {
       "commitments": ["commitment1"]
     }`;
 
-    // Prefer configured analysis model (e.g. Qwen or Gemini)
-    // We route this request using the selected model in the underlying callLLM wrapper
+    // Analysis runs on the self-hosted Qwen LLM via callLLM (ai-client.js) — no external model.
     const analysisResponse = await callLLM(prompt, "You are a CRM analysis engine.", { model: aiConfig.analysis_model || "qwen" });
     const analysis = parseJsonOutput(analysisResponse);
 
