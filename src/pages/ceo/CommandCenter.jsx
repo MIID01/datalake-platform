@@ -50,6 +50,7 @@ const CATEGORY_META = {
   hire_req: { Icon: Briefcase, color: '#EF5829', label: 'Hire Request', cta: 'Review Budget', href: '/ceo/talent' },
   ticket:   { Icon: LifeBuoy,  color: '#C0392B', label: 'Critical Ticket', cta: 'Open', href: '/ceo/tickets' },
   leave:    { Icon: Calendar,  color: '#F39C12', label: 'Leave',    cta: 'Review',   href: '/ceo/leave' },
+  quote:    { Icon: FileText,  color: '#1598CC', label: 'Quote',    cta: 'Review',   href: '/ceo/approvals' },
 }
 
 function DecisionItem({ item, onOpen }) {
@@ -85,7 +86,7 @@ function DecisionItem({ item, onOpen }) {
 export default function CommandCenter() {
   const navigate = useNavigate()
   const [alerts, setAlerts] = useState([])
-  const [decisions, setDecisions] = useState({ invoices: [], payroll: [], hiring: [], hireRequests: [], tickets: [], leave: [] })
+  const [decisions, setDecisions] = useState({ invoices: [], payroll: [], hiring: [], hireRequests: [], tickets: [], leave: [], quotes: [] })
   const [activityFeed] = useState([])
   const [undoItem, setUndoItem] = useState(null)
 
@@ -232,12 +233,27 @@ export default function CommandCenter() {
       setDecisions(p => ({ ...p, leave: items }))
     }, () => {}))
 
+    // 5f. CRM deal quotes that finance forwarded — awaiting CEO approval (PENDING_CEO)
+    unsubs.push(onSnapshot(query(collection(db, 'deal_quotes'), where('status', '==', 'PENDING_CEO')), snap => {
+      const items = snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id: `quote-${d.id}`, category: 'quote',
+          title: `Quote — ${data.deal_title || data.title || d.id}`,
+          subtitle: `${data.client_name || 'Unknown client'} · SAR ${Number(data.total_sar || 0).toLocaleString()}${data.discount_pct ? ` · ${data.discount_pct}% off` : ''}`,
+          href: '/ceo/approvals',
+          created_at: data.created_at,
+        }
+      })
+      setDecisions(p => ({ ...p, quotes: items }))
+    }, () => {}))
+
     return () => unsubs.forEach(u => u && u())
   }, [])
 
   // Roll up every category that reaches the CEO into a single decisions list.
   const ceoDecisions = [
-    ...decisions.invoices, ...decisions.payroll, ...decisions.hiring, ...decisions.hireRequests, ...decisions.tickets, ...decisions.leave,
+    ...decisions.invoices, ...decisions.payroll, ...decisions.hiring, ...decisions.hireRequests, ...decisions.tickets, ...decisions.leave, ...decisions.quotes,
   ].sort((a, b) => (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0))
   // Pending Approvals KPI now reflects ONLY what the CEO must personally decide. Derived, not stored.
   const pendingApprovalsCount = ceoDecisions.length

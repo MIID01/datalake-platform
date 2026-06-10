@@ -154,6 +154,31 @@ service cloud.firestore {
       }
     }
 
+    // ── CRM quotes (deal_quotes) — quote/discount approval ──
+    // State machine: DRAFT → PENDING_FINANCE → PENDING_CEO → APPROVED (+ REJECTED).
+    // Sales (business/sales) + CEO may CREATE a DRAFT and edit it WHILE DRAFT, and
+    // may submit DRAFT → PENDING_FINANCE. EVERY transition into PENDING_CEO,
+    // APPROVED, or REJECTED is denied here and performed ONLY by the
+    // financeReviewDealQuote / approveDealQuote Cloud Functions on the Admin SDK
+    // (which bypass these rules) — so no client can write an approved/forwarded
+    // state directly. Finance can read (to review) but reviews via the function.
+    match /deal_quotes/{quoteId} {
+      allow read:   if isCeo() || isBusinessOrSales() || isFinance();
+      allow create: if (isCeo() || isBusinessOrSales())
+                    && request.resource.data.status == 'DRAFT';
+      allow update: if (isCeo() || isBusinessOrSales())
+                    && resource.data.status == 'DRAFT'
+                    && (request.resource.data.status == 'DRAFT'
+                        || request.resource.data.status == 'PENDING_FINANCE');
+      allow delete: if isCeo();
+
+      // Immutable evidence — written server-side (Admin SDK) only.
+      match /approval_evidence/{evId} {
+        allow read: if isCeo() || isBusinessOrSales() || isFinance();
+        allow create, update, delete: if false;
+      }
+    }
+
     // ── Employees & HR ──
     match /employees/{docId} {
       allow read: if request.auth != null;

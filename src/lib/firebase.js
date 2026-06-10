@@ -35,6 +35,13 @@ export const CREATE_PROJECT_URL =
 export const SEND_DEAL_EMAIL_URL =
   "https://senddealemail-ifzodp5svq-wx.a.run.app";
 
+// CRM — quote/discount approval gates (functions/dealQuotes.js). Server-side
+// enforced: finance review (PENDING_FINANCE→PENDING_CEO) then CEO approval.
+export const FINANCE_REVIEW_QUOTE_URL =
+  "https://financereviewdealquote-ifzodp5svq-wx.a.run.app";
+export const APPROVE_DEAL_QUOTE_URL =
+  "https://approvedealquote-ifzodp5svq-wx.a.run.app";
+
 export const ASSIGN_ENGINEER_URL =
   "https://assignengineertoproject-ifzodp5svq-wx.a.run.app";
 
@@ -49,6 +56,10 @@ export const EXTRACT_TIMESHEET_URL =
 
 export const CTO_APPROVE_TIMESHEET_URL =
   "https://ctoapprovetimesheet-ifzodp5svq-wx.a.run.app";
+
+// CEO Approvals Hub — atomic invoice approve/reject (SoD gate).
+export const CEO_APPROVE_INVOICE_URL =
+  "https://ceoapproveinvoice-ifzodp5svq-wx.a.run.app";
 
 export const CLIENT_SIGN_TIMESHEET_URL =
   "https://clientsigntimesheet-ifzodp5svq-wx.a.run.app";

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { doc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp, updateDoc, getDocs } from 'firebase/firestore'
+import { doc, onSnapshot, collection, query, orderBy, where, addDoc, serverTimestamp, updateDoc, getDocs } from 'firebase/firestore'
 import { auth, db, SEND_DEAL_EMAIL_URL } from '../../lib/firebase'
-import { DEAL_STAGES, stageMeta, fmtSar, ACTIVITY_TYPES } from '../../lib/deals'
-import { ArrowLeft, Building2, Mail, Send, Loader, Trophy } from 'lucide-react'
+import { DEAL_STAGES, stageMeta, fmtSar, ACTIVITY_TYPES, computeQuoteTotals, quoteStateMeta } from '../../lib/deals'
+import { SignedBadgeList } from '../../components/SignedBadge'
+import { ArrowLeft, Building2, Mail, Send, Loader, Trophy, FileText, Plus, Trash2 } from 'lucide-react'
 
 export default function CRMDealDetail() {
   const { id } = useParams()
@@ -23,6 +24,13 @@ export default function CRMDealDetail() {
   const [emMsg, setEmMsg] = useState('')
   const [linkClient, setLinkClient] = useState('')
 
+  // ── Quotes ──
+  const [quotes, setQuotes] = useState([])
+  const [qItems, setQItems] = useState([{ description: '', qty: 1, unit_price_sar: 0 }])
+  const [qDiscount, setQDiscount] = useState(0)
+  const [qBusy, setQBusy] = useState(false)
+  const [qMsg, setQMsg] = useState('')
+
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'deals', id),
       s => { if (!s.exists()) { setError('Deal not found'); setLoading(false); return } setDeal({ id: s.id, ...s.data() }); setLoading(false) },
@@ -39,6 +47,16 @@ export default function CRMDealDetail() {
 
   useEffect(() => { getDocs(collection(db, 'clients')).then(s => setClients(s.docs.map(d => ({ id: d.id, ...d.data() })))).catch(() => {}) }, [])
   useEffect(() => { if (deal && !emTo && deal.contact_email) setEmTo(deal.contact_email) }, [deal]) // eslint-disable-line
+
+  // Quotes for this deal. where() only (no orderBy) to avoid a composite index;
+  // sorted client-side by created_at desc.
+  useEffect(() => {
+    const unsub = onSnapshot(query(collection(db, 'deal_quotes'), where('deal_id', '==', id)),
+      s => setQuotes(s.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.created_at?.toMillis?.() || 0) - (a.created_at?.toMillis?.() || 0))),
+      e => console.warn('deal quotes:', e.message))
+    return () => unsub()
+  }, [id])
 
   const addActivity = async () => {
     if (!actBody.trim()) return
@@ -79,6 +97,65 @@ export default function CRMDealDetail() {
     try { await updateDoc(doc(db, 'deals', id), { client_id: linkClient, won_client_id: linkClient, updated_at: serverTimestamp() }) }
     catch (e) { alert('Link failed: ' + e.message) }
   }
+
+  // ── Quote builder ── (DRAFT create/edit is client-side; all approval-state
+  // transitions are server-side in the financeReviewDealQuote/approveDealQuote CFs)
+  const setItem = (i, field, val) => setQItems(items => items.map((it, idx) => idx === i ? { ...it, [field]: val } : it))
+  const addItem = () => setQItems(items => [...items, { description: '', qty: 1, unit_price_sar: 0 }])
+  const removeItem = (i) => setQItems(items => items.length > 1 ? items.filter((_, idx) => idx !== i) : items)
+  const liveTotals = computeQuoteTotals(qItems, qDiscount)
+  const draftQuote = quotes.find(q => q.status === 'DRAFT')
+
+  const buildLineItems = () => qItems
+    .filter(it => (it.description || '').trim() && Number(it.qty) > 0)
+    .map(it => ({ description: it.description.trim(), qty: Number(it.qty) || 0, unit_price_sar: Number(it.unit_price_sar) || 0, line_total_sar: (Number(it.qty) || 0) * (Number(it.unit_price_sar) || 0) }))
+
+  const saveDraft = async () => {
+    setQMsg('')
+    const line_items = buildLineItems()
+    if (!line_items.length) { setQMsg('Add at least one line item with a description, quantity and price.'); return }
+    setQBusy(true)
+    try {
+      const totals = computeQuoteTotals(line_items, qDiscount)
+      const me = auth.currentUser
+      const payload = {
+        deal_id: id,
+        client_id: deal.client_id || null,
+        deal_title: deal.title || null,          // display snapshot for queue rows
+        client_name: deal.company_name || null,  // display snapshot for queue rows
+        title: `Quote for ${deal.title || 'deal'}`,
+        line_items,
+        ...totals,
+        currency: 'SAR',
+        updated_at: serverTimestamp(),
+      }
+      if (draftQuote) {
+        await updateDoc(doc(db, 'deal_quotes', draftQuote.id), payload)
+        setQMsg('Draft saved.')
+      } else {
+        await addDoc(collection(db, 'deal_quotes'), {
+          ...payload, status: 'DRAFT', created_at: serverTimestamp(), created_by: me?.email || 'unknown', created_by_uid: me?.uid || null,
+        })
+        setQMsg('Draft quote created.')
+      }
+    } catch (e) { setQMsg('Save failed: ' + e.message) } finally { setQBusy(false) }
+  }
+
+  const submitForFinance = async (quoteId) => {
+    setQBusy(true); setQMsg('')
+    try {
+      await updateDoc(doc(db, 'deal_quotes', quoteId), { status: 'PENDING_FINANCE', submitted_at: serverTimestamp(), updated_at: serverTimestamp() })
+      setQMsg('Submitted for finance review.')
+    } catch (e) { setQMsg('Submit failed: ' + e.message) } finally { setQBusy(false) }
+  }
+
+  // Load an existing DRAFT into the editor when one appears.
+  useEffect(() => {
+    if (draftQuote && Array.isArray(draftQuote.line_items) && draftQuote.line_items.length) {
+      setQItems(draftQuote.line_items.map(li => ({ description: li.description || '', qty: li.qty || 1, unit_price_sar: li.unit_price_sar || 0 })))
+      setQDiscount(draftQuote.discount_pct || 0)
+    }
+  }, [draftQuote?.id]) // eslint-disable-line
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center' }}>Loading deal…</div>
   if (error) return <div style={{ padding: 24 }}><Link to="/crm/pipeline" style={{ color: '#1598CC' }}>← Pipeline</Link><div style={{ marginTop: 16, color: '#991b1b' }}>{error}</div></div>
@@ -164,6 +241,67 @@ export default function CRMDealDetail() {
             <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginTop: 8 }}>Source {deal.source || '—'}{deal.lawful_basis ? ` · PDPL: ${deal.lawful_basis}` : ''}</div>
           </div>
         </div>
+      </div>
+
+      {/* ── Quotes / discount approval ── */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><FileText size={15} /> Quotes</div>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginBottom: 12 }}>A quote routes to <strong>finance review → CEO approval</strong>. Totals are recomputed and the gate is enforced server-side.</div>
+
+        {/* Builder — visible only while no quote is past DRAFT (edit the draft, or create the first). */}
+        {(!quotes.length || draftQuote) && (
+          <div style={{ border: '1px solid var(--border-primary, #E5E7EB)', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 8 }}>{draftQuote ? 'Edit draft' : 'New quote'}</div>
+            {qItems.map((it, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <input value={it.description} onChange={e => setItem(i, 'description', e.target.value)} placeholder="Description" style={{ ...inp, flex: 2 }} />
+                <input type="number" min="0" value={it.qty} onChange={e => setItem(i, 'qty', e.target.value)} placeholder="Qty" style={{ ...inp, width: 70 }} />
+                <input type="number" min="0" value={it.unit_price_sar} onChange={e => setItem(i, 'unit_price_sar', e.target.value)} placeholder="Unit SAR" style={{ ...inp, width: 110 }} />
+                <span style={{ width: 110, textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{fmtSar((Number(it.qty) || 0) * (Number(it.unit_price_sar) || 0))}</span>
+                <button onClick={() => removeItem(i)} title="Remove" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#C0392B' }}><Trash2 size={14} /></button>
+              </div>
+            ))}
+            <button onClick={addItem} className="write-action" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'transparent', border: '1px dashed var(--border-primary, #E5E7EB)', borderRadius: 7, padding: '5px 10px', fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'inherit', marginTop: 2 }}><Plus size={12} /> Add line</button>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, gap: 12, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                Discount %
+                <input type="number" min="0" max="100" value={qDiscount} onChange={e => setQDiscount(e.target.value)} style={{ ...inp, width: 80 }} />
+              </label>
+              <div style={{ fontSize: '0.82rem', textAlign: 'right' }}>
+                <div style={{ color: 'var(--text-tertiary)' }}>Subtotal {fmtSar(liveTotals.subtotal_sar)} · Discount −{fmtSar(liveTotals.discount_sar)}</div>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Total {fmtSar(liveTotals.total_sar)}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="btn btn-primary write-action" onClick={saveDraft} disabled={qBusy}>{qBusy ? <Loader size={14} className="spin" /> : 'Save draft'}</button>
+              {draftQuote && <button className="btn btn-success write-action" onClick={() => submitForFinance(draftQuote.id)} disabled={qBusy}>Submit for finance review</button>}
+            </div>
+            {qMsg && <div style={{ fontSize: '0.78rem', marginTop: 8, color: qMsg.includes('failed') || qMsg.includes('Add at least') ? '#991b1b' : '#1f7a2a' }}>{qMsg}</div>}
+          </div>
+        )}
+
+        {/* Quote history */}
+        {quotes.length === 0 ? (
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', textAlign: 'center', padding: 8 }}>No quotes yet.</div>
+        ) : quotes.map(q => {
+          const qm = quoteStateMeta(q.status)
+          return (
+            <div key={q.id} style={{ padding: '10px 0', borderTop: '1px solid var(--border-primary, #E5E7EB)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '0.84rem', fontWeight: 600 }}>{fmtSar(q.total_sar)} {q.discount_pct ? <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>· {q.discount_pct}% off</span> : null}</div>
+                <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, background: qm.color + '22', color: qm.color }}>{qm.label}</span>
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {(q.line_items || []).length} line item{(q.line_items || []).length === 1 ? '' : 's'} · by {q.created_by || '—'}
+                {q.finance_reviewed_by ? ` · finance: ${q.finance_reviewed_by}` : ''}{q.ceo_approved_by ? ` · CEO: ${q.ceo_approved_by}` : ''}
+                {q.status === 'REJECTED' && (q.ceo_notes || q.finance_notes) ? ` · reason: ${q.ceo_notes || q.finance_notes}` : ''}
+              </div>
+              <div style={{ marginTop: 6 }}><SignedBadgeList parentCollection="deal_quotes" parentId={q.id} compact /></div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

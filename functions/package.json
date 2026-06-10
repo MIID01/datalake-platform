@@ -7,7 +7,8 @@
     "node": "22"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:emulator": "firebase emulators:exec --only firestore --project datalake-production-sa \"node test/quote-flow.test.cjs\""
   },
   "keywords": [],
   "author": "",
@@ -34,5 +35,8 @@
     "pizzip": "^3.2.0",
     "sharp": "^0.34.5",
     "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1"
   }
 }

@@ -3184,6 +3184,19 @@ exports.sendDealEmail = onRequest(
   (req, res) => sendDealEmailHandler(req, res, hireHelpers)
 );
 
+// CRM — quote/discount approval gates (server-side). financeReviewDealQuote moves
+// PENDING_FINANCE→PENDING_CEO; approveDealQuote moves PENDING_CEO→APPROVED. Clients
+// cannot write those states directly (firestore.rules + these Admin-SDK handlers).
+const { financeReviewDealQuoteHandler, approveDealQuoteHandler } = require("./dealQuotes");
+exports.financeReviewDealQuote = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => financeReviewDealQuoteHandler(req, res, hireHelpers)
+);
+exports.approveDealQuote = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => approveDealQuoteHandler(req, res, hireHelpers)
+);
+
 exports.initiateHire = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => initiateHireHandler(req, res, hireHelpers)

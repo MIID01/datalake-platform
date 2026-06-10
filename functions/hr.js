@@ -158,6 +158,54 @@ async function pdplCandidatePurgeHandler(actorEmail) {
     }
   }
 
+  // ── 3b. Deals (CRM lead/contact PII) ──────────────────────────────────
+  // Unlike candidates, a deal is a business/opportunity record — we do NOT
+  // delete it. We null ONLY the personal contact fields once retention expires
+  // and keep the deal + lawful_basis as the audit record. Full scan (small
+  // collection; pdpl_purge_after may be Timestamp or string).
+  let dealsPurged = 0;
+  try {
+    const dealSnap = await db.collection("deals").get();
+    const dealsToPurge = dealSnap.docs.filter(d => {
+      const data = d.data();
+      if (data.pdpl_contact_purged) return false;                                   // already expired
+      if (!(data.contact_name || data.contact_email || data.contact_phone)) return false; // no PII left
+      const val = data.pdpl_purge_after;
+      if (!val) return false;
+      let purgeDate;
+      if (val.toDate)        purgeDate = val.toDate();
+      else if (val._seconds) purgeDate = new Date(val._seconds * 1000);
+      else                   purgeDate = new Date(val);
+      return purgeDate <= now;
+    });
+    for (const d of dealsToPurge) {
+      const data = d.data();
+      try {
+        await d.ref.update({
+          contact_name: null, contact_email: null, contact_phone: null,
+          pdpl_contact_purged: true, pdpl_purged_at: nowTs,
+        });
+        dealsPurged++;
+        await db.collection("task_audit_log").add({
+          event:        "PDPL_DEAL_CONTACT_PURGE",
+          actor,
+          reason:       "PDPL Art.18 — retention_period_expired",
+          executed_at:  admin.firestore.FieldValue.serverTimestamp(),
+          deal_id:      d.id,
+          deal_title:   data.title || null,
+          lawful_basis: data.lawful_basis || null,
+          pdpl_purge_after: data.pdpl_purge_after || null,
+        });
+      } catch (e) {
+        console.warn(`[PDPL] Deal contact purge failed for ${d.id}: ${e.message}`);
+        errorCount++;
+      }
+    }
+    if (dealsPurged > 0) console.log(`[PDPL] Nulled contact PII on ${dealsPurged} deal(s).`);
+  } catch (e) {
+    console.warn("[PDPL] Deals sweep failed:", e.message);
+  }
+
   // ── 4. Summary audit log entry ────────────────────────────────────────
   try {
     await db.collection("task_audit_log").add({
@@ -168,6 +216,7 @@ async function pdplCandidatePurgeHandler(actorEmail) {
       candidates_scanned:  snap.size,
       candidates_purged:   purgedCount,
       candidates_errored:  errorCount,
+      deals_contact_purged: dealsPurged,
       worm_note: "WORM bucket (datalake-worm-hr) not touched — requires DPO retention-policy unlock",
     });
   } catch (e) {
@@ -186,8 +235,8 @@ async function pdplCandidatePurgeHandler(actorEmail) {
     } catch (_) {}
   }
 
-  console.log(`[PDPL] Run complete. Purged: ${purgedCount}, Errors: ${errorCount}`);
-  return { purged: purgedCount, errors: errorCount };
+  console.log(`[PDPL] Run complete. Purged: ${purgedCount}, Deals contact-purged: ${dealsPurged}, Errors: ${errorCount}`);
+  return { purged: purgedCount, errors: errorCount, deals_purged: dealsPurged };
 }
 
 // HTTP-callable version for the CEO "Run PDPL Purge" button.

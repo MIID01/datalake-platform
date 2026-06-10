@@ -4,7 +4,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db, auth } from '../lib/firebase'
 import {
   LayoutDashboard, FileText, Banknote, CreditCard, BarChart3,
-  LogOut, ChevronLeft, ChevronRight,
+  ClipboardCheck, LogOut, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import '../styles/ceo.css'
 import PortalSwitcher from '../components/PortalSwitcher'
@@ -20,6 +20,7 @@ const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/finance', end: true },
   { icon: FileText, label: 'Invoices', path: '/finance/invoices' },
   { icon: Banknote, label: 'Payroll', path: '/finance/payroll' },
+  { icon: ClipboardCheck, label: 'Quote Reviews', path: '/finance/quotes' },
   { icon: CreditCard, label: 'Expenses', path: '/finance/expenses' },
   { icon: BarChart3, label: 'Reports', path: '/finance/reports' },
 ]

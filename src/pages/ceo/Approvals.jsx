@@ -1,19 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
-import { db } from '../../lib/firebase'
+import { db, CEO_APPROVE_INVOICE_URL, CTO_APPROVE_TIMESHEET_URL, APPROVE_DEAL_QUOTE_URL } from '../../lib/firebase'
 import { CheckCircle, XCircle, X, AlertTriangle } from 'lucide-react'
 import { useKeyboardShortcuts } from '../../hooks/useUtils'
 
-// ── Cloud Function base URL ──────────────────────────────────────────
-const CF_BASE = 'https://me-central2-datalake-production-sa.cloudfunctions.net'
-const CEO_APPROVE_INVOICE_URL = 'https://ceoapproveinvoice-ifzodp5svq-wx.a.run.app'
-const CTO_APPROVE_TIMESHEET_URL = 'https://ctoapprovetimesheet-ifzodp5svq-wx.a.run.app'
-
 // Tabs wired to real Firestore sources only. "Contracts" = contract-UPLOAD approvals
 // (pending_hires with _kind EXISTING_EMPLOYEE); "Hires" = real new-hire approvals.
-const TABS = ['All', 'Invoices', 'Hires', 'Contracts', 'Leave', 'Timesheets']
-const TYPE_MAP = { Invoices: 'invoice', Hires: 'hire', Contracts: 'contract', Leave: 'leave', Timesheets: 'timesheet' }
+// "Quotes" = CRM deal quotes forwarded by finance (pending_approvals type:'quote').
+const TABS = ['All', 'Invoices', 'Quotes', 'Hires', 'Contracts', 'Leave', 'Timesheets']
+const TYPE_MAP = { Invoices: 'invoice', Quotes: 'quote', Hires: 'hire', Contracts: 'contract', Leave: 'leave', Timesheets: 'timesheet' }
 
 async function getToken() {
   const auth = getAuth()
@@ -172,6 +168,20 @@ export default function Approvals() {
         // Firestore listener removes from SUBMITTED set automatically
         setItems(prev => prev.filter(i => i.id !== id))
         setDetailItem(null)
+        return
+      }
+
+      if (item.type === 'quote') {
+        // CRM quote — approveDealQuote flips PENDING_CEO→APPROVED and clears the
+        // pending_approvals row (server-side gate). Listener removes it on success.
+        const r = await fetch(APPROVE_DEAL_QUOTE_URL, {
+          method: 'POST', headers,
+          body: JSON.stringify({ quote_id: id, decision, notes: decision === 'REJECT' ? 'Rejected by CEO in Approvals Hub' : undefined }),
+        })
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.error || `HTTP ${r.status}`)
+        }
         return
       }
 
