@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
-import { auth, db, CRM_ARCHIVE_DEALS_URL } from '../../lib/firebase'
+import { auth, db, CRM_ARCHIVE_DEALS_URL, appCheckHeader } from '../../lib/firebase'
 import { DEAL_STAGES, OPEN_STAGE_IDS, STAGE_IDS, stageIndex, fmtSar } from '../../lib/deals'
 import AddDealModal from '../../components/AddDealModal'
 import CSVImportModal from '../../components/CSVImportModal'
@@ -36,7 +36,7 @@ export default function CRMPipeline() {
     try {
       const token = await auth.currentUser.getIdToken()
       const resp = await fetch(CRM_ARCHIVE_DEALS_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(await appCheckHeader()) },
         body: JSON.stringify({ import_batch_id: lastImport.batchId, reason: 'undo import' }),
       })
       const json = await resp.json().catch(() => ({}))

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { auth, CRM_ARCHIVE_DEALS_URL } from '../../lib/firebase'
+import { auth, CRM_ARCHIVE_DEALS_URL, appCheckHeader } from '../../lib/firebase'
 import { CEO_EMAIL } from '../../lib/auth'
 import { LEGAL_FOOTER_EN } from '../../lib/company-legal'
 import { DEAL_STAGES, stageMeta, fmtSar } from '../../lib/deals'
@@ -66,7 +66,7 @@ export default function CRMLeadsList({ deals }) {
       const ids = selectedRows.map(d => d.id)
       const token = await auth.currentUser.getIdToken()
       const resp = await fetch(CRM_ARCHIVE_DEALS_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(await appCheckHeader()) },
         body: JSON.stringify({ ids, restore, reason: restore ? 'bulk restore' : 'bulk archive (list view)' }),
       })
       const json = await resp.json().catch(() => ({}))

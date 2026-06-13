@@ -35,6 +35,11 @@ jobs:
         run: npm ci || npm install
 
       - name: Build
+        # VITE_RECAPTCHA_SITE_KEY is the PUBLIC App Check reCAPTCHA v3 site key (safe
+        # to expose in the bundle). Set repo secret RECAPTCHA_SITE_KEY. If unset, the
+        # build still succeeds and App Check stays inactive (backend monitor mode).
+        env:
+          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
         run: npm run build
 
       # ── Deploy to a preview channel (does NOT touch live) ──

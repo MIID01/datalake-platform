@@ -22,6 +22,22 @@ const db = admin.firestore();
 const CRM_ROLES = ["ceo", "business", "sales"];
 const CEO_ROLES = ["ceo"];
 
+// Firebase App Check (defense-in-depth, §2 / CEO-directed). These two endpoints
+// are public-invoker (browser Firebase-token calls), so App Check ensures the
+// caller is the genuine app — not curl/scripts — on TOP of verifyIdToken + the
+// role gates (which remain the real security boundary). firebase-functions v2
+// onRequest has no enforceAppCheck option, so we verify the header manually.
+// Rollout is staged: APP_CHECK_ENFORCE=false logs unverified calls (monitor);
+// flip to true to reject them 401 (fail-closed) once real traffic attests.
+const APP_CHECK_ENFORCE = process.env.APP_CHECK_ENFORCE === "true";
+async function verifyAppCheck(req) {
+  const token = req.header("X-Firebase-AppCheck");
+  if (token) {
+    try { await admin.appCheck().verifyToken(token); return true; } catch (e) { /* invalid/expired token */ }
+  }
+  return false;
+}
+
 // FAIL-SAFE entity scope (§4 / D-1). No multi-entity model exists yet (only the
 // single tenants/datalake branding doc). Until the CEO configures entities, every
 // CRM object is stamped with this resolved default so the entity_id field + the
@@ -117,9 +133,17 @@ async function crmImportLeadsHandler(req, res, { verifyAuth, getUserAccessProfil
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
+  // App Check (app-attestation) — gate BEFORE user auth. Monitor or enforce per flag.
+  if (!(await verifyAppCheck(req))) {
+    if (APP_CHECK_ENFORCE) return res.status(401).json({ error: "App Check verification failed" });
+    console.warn(`[AppCheck] crmImportLeads unverified (monitor mode) ua=${req.headers["user-agent"] || "?"}`);
+  }
+
   try {
     const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
+    let profile;
+    try { profile = await getUserAccessProfile(decoded.uid); }
+    catch (e) { return res.status(403).json({ error: e.message || "No active access profile" }); }
     if (!CRM_ROLES.includes(profile.role_id)) return res.status(403).json({ error: "CRM role required (ceo/business/sales)" });
 
     const { rows, consent, import_batch_id, base_idx } = req.body || {};
@@ -194,9 +218,17 @@ async function crmArchiveDealsHandler(req, res, { verifyAuth, getUserAccessProfi
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
+  // App Check (app-attestation) — gate BEFORE user auth. Monitor or enforce per flag.
+  if (!(await verifyAppCheck(req))) {
+    if (APP_CHECK_ENFORCE) return res.status(401).json({ error: "App Check verification failed" });
+    console.warn(`[AppCheck] crmArchiveDeals unverified (monitor mode) ua=${req.headers["user-agent"] || "?"}`);
+  }
+
   try {
     const decoded = await verifyAuth(req);
-    const profile = await getUserAccessProfile(decoded.uid);
+    let profile;
+    try { profile = await getUserAccessProfile(decoded.uid); }
+    catch (e) { return res.status(403).json({ error: e.message || "No active access profile" }); }
     if (!CEO_ROLES.includes(profile.role_id)) return res.status(403).json({ error: "CEO role required for bulk archive/undo" });
 
     const { ids, import_batch_id, reason, restore } = req.body || {};

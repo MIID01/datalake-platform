@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { auth, CRM_IMPORT_LEADS_URL } from '../lib/firebase'
+import { auth, CRM_IMPORT_LEADS_URL, appCheckHeader } from '../lib/firebase'
 import { DEFAULT_LEAD_RETENTION_DAYS } from '../lib/deals'
 import { X, Upload, Loader, ArrowRight, ArrowLeft, CheckCircle2, AlertTriangle } from 'lucide-react'
 
@@ -129,6 +129,7 @@ export default function CSVImportModal({ onClose, onImported }) {
     setBusy(true)
     try {
       const token = await auth.currentUser.getIdToken()
+      const appCheck = await appCheckHeader()
       const batchId = `IMPORT-${(crypto.randomUUID?.() || String(Date.now()) + Math.round(performance.now()))}`
       const consent = { lawful_basis: lawfulBasis, consent_source: consentSource.trim() }
       let written = 0
@@ -141,7 +142,7 @@ export default function CSVImportModal({ onClose, onImported }) {
         }))
         const resp = await fetch(CRM_IMPORT_LEADS_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...appCheck },
           body: JSON.stringify({ rows, consent, import_batch_id: batchId, base_idx: i }),
         })
         const json = await resp.json().catch(() => ({}))

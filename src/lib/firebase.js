@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckToken } from "firebase/app-check";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -13,6 +14,32 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
+
+// Firebase App Check (reCAPTCHA v3) — app-attestation, so only the genuine app
+// (not curl/scripts) can call our public-invoker Cloud Functions. Defense-in-depth
+// on top of the Bearer ID-token + role gates. Guarded on the build-time site key so
+// a build without it never crashes (the backend runs in monitor mode until enforced).
+// In dev, a debug token is logged to the console — register it under
+// Firebase Console → App Check → Manage debug tokens so `npm run dev` attests.
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+let appCheck = null;
+if (RECAPTCHA_SITE_KEY) {
+  if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),
+    isTokenAutoRefresh: true,
+  });
+}
+
+// Returns the App Check header to spread into fetch() calls that hit App-Check-gated
+// functions. Empty object when App Check isn't initialized or a token can't be minted
+// (monitor mode tolerates this; under enforcement the call is rejected server-side).
+export async function appCheckHeader() {
+  if (!appCheck) return {};
+  try { const { token } = await getAppCheckToken(appCheck, false); return { "X-Firebase-AppCheck": token }; }
+  catch { return {}; }
+}
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
