@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
-import { auth, db } from '../../lib/firebase'
+import { auth, db, CRM_ARCHIVE_DEALS_URL } from '../../lib/firebase'
 import { DEAL_STAGES, OPEN_STAGE_IDS, STAGE_IDS, stageIndex, fmtSar } from '../../lib/deals'
 import AddDealModal from '../../components/AddDealModal'
 import CSVImportModal from '../../components/CSVImportModal'
-import { TrendingUp, Building2, ChevronLeft, ChevronRight, Trophy, X as XIcon, Plus, Upload } from 'lucide-react'
+import CRMLeadsList from './CRMLeadsList'
+import { TrendingUp, Building2, ChevronLeft, ChevronRight, Trophy, X as XIcon, Plus, Upload, LayoutGrid, List, Undo2, CheckCircle2 } from 'lucide-react'
 
 // Pipeline board — canonical source is the `deals` collection (NOT clients).
 // Deals are created here / via CSV import; stage moves persist on the deal.
@@ -15,6 +16,9 @@ export default function CRMPipeline() {
   const [updating, setUpdating] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
   const [showCsv, setShowCsv] = useState(false)
+  const [view, setView] = useState('board') // 'board' | 'list'
+  const [lastImport, setLastImport] = useState(null) // { count, batchId, skipped }
+  const [undoing, setUndoing] = useState(false)
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'deals'),
@@ -23,20 +27,39 @@ export default function CRMPipeline() {
     return () => unsub()
   }, [])
 
+  // Soft-delete (§2): archived deals never show on the live board.
+  const liveDeals = useMemo(() => deals.filter(d => !d.archived), [deals])
+
+  const undoImport = async () => {
+    if (!lastImport?.batchId) return
+    setUndoing(true)
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const resp = await fetch(CRM_ARCHIVE_DEALS_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ import_batch_id: lastImport.batchId, reason: 'undo import' }),
+      })
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(json.error || `Undo failed (${resp.status})`)
+      setLastImport(null)
+    } catch (e) { alert('Undo failed: ' + e.message) }
+    finally { setUndoing(false) }
+  }
+
   const byStage = useMemo(() => {
     const m = {}; DEAL_STAGES.forEach(s => { m[s.id] = [] })
-    deals.forEach(d => { (m[d.stage] || m.NEW).push(d) })
+    liveDeals.forEach(d => { (m[d.stage] || m.NEW).push(d) })
     return m
-  }, [deals])
+  }, [liveDeals])
 
   const totals = useMemo(() => {
-    const open = deals.filter(d => OPEN_STAGE_IDS.includes(d.stage))
+    const open = liveDeals.filter(d => OPEN_STAGE_IDS.includes(d.stage))
     return {
       openCount: open.length,
       openValue: open.reduce((s, d) => s + (Number(d.value_sar) || 0), 0),
-      wonValue: deals.filter(d => d.stage === 'WON').reduce((s, d) => s + (Number(d.value_sar) || 0), 0),
+      wonValue: liveDeals.filter(d => d.stage === 'WON').reduce((s, d) => s + (Number(d.value_sar) || 0), 0),
     }
-  }, [deals])
+  }, [liveDeals])
 
   const move = async (deal, dir, opts = {}) => {
     setUpdating(deal.id)
@@ -65,7 +88,11 @@ export default function CRMPipeline() {
             Deals move through stages with the ‹ / Advance / Won / Lost buttons. (No drag-and-drop yet.) Won links the deal to a client account.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'inline-flex', border: '1px solid var(--border-primary,#E5E7EB)', borderRadius: 8, overflow: 'hidden' }}>
+            <button onClick={() => setView('board')} title="Board view" style={toggleBtn(view === 'board')}><LayoutGrid size={15} /> Board</button>
+            <button onClick={() => setView('list')} title="List view" style={toggleBtn(view === 'list')}><List size={15} /> List</button>
+          </div>
           <button onClick={() => setShowCsv(true)} className="btn btn-ghost write-action" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Upload size={15} /> Import CSV</button>
           <button onClick={() => setShowAdd(true)} className="btn btn-primary write-action" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> Add Deal</button>
         </div>
@@ -77,6 +104,20 @@ export default function CRMPipeline() {
         <span>Won <strong style={{ color: '#34BF3A' }}>{fmtSar(totals.wonValue)}</strong></span>
       </div>
 
+      {lastImport && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'rgba(52,191,58,0.08)', border: '1px solid rgba(52,191,58,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+          <CheckCircle2 size={16} color="#15803d" />
+          <span style={{ fontSize: '0.84rem', color: 'var(--text-primary)' }}>
+            Imported <strong>{lastImport.count}</strong> lead{lastImport.count === 1 ? '' : 's'}{lastImport.skipped ? ` · ${lastImport.skipped} skipped` : ''} · batch <code style={{ fontSize: '0.72rem' }}>{lastImport.batchId}</code>
+          </span>
+          <button onClick={undoImport} disabled={undoing} className="btn btn-ghost write-action" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
+            <Undo2 size={14} /> {undoing ? 'Undoing…' : 'Undo this import'}
+          </button>
+          <button onClick={() => setLastImport(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}><XIcon size={15} /></button>
+        </div>
+      )}
+
+      {view === 'list' ? <CRMLeadsList deals={deals} /> : ( // list gets ALL deals; it owns the archived filter
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${DEAL_STAGES.length}, minmax(220px, 1fr))`, gap: 12, overflowX: 'auto' }}>
         {DEAL_STAGES.map(stage => (
           <div key={stage.id} style={{ background: 'var(--bg-surface, #f8fafc)', border: '1px solid var(--border-primary, #E5E7EB)', borderRadius: 10, padding: 12, minHeight: 360 }}>
@@ -111,9 +152,10 @@ export default function CRMPipeline() {
           </div>
         ))}
       </div>
+      )}
 
       {showAdd && <AddDealModal onClose={() => setShowAdd(false)} />}
-      {showCsv && <CSVImportModal onClose={() => setShowCsv(false)} />}
+      {showCsv && <CSVImportModal onClose={() => setShowCsv(false)} onImported={(count, batchId, skipped) => setLastImport({ count, batchId, skipped })} />}
     </div>
   )
 }
@@ -123,5 +165,13 @@ function btn(primary) {
     padding: '4px 8px', borderRadius: 4, border: primary ? '1px solid #022873' : '1px solid var(--border-primary, #E5E7EB)',
     background: primary ? '#022873' : 'transparent', color: primary ? '#fff' : 'var(--text-secondary)',
     fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 2,
+  }
+}
+
+function toggleBtn(active) {
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: 'none',
+    background: active ? '#022873' : 'transparent', color: active ? '#fff' : 'var(--text-secondary)',
+    fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   }
 }

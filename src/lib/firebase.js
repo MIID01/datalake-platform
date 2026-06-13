@@ -42,6 +42,14 @@ export const FINANCE_REVIEW_QUOTE_URL =
 export const APPROVE_DEAL_QUOTE_URL =
   "https://approvedealquote-ifzodp5svq-wx.a.run.app";
 
+// CRM — hardened import + bulk soft-delete/undo (functions/crmImport.js, P0.0).
+// Server-side validated, PDPL-gated, audited; deletes are soft (archived flag);
+// undo by import_batch_id.
+export const CRM_IMPORT_LEADS_URL =
+  "https://crmimportleads-ifzodp5svq-wx.a.run.app";
+export const CRM_ARCHIVE_DEALS_URL =
+  "https://crmarchivedeals-ifzodp5svq-wx.a.run.app";
+
 export const ASSIGN_ENGINEER_URL =
   "https://assignengineertoproject-ifzodp5svq-wx.a.run.app";
 

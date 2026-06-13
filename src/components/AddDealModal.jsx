@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { collection, getDocs, addDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 import { DEAL_STAGES, DEAL_SOURCES, DEFAULT_LEAD_RETENTION_DAYS } from '../lib/deals'
+import { resolveEntityId } from '../lib/entity'
 import { X, Loader, Save } from 'lucide-react'
 
 // Create a deal (opportunity). Either link an existing client (canonical FK) or
@@ -50,6 +51,8 @@ export default function AddDealModal({ onClose, onCreated }) {
         contact_email: form.contact_email.trim() || null,
         contact_phone: form.contact_phone.trim() || null,
         source: form.source,
+        entity_id: resolveEntityId(),
+        archived: false,
         expected_close: form.expected_close || null,
         lawful_basis: hasPii ? form.lawful_basis : null,
         consent_source: hasPii && form.lawful_basis === 'consent' ? form.consent_source.trim() : null,

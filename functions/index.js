@@ -3197,6 +3197,19 @@ exports.approveDealQuote = onRequest(
   (req, res) => approveDealQuoteHandler(req, res, hireHelpers)
 );
 
+// CRM — hardened import + bulk soft-delete (DTLK-UI-CRM-001 §3, P0.0). Server is
+// the validation + PDPL + audit boundary; deletes are soft (archived flag); undo
+// works by import_batch_id. 512MiB/120s to absorb multi-hundred-row chunks.
+const { crmImportLeadsHandler, crmArchiveDealsHandler } = require("./crmImport");
+exports.crmImportLeads = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
+  (req, res) => crmImportLeadsHandler(req, res, hireHelpers)
+);
+exports.crmArchiveDeals = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
+  (req, res) => crmArchiveDealsHandler(req, res, hireHelpers)
+);
+
 exports.initiateHire = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => initiateHireHandler(req, res, hireHelpers)
