@@ -71,6 +71,7 @@ export default function Careers() {
   // Processing
   const [procStep, setProcStep] = useState(0)
   const [procError, setProcError] = useState('')
+  const [extracting, setExtracting] = useState(false) // in-flight guard — blocks the retry-storm that OOM'd OCR
 
   // Form state (pre-filled after extraction)
   const [form, setForm] = useState({
@@ -117,7 +118,8 @@ export default function Careers() {
 
   // --- Stage 2: Extract CV ---
   const startExtraction = async () => {
-    if (!cvFile) return
+    if (!cvFile || extracting) return // block concurrent re-submit while a request is in flight
+    setExtracting(true)
     setStage(STAGES.PROCESSING)
     setProcStep(0)
     setProcError('')
@@ -158,6 +160,8 @@ export default function Careers() {
     } catch (err) {
       console.error('CV extraction error:', err)
       setProcError(err.message || 'Extraction failed. Please try again.')
+    } finally {
+      setExtracting(false) // re-enable on success OR failure
     }
   }
 
@@ -318,12 +322,12 @@ export default function Careers() {
             <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
               <button
                 type="button"
-                disabled={!cvFile}
+                disabled={!cvFile || extracting}
                 onClick={startExtraction}
-                className={`submit-btn${cvFile ? ' enabled' : ''}`}
+                className={`submit-btn${cvFile && !extracting ? ' enabled' : ''}`}
                 style={{ flex: 1 }}
               >
-                <Sparkles size={16} style={{ marginRight: 6 }} /> Extract & Auto-Fill
+                <Sparkles size={16} style={{ marginRight: 6 }} /> {extracting ? 'Extracting…' : 'Extract & Auto-Fill'}
               </button>
               <button
                 type="button"
@@ -346,7 +350,8 @@ export default function Careers() {
         <section className="careers-form-section">
           <div className="form-card" style={{ maxWidth: 480, margin: '0 auto', textAlign: 'center', padding: '48px 32px' }}>
             <Sparkles size={40} color="#1598CC" style={{ marginBottom: 16 }} />
-            <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#022873', marginBottom: 24 }}>Extracting Your CV</h2>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#022873', marginBottom: 8 }}>Extracting Your CV</h2>
+            <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: 24 }}>This can take up to ~60 seconds — please don't refresh or resubmit.</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'left', marginBottom: 24 }}>
               {PROC_LABELS.map((label, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.88rem', color: i <= procStep ? '#1A1A2E' : '#cbd5e1', fontWeight: i === procStep ? 600 : 400, transition: 'all 0.3s' }}>
@@ -359,7 +364,7 @@ export default function Careers() {
               <div style={{ padding: '12px 16px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, color: '#DC2626', fontSize: '0.85rem', marginBottom: 16 }}>
                 {procError}
                 <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'center' }}>
-                  <button onClick={startExtraction} style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #DC2626', background: 'transparent', color: '#DC2626', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>Retry</button>
+                  <button onClick={startExtraction} disabled={extracting} style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #DC2626', background: 'transparent', color: extracting ? '#94a3b8' : '#DC2626', cursor: extracting ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>{extracting ? 'Extracting…' : 'Retry'}</button>
                   <button onClick={() => setStage(STAGES.REVIEW)} style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'transparent', color: '#64748b', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>Fill Manually</button>
                 </div>
               </div>
