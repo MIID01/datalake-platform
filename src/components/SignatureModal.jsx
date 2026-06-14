@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X, Pen, Upload, Type, Trash2, CheckCircle2, Loader, AlertCircle,
 } from 'lucide-react'
@@ -211,6 +212,15 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
     if (typedPreview)  URL.revokeObjectURL(typedPreview)
   }, [uploadPreview, typedPreview])
 
+  // Lock background scroll while the modal is open (restore on close/unmount) so
+  // the page behind can't scroll independently (no double-scroll).
+  useEffect(() => {
+    if (!isOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [isOpen])
+
   if (!isOpen) return null
 
   const canFinish = (
@@ -255,14 +265,17 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
   }
 
   // ─── Render ────────────────────────────────────────────────────
-  return (
+  // Rendered through a portal to document.body so the fixed overlay is never
+  // trapped inside a transformed/scrollable ancestor (which made it render as a
+  // see-through, double-scrolling window on /legal/review).
+  return createPortal(
     <div
       onClick={onClose}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
-        backdropFilter: 'blur(6px)', zIndex: 10000,
+        position: 'fixed', inset: 0, background: 'rgba(1,14,43,0.82)',
+        backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 2147483000,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16, overflowY: 'auto',
+        padding: 16,
       }}
     >
       <div
@@ -270,13 +283,14 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
         style={{
           background: '#0f1d36', border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 14, maxWidth: 720, width: '100%',
-          maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column',
+          maxHeight: '90vh', display: 'flex', flexDirection: 'column',
           color: '#fff', fontFamily: "'DM Sans', sans-serif",
+          boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
         }}
       >
         <div style={{
           padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
         }}>
           <div>
             <div style={{ fontSize: '1rem', fontWeight: 700 }}>Sign to confirm approval</div>
@@ -290,7 +304,7 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
           {TAB_META.map(t => {
             const Icon = t.Icon
             const active = tab === t.id
@@ -313,8 +327,9 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
           })}
         </div>
 
-        {/* Body */}
-        <div style={{ padding: 18, overflowY: 'auto' }}>
+        {/* Body — flex:1 + minHeight:0 so it scrolls INTERNALLY and never pushes
+            the footer (Sign & Continue) below the modal's max height / off-screen. */}
+        <div style={{ padding: 18, overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {tab === 'draw' && (
             <>
               <DrawCanvas canvasRef={canvasRef} onChange={setDrawHasInk} />
@@ -430,7 +445,7 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
           )}
         </div>
 
-        <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
           <button
             onClick={onClose}
             disabled={working}
@@ -465,6 +480,7 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
           @keyframes spin { 100% { transform: rotate(360deg); } }
         `}</style>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
