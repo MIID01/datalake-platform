@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { auth, db } from '../lib/firebase'
 import {
-  X, Pen, Upload, Type, Trash2, CheckCircle2, Loader, AlertCircle,
+  X, Pen, Upload, Type, Trash2, CheckCircle2, Loader, AlertCircle, RotateCcw,
 } from 'lucide-react'
+
+const blobToDataUrl = (b) => new Promise((res, rej) => {
+  const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('read failed')); r.readAsDataURL(b)
+})
 
 // Modal that captures a signature via one of three methods and returns a PNG Blob.
 //
@@ -176,8 +182,11 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
   const [typedPreview, setTypedPreview] = useState(null)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
+  const [savedSig, setSavedSig] = useState(null)        // authed user's reusable signature (data URL)
+  const [saveForReuse, setSaveForReuse] = useState(false)
   const canvasRef = useRef(null)
   const fileInputRef = useRef(null)
+  const isAuthed = !!auth.currentUser  // token counsel (no Firebase Auth) never gets save/reuse
 
   // Reset when reopened. Defer setState calls via microtask so we don't trip
   // the React 19 "no setState in effect body" rule.
@@ -190,10 +199,26 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
       setDrawHasInk(false)
       setUploadFile(null); setUploadPreview(null)
       setTyped(signerName || ''); setTypedPreview(null)
+      setSaveForReuse(false)
       setTab('draw')
     })
     return () => { cancelled = true }
   }, [isOpen, signerName])
+
+  // Load the authenticated user's reusable signature (if any) on open, and default
+  // to the "Saved" tab so they can one-click reuse it. Token counsel has no auth
+  // user, so this never runs for them.
+  useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (!auth.currentUser) { Promise.resolve().then(() => { if (!cancelled) setSavedSig(null) }); return () => { cancelled = true } }
+    getDoc(doc(db, 'users', auth.currentUser.uid))
+      .then(s => { if (cancelled) return; const url = s.exists() ? s.data().saved_signature : null; setSavedSig(url || null); if (url) setTab('saved') })
+      .catch(() => {})
+    /* eslint-enable react-hooks/set-state-in-effect */
+    return () => { cancelled = true }
+  }, [isOpen])
 
   // Re-render the typed preview as the name changes.
   useEffect(() => {
@@ -223,7 +248,10 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
 
   if (!isOpen) return null
 
+  const tabs = savedSig ? [{ id: 'saved', label: 'Saved', Icon: RotateCcw }, ...TAB_META] : TAB_META
+
   const canFinish = (
+    (tab === 'saved'  && !!savedSig) ||
     (tab === 'draw'   && drawHasInk) ||
     (tab === 'upload' && uploadFile) ||
     (tab === 'type'   && typed.trim().length > 1)
@@ -247,7 +275,9 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
     setWorking(true); setError('')
     try {
       let blob = null
-      if (tab === 'draw') {
+      if (tab === 'saved') {
+        blob = await (await fetch(savedSig)).blob()
+      } else if (tab === 'draw') {
         blob = await canvasToBlob(canvasRef.current)
       } else if (tab === 'upload') {
         blob = uploadFile
@@ -255,8 +285,16 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
         blob = await renderTypedSignature(typed.trim())
       }
       if (!blob) throw new Error('Could not produce a signature image. Try again.')
+      // Save to the user's profile for reuse across approvals (authed only; never
+      // for token counsel, and not when reusing the already-saved one).
+      if (saveForReuse && auth.currentUser && tab !== 'saved') {
+        try {
+          const stored = await blobToDataUrl(blob)
+          await updateDoc(doc(db, 'users', auth.currentUser.uid), { saved_signature: stored, saved_signature_at: serverTimestamp() })
+        } catch { /* best-effort — saving for reuse must not block the approval */ }
+      }
       const dataUrl = URL.createObjectURL(blob)
-      await onSign({ blob, method: tab, dataUrl, typedName: typed.trim() || null })
+      await onSign({ blob, method: tab === 'saved' ? 'saved' : tab, dataUrl, typedName: typed.trim() || null })
     } catch (e) {
       setError(e.message)
     } finally {
@@ -305,7 +343,7 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
-          {TAB_META.map(t => {
+          {tabs.map(t => {
             const Icon = t.Icon
             const active = tab === t.id
             return (
@@ -330,6 +368,13 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
         {/* Body — flex:1 + minHeight:0 so it scrolls INTERNALLY and never pushes
             the footer (Sign & Continue) below the modal's max height / off-screen. */}
         <div style={{ padding: 18, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+          {tab === 'saved' && savedSig && (
+            <div>
+              <img src={savedSig} alt="saved signature" style={{ width: '100%', maxHeight: 220, objectFit: 'contain', background: '#fff', borderRadius: 10, border: '1px solid rgba(255,255,255,0.18)' }} />
+              <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>Your saved signature — click <strong>Sign &amp; Continue</strong> to reuse it, or pick another tab to sign fresh.</div>
+            </div>
+          )}
+
           {tab === 'draw' && (
             <>
               <DrawCanvas canvasRef={canvasRef} onChange={setDrawHasInk} />
@@ -432,6 +477,13 @@ export default function SignatureModal({ isOpen, onClose, onSign, signerName = '
                 </div>
               )}
             </>
+          )}
+
+          {isAuthed && tab !== 'saved' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: '0.78rem', color: 'rgba(255,255,255,0.72)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={saveForReuse} onChange={e => setSaveForReuse(e.target.checked)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+              Save this signature to my profile for future approvals
+            </label>
           )}
 
           {error && (

@@ -55,7 +55,7 @@ service cloud.firestore {
       // them up via the email fallback.
       allow update: if request.auth != null
         && (request.auth.uid == uid || request.auth.token.email == resource.data.email)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['onboarding_complete', 'onboarding_completed_at', 'pdpl_consent_state', 'pdpl_consent_at', 'pdpl_consent_ip', 'pdpl_consent_user_agent', 'training_completed', 'contract_signed']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['onboarding_complete', 'onboarding_completed_at', 'pdpl_consent_state', 'pdpl_consent_at', 'pdpl_consent_ip', 'pdpl_consent_user_agent', 'training_completed', 'contract_signed', 'saved_signature', 'saved_signature_at']);
     }
 
     // ── Hire Chain ──
