@@ -1,23 +1,28 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { auth, CRM_ARCHIVE_DEALS_URL, appCheckHeader } from '../../lib/firebase'
+import { auth } from '../../lib/firebase'
 import { CEO_EMAIL } from '../../lib/auth'
 import { LEGAL_FOOTER_EN } from '../../lib/company-legal'
 import { DEAL_STAGES, stageMeta, fmtSar } from '../../lib/deals'
+import { setDealsArchived } from '../../lib/crm-actions'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import { Trash2, Download, Search, Loader, AlertTriangle, RotateCcw, Archive } from 'lucide-react'
 
 // Leads/deals LIST view — the bulk-ops surface (DTLK-UI-CRM-001 §3.2). Reads the
 // SAME `deals` array the board subscribes to (single source; passed in — no second
-// listener). Select-all, multi-select, bulk-export (CEO-only) and, for the CEO,
-// bulk SOFT-DELETE (archive) + restore — routed through the audited Cloud Function
-// (functions/crmImport.js crmArchiveDeals). Nothing hard-deletes from the UI (§2).
-export default function CRMLeadsList({ deals }) {
+// listener). Select-all, multi-select, bulk-export (CEO-only), bulk SOFT-DELETE
+// (CEO-only) + restore, AND per-row delete/restore for the CRM team (canDelete) —
+// all routed through the audited crmArchiveDeals CF. Nothing hard-deletes (§2).
+export default function CRMLeadsList({ deals, canDelete = false }) {
   const [sel, setSel] = useState(() => new Set())
   const [q, setQ] = useState('')
   const [stageFilter, setStageFilter] = useState('ALL')
   const [showArchived, setShowArchived] = useState(false)
   const [busy, setBusy] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [rowAction, setRowAction] = useState(null) // { deal, restore } pending per-row confirm
+  const [rowBusy, setRowBusy] = useState(false)
+  const [rowErr, setRowErr] = useState('')
   const [msg, setMsg] = useState('')
   const isCeo = (auth.currentUser?.email || '').toLowerCase() === CEO_EMAIL.toLowerCase()
 
@@ -59,22 +64,28 @@ export default function CRMLeadsList({ deals }) {
     setMsg(`Exported ${list.length} row(s).`)
   }
 
-  // Soft-delete / restore via the audited Cloud Function (CEO-gated server-side too).
+  // Bulk soft-delete / restore via the audited CF (CEO-gated server-side: >1 id).
   const archiveSelected = async (restore) => {
     setMsg(''); setBusy(true)
     try {
       const ids = selectedRows.map(d => d.id)
-      const token = await auth.currentUser.getIdToken()
-      const resp = await fetch(CRM_ARCHIVE_DEALS_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(await appCheckHeader()) },
-        body: JSON.stringify({ ids, restore, reason: restore ? 'bulk restore' : 'bulk archive (list view)' }),
-      })
-      const json = await resp.json().catch(() => ({}))
-      if (!resp.ok) throw new Error(json.error || `Request failed (${resp.status})`)
+      const json = await setDealsArchived({ ids, restore, reason: restore ? 'bulk restore' : 'bulk archive (list view)' })
       setMsg(`${restore ? 'Restored' : 'Archived'} ${json.affected ?? ids.length} deal(s).`)
       setSel(new Set()); setConfirmDel(false)
-    } catch (e) { setMsg((confirmDel ? 'Archive' : 'Restore') + ' failed: ' + e.message) }
+    } catch (e) { setMsg((restore ? 'Restore' : 'Archive') + ' failed: ' + e.message) }
     finally { setBusy(false) }
+  }
+
+  // Per-row delete / restore (single id → CRM-team role gate server-side).
+  const doRowAction = async () => {
+    if (!rowAction) return
+    setRowErr(''); setRowBusy(true)
+    try {
+      await setDealsArchived({ ids: [rowAction.deal.id], restore: rowAction.restore, reason: rowAction.restore ? 'restore (list row)' : 'delete (list row)' })
+      setSel(s => { const n = new Set(s); n.delete(rowAction.deal.id); return n })
+      setRowAction(null)
+    } catch (e) { setRowErr(e.message) }
+    finally { setRowBusy(false) }
   }
 
   return (
@@ -121,11 +132,12 @@ export default function CRMLeadsList({ deals }) {
               <th style={{ ...hcell, width: 36 }}><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all" /></th>
               <th style={hcell}>Title</th><th style={hcell}>Company</th><th style={hcell}>Stage</th>
               <th style={{ ...hcell, textAlign: 'right' }}>Value</th><th style={hcell}>Owner</th><th style={hcell}>Contact</th><th style={hcell}>Source</th>
+              {canDelete && <th style={{ ...hcell, textAlign: 'right' }}></th>}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{showArchived ? 'No archived deals.' : 'No deals match.'}</td></tr>
+              <tr><td colSpan={canDelete ? 9 : 8} style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{showArchived ? 'No archived deals.' : 'No deals match.'}</td></tr>
             ) : rows.map(d => {
               const sm = stageMeta(d.stage)
               return (
@@ -138,6 +150,16 @@ export default function CRMLeadsList({ deals }) {
                   <td style={cell}>{d.owner_email || '—'}</td>
                   <td style={cell}>{d.contact_email || d.contact_name || d.contact_phone || '—'}</td>
                   <td style={cell}><span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>{d.source || '—'}</span></td>
+                  {canDelete && (
+                    <td style={{ ...cell, textAlign: 'right' }}>
+                      {showArchived
+                        ? <button onClick={() => { setRowErr(''); setRowAction({ deal: d, restore: true }) }} className="write-action" title="Restore deal"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#15803d', padding: 2, lineHeight: 0 }}><RotateCcw size={14} /></button>
+                        : <button onClick={() => { setRowErr(''); setRowAction({ deal: d, restore: false }) }} className="write-action" title="Delete deal"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, lineHeight: 0 }}
+                            onMouseEnter={e => (e.currentTarget.style.color = '#C0392B')} onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}><Trash2 size={14} /></button>}
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -162,6 +184,12 @@ export default function CRMLeadsList({ deals }) {
           </div>
         </div>
       )}
+
+      {/* per-row delete / restore confirm */}
+      <ConfirmDialog open={!!rowAction} danger={!rowAction?.restore} busy={rowBusy} error={rowErr}
+        title={rowAction?.restore ? 'Restore this deal?' : 'Delete this deal?'}
+        message={rowAction ? `"${rowAction.deal.title || 'Untitled deal'}" — ${rowAction.restore ? 'returns to the live pipeline.' : 'soft-deleted (recoverable from Archived). Audited.'}` : ''}
+        confirmLabel={rowAction?.restore ? 'Restore' : 'Delete'} onConfirm={doRowAction} onCancel={() => { setRowAction(null); setRowErr('') }} />
     </div>
   )
 }

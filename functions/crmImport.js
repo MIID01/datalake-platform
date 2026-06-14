@@ -229,9 +229,17 @@ async function crmArchiveDealsHandler(req, res, { verifyAuth, getUserAccessProfi
     let profile;
     try { profile = await getUserAccessProfile(decoded.uid); }
     catch (e) { return res.status(403).json({ error: e.message || "No active access profile" }); }
-    if (!CEO_ROLES.includes(profile.role_id)) return res.status(403).json({ error: "CEO role required for bulk archive/undo" });
 
     const { ids, import_batch_id, reason, restore } = req.body || {};
+    // Role gate (mirror of src/lib/deals.js DEAL_DELETE_ROLES): a SINGLE-deal
+    // delete/restore is open to the CRM team (ceo/business/sales) so a growing
+    // sales team can manage its own pipeline; a MASS multi-select archive or a
+    // whole import_batch undo stays CEO-only so one rep can't wipe the board.
+    const isMass = !!import_batch_id || (Array.isArray(ids) && ids.length > 1);
+    const allowed = isMass ? CEO_ROLES : CRM_ROLES;
+    if (!allowed.includes(profile.role_id)) {
+      return res.status(403).json({ error: isMass ? "CEO role required for bulk archive/undo" : "CRM role required (ceo/business/sales)" });
+    }
     let refs = [];
     if (import_batch_id) {
       const snap = await db.collection("deals").where("import_batch_id", "==", clean(import_batch_id)).get();

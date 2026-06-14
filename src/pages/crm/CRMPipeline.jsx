@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
-import { auth, db, CRM_ARCHIVE_DEALS_URL, appCheckHeader } from '../../lib/firebase'
-import { DEAL_STAGES, OPEN_STAGE_IDS, STAGE_IDS, stageIndex, fmtSar } from '../../lib/deals'
+import { auth, db } from '../../lib/firebase'
+import { DEAL_STAGES, OPEN_STAGE_IDS, STAGE_IDS, stageIndex, fmtSar, canDeleteDeals } from '../../lib/deals'
+import { setDealsArchived } from '../../lib/crm-actions'
+import { useAccessProfile } from '../../hooks/useAccessProfile'
 import AddDealModal from '../../components/AddDealModal'
 import CSVImportModal from '../../components/CSVImportModal'
 import CRMLeadsList from './CRMLeadsList'
-import { TrendingUp, Building2, ChevronLeft, ChevronRight, Trophy, X as XIcon, Plus, Upload, LayoutGrid, List, Undo2, CheckCircle2 } from 'lucide-react'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import { TrendingUp, Building2, ChevronLeft, ChevronRight, Trophy, X as XIcon, Plus, Upload, LayoutGrid, List, Undo2, CheckCircle2, Trash2 } from 'lucide-react'
 
 // Pipeline board — canonical source is the `deals` collection (NOT clients).
 // Deals are created here / via CSV import; stage moves persist on the deal.
 export default function CRMPipeline() {
+  const { profile } = useAccessProfile()
+  const canDelete = canDeleteDeals(profile?.role_id)
   const [deals, setDeals] = useState([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(null)
@@ -19,6 +24,9 @@ export default function CRMPipeline() {
   const [view, setView] = useState('board') // 'board' | 'list'
   const [lastImport, setLastImport] = useState(null) // { count, batchId, skipped }
   const [undoing, setUndoing] = useState(false)
+  const [delDeal, setDelDeal] = useState(null) // deal pending per-card delete
+  const [delBusy, setDelBusy] = useState(false)
+  const [delErr, setDelErr] = useState('')
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'deals'),
@@ -34,16 +42,21 @@ export default function CRMPipeline() {
     if (!lastImport?.batchId) return
     setUndoing(true)
     try {
-      const token = await auth.currentUser.getIdToken()
-      const resp = await fetch(CRM_ARCHIVE_DEALS_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(await appCheckHeader()) },
-        body: JSON.stringify({ import_batch_id: lastImport.batchId, reason: 'undo import' }),
-      })
-      const json = await resp.json().catch(() => ({}))
-      if (!resp.ok) throw new Error(json.error || `Undo failed (${resp.status})`)
+      await setDealsArchived({ import_batch_id: lastImport.batchId, reason: 'undo import' })
       setLastImport(null)
     } catch (e) { alert('Undo failed: ' + e.message) }
     finally { setUndoing(false) }
+  }
+
+  // Per-deal delete (soft, recoverable, audited). Single-id → CRM-team role gate.
+  const doDeleteDeal = async () => {
+    if (!delDeal) return
+    setDelErr(''); setDelBusy(true)
+    try {
+      await setDealsArchived({ ids: [delDeal.id], reason: 'deleted from board' })
+      setDelDeal(null)
+    } catch (e) { setDelErr(e.message) }
+    finally { setDelBusy(false) }
   }
 
   const byStage = useMemo(() => {
@@ -117,7 +130,7 @@ export default function CRMPipeline() {
         </div>
       )}
 
-      {view === 'list' ? <CRMLeadsList deals={deals} /> : ( // list gets ALL deals; it owns the archived filter
+      {view === 'list' ? <CRMLeadsList deals={deals} canDelete={canDelete} /> : ( // list gets ALL deals; it owns the archived filter
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${DEAL_STAGES.length}, minmax(220px, 1fr))`, gap: 12, overflowX: 'auto' }}>
         {DEAL_STAGES.map(stage => (
           <div key={stage.id} style={{ background: 'var(--bg-surface, #f8fafc)', border: '1px solid var(--border-primary, #E5E7EB)', borderRadius: 10, padding: 12, minHeight: 360 }}>
@@ -133,7 +146,16 @@ export default function CRMPipeline() {
               ) : (
                 (byStage[stage.id] || []).map(d => (
                   <div key={d.id} style={{ background: 'var(--bg-card, #fff)', border: '1px solid var(--border-primary, #E5E7EB)', borderRadius: 8, padding: 10 }}>
-                    <Link to={`/crm/deals/${d.id}`} style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)', textDecoration: 'none' }}>{d.title || '(untitled deal)'}</Link>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
+                      <Link to={`/crm/deals/${d.id}`} style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)', textDecoration: 'none' }}>{d.title || '(untitled deal)'}</Link>
+                      {canDelete && (
+                        <button onClick={() => { setDelErr(''); setDelDeal(d) }} className="write-action" title="Delete deal"
+                          style={{ flexShrink: 0, background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, lineHeight: 0 }}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#C0392B')} onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
                       <Building2 size={11} /> {d.company_name || '—'} · {fmtSar(d.value_sar)}
                     </div>
@@ -156,6 +178,11 @@ export default function CRMPipeline() {
 
       {showAdd && <AddDealModal onClose={() => setShowAdd(false)} />}
       {showCsv && <CSVImportModal onClose={() => setShowCsv(false)} onImported={(count, batchId, skipped) => setLastImport({ count, batchId, skipped })} />}
+
+      <ConfirmDialog open={!!delDeal} danger busy={delBusy} error={delErr}
+        title="Delete this deal?"
+        message={delDeal ? `"${delDeal.title || 'Untitled deal'}" will be soft-deleted (removed from the pipeline, recoverable from List → Archived). Audited.` : ''}
+        confirmLabel="Delete" onConfirm={doDeleteDeal} onCancel={() => { setDelDeal(null); setDelErr('') }} />
     </div>
   )
 }

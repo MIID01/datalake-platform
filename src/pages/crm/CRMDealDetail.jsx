@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { doc, onSnapshot, collection, query, orderBy, where, addDoc, serverTimestamp, updateDoc, getDocs } from 'firebase/firestore'
 import { auth, db, SEND_DEAL_EMAIL_URL } from '../../lib/firebase'
-import { DEAL_STAGES, stageMeta, fmtSar, ACTIVITY_TYPES, computeQuoteTotals, quoteStateMeta } from '../../lib/deals'
+import { DEAL_STAGES, stageMeta, fmtSar, ACTIVITY_TYPES, computeQuoteTotals, quoteStateMeta, canDeleteDeals } from '../../lib/deals'
+import { setDealsArchived } from '../../lib/crm-actions'
+import { useAccessProfile } from '../../hooks/useAccessProfile'
 import { SignedBadgeList } from '../../components/SignedBadge'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import { ArrowLeft, Building2, Mail, Send, Loader, Trophy, FileText, Plus, Trash2 } from 'lucide-react'
 
 export default function CRMDealDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
+  const { profile } = useAccessProfile()
+  const canDelete = canDeleteDeals(profile?.role_id)
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [delBusy, setDelBusy] = useState(false)
+  const [delErr, setDelErr] = useState('')
   const [acts, setActs] = useState([])
   const [clients, setClients] = useState([])
 
@@ -152,10 +161,20 @@ export default function CRMDealDetail() {
   // Load an existing DRAFT into the editor when one appears.
   useEffect(() => {
     if (draftQuote && Array.isArray(draftQuote.line_items) && draftQuote.line_items.length) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setQItems(draftQuote.line_items.map(li => ({ description: li.description || '', qty: li.qty || 1, unit_price_sar: li.unit_price_sar || 0 })))
       setQDiscount(draftQuote.discount_pct || 0)
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [draftQuote?.id]) // eslint-disable-line
+
+  const doDelete = async () => {
+    setDelErr(''); setDelBusy(true)
+    try {
+      await setDealsArchived({ ids: [id], reason: 'deleted from deal detail' })
+      navigate('/crm/pipeline') // soft-deleted; recoverable from List → Archived
+    } catch (e) { setDelErr(e.message); setDelBusy(false) }
+  }
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center' }}>Loading deal…</div>
   if (error) return <div style={{ padding: 24 }}><Link to="/crm/pipeline" style={{ color: '#1598CC' }}>← Pipeline</Link><div style={{ marginTop: 16, color: '#991b1b' }}>{error}</div></div>
@@ -174,8 +193,21 @@ export default function CRMDealDetail() {
             <Building2 size={13} /> {deal.client_id ? <Link to={`/crm/clients/${deal.client_id}`} style={{ color: '#1598CC' }}>{deal.company_name || deal.client_id}</Link> : (deal.company_name || '—')} · {fmtSar(deal.value_sar)} · owner {deal.owner_email || '—'}
           </div>
         </div>
-        <span style={{ padding: '5px 12px', borderRadius: 999, fontSize: '0.78rem', fontWeight: 700, background: sm.color + '22', color: sm.color }}>{sm.label}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ padding: '5px 12px', borderRadius: 999, fontSize: '0.78rem', fontWeight: 700, background: sm.color + '22', color: sm.color }}>{sm.label}</span>
+          {canDelete && !deal.archived && (
+            <button onClick={() => setConfirmDel(true)} className="write-action" title="Delete this deal"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 7, border: '1px solid rgba(192,57,43,0.35)', background: 'transparent', color: '#C0392B', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Trash2 size={13} /> Delete
+            </button>
+          )}
+        </div>
       </div>
+
+      <ConfirmDialog open={confirmDel} danger busy={delBusy} error={delErr}
+        title="Delete this deal?"
+        message="This soft-deletes the deal — it leaves the pipeline but is recoverable from List → Archived. The action is audited."
+        confirmLabel="Delete" onConfirm={doDelete} onCancel={() => { setConfirmDel(false); setDelErr('') }} />
 
       {/* Stage control */}
       <div className="card" style={{ marginBottom: 14 }}>

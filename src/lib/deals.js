@@ -19,6 +19,14 @@ export const DEAL_SOURCES = ['MANUAL', 'CSV_IMPORT', 'WEB_FORM', 'REFERRAL']
 export const LAWFUL_BASES = ['legitimate_interest', 'consent']
 export const ACTIVITY_TYPES = ['NOTE', 'CALL', 'MEETING', 'EMAIL', 'TASK']
 
+// Who may DELETE a deal. Deletes are soft (archived) + recoverable + audited.
+// SINGLE-deal delete is open to the CRM team (so a growing sales team can manage
+// their own pipeline); MASS multi-select archive stays CEO-only (see crmArchiveDeals)
+// so one rep can't wipe the board in a click. Mirrored server-side in
+// functions/crmImport.js — keep the two in sync. (Future: move to CRM Settings config.)
+export const DEAL_DELETE_ROLES = ['ceo', 'business', 'sales']
+export const canDeleteDeals = (roleId) => DEAL_DELETE_ROLES.includes(roleId)
+
 export const stageMeta = (id) => DEAL_STAGES.find(s => s.id === id) || DEAL_STAGES[0]
 export const stageIndex = (id) => Math.max(0, STAGE_IDS.indexOf(id))
 export const fmtSar = (n) => 'SAR ' + Math.round(Number(n) || 0).toLocaleString()
