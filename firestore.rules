@@ -245,13 +245,11 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if isCeoOrCto();
 
-      // Approval evidence (e.g. SAMA materiality sign-off). Immutable audit row;
-      // the status change itself stays server-side. Without this rule the write
-      // hit the default-deny catch-all ("Missing or insufficient permissions").
+      // Approval evidence (e.g. SAMA materiality sign-off) — written server-side
+      // only (recordApproval / Admin SDK).
       match /approval_evidence/{evId} {
         allow read: if request.auth != null;
-        allow create: if request.auth != null;
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
     }
     match /client_projects/{projectId} {
@@ -260,8 +258,7 @@ service cloud.firestore {
 
       match /approval_evidence/{evId} {
         allow read: if request.auth != null;
-        allow create: if request.auth != null;
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
     }
     match /engineer_project_assignments/{assignmentId} {
@@ -299,13 +296,10 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if false;
 
-      // Approval evidence — immutable record of who signed off the invoice.
-      // The status flip stays server-side (write:false above); this is the
-      // signed audit row. Without it, signing an invoice was default-denied.
+      // Approval evidence — written server-side only (Admin SDK).
       match /approval_evidence/{evId} {
         allow read: if request.auth != null;
-        allow create: if request.auth != null;
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
     }
     match /client_invoices/{docId} {
@@ -315,16 +309,23 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     match /contracts/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      // HR may create/edit a contract and Legal may REJECT it (LEGAL_REJECTED), but
+      // the SIGNED/APPROVED state — status 'ACTIVE' or legal_status 'LEGAL_APPROVED' —
+      // is written ONLY by the recordApproval Cloud Function (Admin SDK, which bypasses
+      // these rules). No client may transition a contract INTO those states, so an
+      // approved contract can never be forged client-side.
+      allow create: if request.auth != null && request.resource.data.status != 'ACTIVE';
+      allow update: if request.auth != null
+        && !(resource.data.status != 'ACTIVE' && request.resource.data.status == 'ACTIVE')
+        && !(resource.data.get('legal_status', '') != 'LEGAL_APPROVED' && request.resource.data.get('legal_status', '') == 'LEGAL_APPROVED');
+      allow delete: if request.auth != null;
 
-      // Approval evidence — contract sign-off. Created by an authenticated user
-      // (CEO/HR) OR by the token-based external-counsel flow (LegalReview, which
-      // is UNauthenticated and stamps review_token_used:true on the row). Immutable.
+      // Approval evidence — written ONLY server-side by recordApproval (Admin SDK),
+      // which also handles the external-counsel token flow. No client create.
       match /approval_evidence/{evId} {
         allow read: if request.auth != null;
-        allow create: if request.auth != null;
-        allow create: if request.resource.data.review_token_used == true;
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
     }
     // AI auditor proposal/contract review trail (written server-side; CEO-managed).
@@ -413,26 +414,22 @@ service cloud.firestore {
       // Preparer: finance/HR/CEO may create the DRAFT.
       allow create: if isFinance() || isHR() || isCeo();
 
-      // Preparer edits ONLY while DRAFT, and cannot flip to APPROVED here.
+      // Preparer edits ONLY while DRAFT (DRAFT→DRAFT). The DRAFT→APPROVED flip is
+      // NO LONGER client-writable — it is written ONLY by the recordApproval Cloud
+      // Function (Admin SDK), which also writes the immutable evidence + WORM record.
+      // This enforces segregation of duties server-side: no client SDK path, not even
+      // the CEO's, can approve a payroll run directly.
       allow update: if (isFinance() || isHR())
         && resource.data.status == 'DRAFT'
         && request.resource.data.status == 'DRAFT';
 
-      // Approver: ONLY the CEO can transition DRAFT → APPROVED.
-      // (CEO can also continue to edit a DRAFT — covered by the create/update
-      // branches via isCeo() being inside isFinance() OR through this rule.)
-      allow update: if isCeo()
-        && resource.data.status == 'DRAFT'
-        && request.resource.data.status == 'APPROVED';
-
       // No deletes.
       allow delete: if false;
 
-      // Per-run approval evidence — CEO only, immutable.
+      // Per-run approval evidence — written server-side only.
       match /approval_evidence/{evId} {
         allow read: if isCeo() || isFinance() || isHR();
-        allow create: if isCeo();
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
     }
 

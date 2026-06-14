@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  collection, onSnapshot, query, where, orderBy, doc, updateDoc, serverTimestamp,
+  collection, onSnapshot, query, orderBy,
 } from 'firebase/firestore'
 import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL } from '../../lib/firebase'
 import {
@@ -145,16 +145,7 @@ export default function CEOPayroll() {
                     total_gross: run.total_gross || null,
                     total_net: run.total_net || null,
                   }}
-                  onApproved={async (evidence) => {
-                    await updateDoc(doc(db, 'payroll_runs', run.id), {
-                      status: 'APPROVED',
-                      approved_at: serverTimestamp(),
-                      approved_by: evidence.approver_email,
-                      approval_evidence_id: evidence.id,
-                      approval_evidence_sha256: evidence.evidence_sha256,
-                      updated_at: serverTimestamp(),
-                    })
-                  }}
+                  onApproved={() => { /* status flipped server-side by recordApproval; the payroll_runs snapshot refreshes the row */ }}
                 />
                 <div style={{ marginTop: 8 }}>
                   <SignedBadgeList parentCollection="payroll_runs" parentId={run.id} compact />

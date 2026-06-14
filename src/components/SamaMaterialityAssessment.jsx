@@ -183,14 +183,8 @@ export default function SamaMaterialityAssessment({
     if (!engagementId) return
     try {
       setSavingApproval(true)
-      const ref = doc(db, engagementCollection, engagementId)
-      await import('firebase/firestore').then(m =>
-        m.updateDoc(ref, {
-          'sama_materiality.assessed_at': serverTimestamp(),
-          'sama_materiality.assessed_by': auth.currentUser?.email || null,
-          'sama_materiality.assessment_signed': true,
-        }),
-      )
+      // sama_materiality.{assessed_at,assessed_by,assessment_signed} is now written
+      // server-side by recordApproval (the client may not self-write the signed state).
       // If MATERIAL, auto-create the compliance calendar item (idempotent).
       if (result.noc_required) {
         await ensureComplianceItem({

@@ -3210,6 +3210,17 @@ exports.crmArchiveDeals = onRequest(
   (req, res) => crmArchiveDealsHandler(req, res, hireHelpers)
 );
 
+// Universal SERVER-SIDE approval/sign recorder (replaces the client-side
+// approval-evidence write for every ApprovalButton). Writes the signature +
+// signed doc to WORM, the immutable evidence row, flips the parent status per a
+// server-validated policy, and appends a BigQuery audit row with before/after
+// SHA-256. The client can no longer self-write signed/approved state.
+const { recordApprovalHandler } = require("./recordApproval");
+exports.recordApproval = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => recordApprovalHandler(req, res, hireHelpers)
+);
+
 exports.initiateHire = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => initiateHireHandler(req, res, hireHelpers)

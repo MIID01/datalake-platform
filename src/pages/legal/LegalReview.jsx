@@ -132,7 +132,7 @@ export default function LegalReview() {
         action: approved ? 'approved' : 'rejected',
         comment: comment.trim() || null,
         at: serverTimestamp(),
-        ip_user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        // PDPL: no IP / user-agent captured on legal/GRC records.
       })
       setState(approved ? 'success' : 'rejected')
     } catch (e) {
@@ -274,12 +274,22 @@ export default function LegalReview() {
           label="Approve Contract"
           variant="success"
           identity={{
-            email: 'legal@external',
-            name: 'External Legal Counsel',
+            name: 'External legal reviewer',
             role: 'legal:external',
           }}
+          token={token}
           extra={{ comment: comment.trim() || null, review_token_used: true }}
-          onApproved={async () => { await decide('approve') }}
+          onApproved={async (evidence) => {
+            // Contract status (→ACTIVE/LEGAL_APPROVED), token burn, WORM + audit are
+            // all written server-side by recordApproval. We just log the legal action
+            // and show the success screen.
+            await addDoc(collection(db, 'legal_review_log'), {
+              contract_id: contractId, action: 'approved', comment: comment.trim() || null,
+              at: serverTimestamp(), evidence_id: evidence?.id || null,
+              // PDPL: no IP / user-agent captured on legal/GRC records.
+            }).catch(() => {})
+            setState('success')
+          }}
           disabled={state === 'submitting'}
         />
       </div>

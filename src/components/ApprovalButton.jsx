@@ -2,9 +2,17 @@ import { useRef, useState } from 'react'
 import {
   Upload, CheckCircle2, Loader, AlertCircle, X, Paperclip, ShieldCheck,
 } from 'lucide-react'
-import { recordApproval } from '../lib/approval-evidence'
+import { auth, RECORD_APPROVAL_URL, appCheckHeader } from '../lib/firebase'
 import SignatureModal from './SignatureModal'
 import { SignedBadge, EvidenceTrailModal } from './SignedBadge'
+
+// Blob/File → data-URL base64 (the server strips the data: prefix).
+const toBase64 = (blob) => new Promise((resolve, reject) => {
+  const r = new FileReader()
+  r.onload = () => resolve(r.result)
+  r.onerror = () => reject(new Error('Could not read file'))
+  r.readAsDataURL(blob)
+})
 
 // Universal approval button.
 //
@@ -53,7 +61,8 @@ export default function ApprovalButton({
   acceptedTypes = '.pdf,.png,.jpg,.jpeg,.webp',
   maxSizeMb = 15,
   identity = null,
-  storagePathPrefix = 'approval-evidence',
+  token = null,            // one-time review token for token-based flows (contracts)
+  action = 'approved',
   extra = null,
   onApproved,
   disabled = false,
@@ -62,6 +71,7 @@ export default function ApprovalButton({
   compact = false,
 }) {
   const [file, setFile] = useState(null)
+  const [ack, setAck] = useState(false)   // approver must tick the evidence acknowledgment
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(null)   // the evidence record after success
@@ -75,7 +85,7 @@ export default function ApprovalButton({
   // The Approve button now opens the signature modal first; signing inside
   // the modal triggers the actual record-approval call. So "canClick" just
   // gates whether we are ready to open the modal.
-  const canClick = !disabled && !working && !done && (!requiresDocument || !!file)
+  const canClick = !disabled && !working && !done && ack && (!requiresDocument || !!file)
 
   const pickFile = (f) => {
     setError('')
@@ -107,21 +117,32 @@ export default function ApprovalButton({
   // Uploads everything (PDF if required + signature PNG) and writes the evidence
   // row in one transaction. The modal stays open with its own working state so
   // the user sees the spinner there; we surface errors back to it via throw.
+  // SERVER-SIDE write: POST signature (+ document) to the recordApproval CF, which
+  // persists to WORM + the immutable evidence row + flips the parent status + audits.
+  // The client never writes the signed/approved state itself.
   const handleSigned = async ({ blob, method, typedName }) => {
     setWorking(true); setError('')
     try {
-      const evidence = await recordApproval({
-        parentCollection, parentId,
-        requiresDocument, file,
-        signatureBlob: blob,
-        signatureMethod: method,
-        signatureTypedName: typedName || null,
-        identity, storagePathPrefix,
-        label, extra,
+      const signatureB64 = await toBase64(blob)
+      let document = null
+      if (requiresDocument && file) {
+        document = { base64: await toBase64(file), filename: file.name, mimeType: file.type || 'application/pdf' }
+      }
+      const headers = { 'Content-Type': 'application/json', ...(await appCheckHeader()) }
+      if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`
+      const resp = await fetch(RECORD_APPROVAL_URL, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          parentCollection, parentId,
+          signature: { base64: signatureB64, method, typedName: typedName || null },
+          document, label, action, extra, token,
+        }),
       })
+      const evidence = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(evidence.error || `Failed to record approval (${resp.status})`)
       setDone(evidence)
       setShowSign(false)
-      if (onApproved) await onApproved(evidence)
+      if (onApproved) await onApproved(evidence) // status already flipped server-side; callback is for UI/side-effects only
     } catch (e) {
       setError(e.message || 'Failed to record approval')
       throw e   // bubble back to SignatureModal so it stops the spinner and shows the message
@@ -227,12 +248,21 @@ export default function ApprovalButton({
         </>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <ShieldCheck size={12} />
-          Evidence captures your signature, identity, timestamp, IP, user agent
-          {requiresDocument && ' + SHA-256 of the file'}.
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'flex-start', gap: 8, cursor: working ? 'default' : 'pointer', maxWidth: 420, lineHeight: 1.35 }}>
+          <input
+            type="checkbox"
+            checked={ack}
+            onChange={e => setAck(e.target.checked)}
+            disabled={working}
+            style={{ marginTop: 2, flexShrink: 0, width: 16, height: 16, cursor: working ? 'default' : 'pointer' }}
+          />
+          <span>
+            <ShieldCheck size={12} style={{ verticalAlign: -1, marginRight: 4 }} />
+            I confirm this approval records my signature, identity, timestamp, IP address and user agent
+            {requiresDocument && ', and the SHA-256 of the uploaded document'}.
+          </span>
+        </label>
         <button
           onClick={handleClick}
           disabled={!canClick}
@@ -252,7 +282,10 @@ export default function ApprovalButton({
           }}
         >
           {working ? <Loader size={13} className="spin" /> : <CheckCircle2 size={13} />}
-          {working ? 'Recording…' : (requiresDocument && !file ? 'Upload PDF to continue' : `Sign & ${label}`)}
+          {working ? 'Recording…'
+            : requiresDocument && !file ? 'Upload PDF to continue'
+            : !ack ? 'Tick the box to continue'
+            : `Sign & ${label}`}
         </button>
       </div>
 

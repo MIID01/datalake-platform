@@ -195,8 +195,8 @@ export function EvidenceTrailModal({ evidence, onClose }) {
           {row('Role',         roleLabel(evidence.approver_role))}
           {row('Email',        evidence.approver_email, true)}
           {row('Approved at',  fmtTimestamp(evidence.approved_at))}
-          {row('IP address',   evidence.ip_address || 'not captured (network policy)', true)}
-          {row('User agent',   evidence.user_agent, true)}
+          {/* PDPL: IP address + user-agent are no longer captured or displayed on
+              approval/GRC evidence (data-minimisation). */}
           {row('Action',       evidence.action)}
           {evidence.requires_document && (
             <>

@@ -77,6 +77,11 @@ export const CRM_IMPORT_LEADS_URL =
 export const CRM_ARCHIVE_DEALS_URL =
   "https://crmarchivedeals-ifzodp5svq-wx.a.run.app";
 
+// Universal server-side approval/sign recorder (functions/recordApproval.js).
+// Every ApprovalButton signs through this — WORM + immutable evidence + audit.
+export const RECORD_APPROVAL_URL =
+  "https://recordapproval-ifzodp5svq-wx.a.run.app";
+
 export const ASSIGN_ENGINEER_URL =
   "https://assignengineertoproject-ifzodp5svq-wx.a.run.app";
 
