@@ -965,6 +965,8 @@ async function gatekeeperContractExtractHandler(event) {
       promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V6",
       systemPrompt: `Extract employment data from a Saudi employment contract. The text is the raw output of pdf-parse.
 
+CRITICAL — GROUNDING: Extract ONLY values that appear in the contract text. Copy each value verbatim. If a field is not present in the text, output null. Never invent, guess, or substitute sample/placeholder values — no "John Doe", no example passport numbers, no made-up banks or IBANs.
+
 RULES:
 1. Extract ONLY what is explicitly written in the contract. Do not derive, calculate, assume, or fill in any value.
 2. If a field is present, copy it exactly as written. If it is not present, use null.

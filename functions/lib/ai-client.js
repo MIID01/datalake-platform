@@ -176,16 +176,22 @@ async function callLLM({
         temperature: 0.1, // Low temperature for deterministic compliance outputs
         max_tokens: MAX_TOKENS,
         stream: false,
-        // Ollama structured outputs.
-        //   • jsonSchema (preferred) — passes a full JSON Schema; Ollama
-        //     constrains output to match the schema EXACTLY. This is what
-        //     stops Qwen 2.5 7B from inventing its own field names on long
-        //     inputs (the "sections": [...obligations...] failure mode).
-        //   • jsonMode — loose JSON mode (no shape constraint). Use when
-        //     you want a JSON object but don't care which keys.
+        // Structured outputs via the OpenAI-COMPATIBLE endpoint (/v1/chat/completions).
+        //   The schema MUST be passed as response_format:{type:'json_schema', json_schema:{…}}.
+        //   The previous shape — top-level `format` (Ollama-native, ignored by the
+        //   OpenAI layer) + response_format:{type:'json_object', schema} (the `schema`
+        //   subfield is ignored under json_object) — left the model UNCONSTRAINED, so
+        //   on a contract it free-formed the letterhead instead of the requested fields.
+        //   `type:'json_schema'` is what actually constrains Qwen to the exact keys.
+        //   • jsonMode — loose JSON object (valid-JSON only, no shape constraint).
+        //   NOTE: strict is intentionally OFF — under strict the small 3B model was
+        //   forced to fill every field and CONFABULATED sample values ("John Doe",
+        //   fake passport/IBAN). Without strict the schema guides the shape but the
+        //   model may output null for fields it cannot find in the text (which the
+        //   hard grounding rule in the prompt requires).
         ...(jsonSchema
-          ? { format: jsonSchema, response_format: { type: "json_object", schema: jsonSchema } }
-          : (jsonMode ? { format: "json", response_format: { type: "json_object" } } : {})),
+          ? { response_format: { type: "json_schema", json_schema: { name: "extraction", schema: jsonSchema } } }
+          : (jsonMode ? { response_format: { type: "json_object" } } : {})),
       }),
       timeout: 480000, // 8-minute timeout — Qwen 2.5 7B on CPU can take 3-7 minutes on long OCR output; pdf-parse text is much shorter so this is generous headroom
     });
