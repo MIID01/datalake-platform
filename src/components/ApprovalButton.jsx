@@ -259,7 +259,7 @@ export default function ApprovalButton({
           />
           <span>
             <ShieldCheck size={12} style={{ verticalAlign: -1, marginRight: 4 }} />
-            I confirm this approval records my signature, identity, timestamp, IP address and user agent
+            I confirm this approval records my signature, identity and timestamp
             {requiresDocument && ', and the SHA-256 of the uploaded document'}.
           </span>
         </label>
