@@ -464,15 +464,56 @@ async function callOCR({ fileBase64, lang, agent, type, triggeredBy }) {
 // Models sometimes wrap JSON in markdown fences — strip them.
 // ══════════════════════════════════════════════════════════════════
 function parseJsonOutput(rawOutput) {
+  const cleaned = String(rawOutput || "")
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // 1) Direct parse (the happy path — a clean JSON object).
   try {
-    const cleaned = rawOutput
-      .replace(/```json\s*/gi, "")
-      .replace(/```\s*/g, "")
-      .trim();
     return { success: true, data: JSON.parse(cleaned) };
-  } catch (err) {
-    return { success: false, error: `JSON parse failed: ${err.message}`, raw: rawOutput };
+  } catch (_) { /* fall through */ }
+
+  // 2) Tolerate prose/commentary around the JSON: pull the FIRST balanced
+  //    {…} object and parse that. A truncated object (no matching close —
+  //    e.g. a model that returned only "{") cannot be salvaged and fails
+  //    honestly, so the UI shows PARSE_FAILED rather than fabricating fields.
+  const block = extractFirstJsonObject(cleaned);
+  if (block) {
+    try {
+      return { success: true, data: JSON.parse(block) };
+    } catch (_) { /* fall through */ }
   }
+
+  return {
+    success: false,
+    error: "JSON parse failed: model output was not valid JSON",
+    raw: rawOutput,
+  };
+}
+
+// Scan for the first complete top-level {…} object, respecting string literals
+// and escapes so braces inside strings don't throw off the depth count.
+function extractFirstJsonObject(s) {
+  const start = s.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') {
+      inStr = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null; // unbalanced / truncated — not salvageable
 }
 
 module.exports = { callLLM, callOCR, logAiAction, parseJsonOutput, MODEL_NAME, MODEL_VERSION };
