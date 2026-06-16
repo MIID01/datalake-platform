@@ -40,9 +40,10 @@ const OCR_URL =
 // Self-hosted OPEN-WEIGHT model on our own Ollama in me-central2 (no external AI;
 // PII never leaves KSA). Qwen 2.5 3B is retired — it confabulated on extraction.
 // Driven by the LLM_MODEL env var so the deployed model and this audit label can
-// never drift (integrity rule: the label must name the TRUE model). Default target
-// is Gemma 3 12B (GPU); set LLM_MODEL=gemma3:4b for a CPU-only deploy.
-const MODEL_NAME = process.env.LLM_MODEL || "gemma3:12b";
+// never drift (integrity rule: the label must name the TRUE model). Default Gemma 3
+// 4B — multimodal, cheap on Cloud Run CPU (scale-to-zero); set LLM_MODEL=gemma3:12b
+// only if/when we move to an in-KSA GPU.
+const MODEL_NAME = process.env.LLM_MODEL || "gemma3:4b";
 const MODEL_VERSION = process.env.LLM_MODEL_VERSION || "gemma3";
 const MAX_TOKENS = 2000; // Hard ceiling per DTLK-PROMPT-AI-001 §Cost Control
 const BQ_DATASET = "datalake_audit";

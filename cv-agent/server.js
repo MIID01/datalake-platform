@@ -40,7 +40,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 // Same internal Cloud Run services the Cloud Functions call via functions/lib/ai-client.js.
 const AI_INFERENCE_URL = process.env.AI_INFERENCE_URL || "https://datalake-ai-inference-808056940626.me-central2.run.app";
 const OCR_URL = process.env.OCR_URL || "https://datalake-ocr-808056940626.me-central2.run.app";
-const MODEL = process.env.LLM_MODEL || "gemma3:12b"; // self-hosted open-weight (Gemma 3), me-central2
+const MODEL = process.env.LLM_MODEL || "gemma3:4b"; // self-hosted open-weight (Gemma 3, multimodal), me-central2
 const REGION = "me-central2";
 
 const gauth = new GoogleAuth();
