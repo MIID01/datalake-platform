@@ -52,14 +52,17 @@ const GPU_VM_ZONE = process.env.GPU_VM_ZONE || "me-central2-c";
 const BACKEND_IS_CLOUD_RUN = /\.run\.app(\/|$)/i.test(AI_INFERENCE_URL);
 
 // ── Constants ──
-// Self-hosted OPEN-WEIGHT model on our own Ollama in me-central2 (no external AI;
+// Self-hosted OPEN-WEIGHT models on our own Ollama in me-central2 (no external AI;
 // PII never leaves KSA). Qwen 2.5 3B is retired — it confabulated on extraction.
-// Driven by the LLM_MODEL env var so the deployed model and this audit label can
-// never drift (integrity rule: the label must name the TRUE model). Default Gemma 3
-// 4B — multimodal, cheap on Cloud Run CPU (scale-to-zero); set LLM_MODEL=gemma3:12b
-// only if/when we move to an in-KSA GPU.
-const MODEL_NAME = process.env.LLM_MODEL || "gemma3:4b";
-const MODEL_VERSION = process.env.LLM_MODEL_VERSION || "gemma3";
+// TEXT model (LLM_MODEL): Qwen 2.5 14B on the in-KSA GPU — in a head-to-head on a
+// real bilingual (AR/EN) contract it extracted more fields than Gemma 12B (passport,
+// both contract dates) and is strong on Arabic. VISION model (VISION_MODEL): Gemma 3
+// 12B — Qwen 2.5 14B is text-only, so image/scanned CVs go to Gemma vision.
+// Both are env-driven so the deployed model and the audit label can never drift
+// (integrity rule: the label must name the TRUE model that ran).
+const MODEL_NAME = process.env.LLM_MODEL || "qwen2.5:14b-instruct";
+const VISION_MODEL = process.env.VISION_MODEL || "gemma3:12b";
+const MODEL_VERSION = process.env.LLM_MODEL_VERSION || "qwen2.5";
 const MAX_TOKENS = 2000; // Hard ceiling per DTLK-PROMPT-AI-001 §Cost Control
 const BQ_DATASET = "datalake_audit";
 const BQ_TABLE = "ai_actions";
@@ -176,7 +179,7 @@ async function logAiAction(action) {
     input_type: action.inputType || "text",
     output_summary: String(action.outputSummary || "").substring(0, 500),
     output_action: action.outputAction || "unknown",
-    model_name: MODEL_NAME,
+    model_name: action.modelName || MODEL_NAME,
     model_version: action.modelVersion || MODEL_VERSION,
     prompt_template_id: action.promptTemplateId || "none",
     inference_time_ms: action.inferenceMs || 0,
@@ -232,6 +235,10 @@ async function callLLM({
 }) {
   const startTime = Date.now();
 
+  // Text -> Qwen (MODEL_NAME); images -> Gemma vision (VISION_MODEL). The audit
+  // logs whichever actually ran so the label never lies about the model.
+  const modelUsed = (images && images.length) ? VISION_MODEL : MODEL_NAME;
+
   // Wake the in-KSA GPU VM if it auto-stopped (no-op on Cloud Run backend).
   try {
     await ensureInferenceUp();
@@ -280,7 +287,7 @@ async function callLLM({
         ...(authToken ? { Authorization: authToken } : {}),
       },
       body: JSON.stringify({
-        model: MODEL_NAME,
+        model: modelUsed,
         messages: [
           { role: "system", content: systemPrompt },
           // Multimodal when images are supplied: OpenAI-compatible content parts
@@ -338,6 +345,7 @@ async function callLLM({
       promptTemplateId,
       input: userPrompt,
       inputType: "text",
+      modelName: modelUsed,
       outputSummary: output.substring(0, 500),
       outputAction: "draft_created",
       inferenceMs,

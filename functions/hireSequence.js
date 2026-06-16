@@ -907,7 +907,10 @@ async function gatekeeperContractExtractHandler(event) {
     // contract are at the top; sending all 34k chars makes Qwen 7B prone to
     // "summarize" the input instead of extract. This keeps the first ~5
     // pages of clean text plus the start of the wage breakdown.
-    const truncatedText = fullText.length > 15000 ? fullText.slice(0, 15000) : fullText;
+    // 20k chars (~10k tokens) fits the 16384-token context with room for the
+    // system prompt + output, and reaches fields (bank/IBAN) that sit deep in
+    // multi-page bilingual contracts past the old 15k cutoff.
+    const truncatedText = fullText.length > 20000 ? fullText.slice(0, 20000) : fullText;
 
     // Reference shape of the fields we extract. NOT passed as a json_schema:
     // Ollama's grammar-constrained json_schema TRUNCATES/garbles on long
@@ -980,7 +983,8 @@ RULES:
 5. Dates: YYYY-MM-DD, Gregorian.
 6. English fields: Latin letters only. Arabic field: Arabic letters only.
 7. Booleans: true/false only, not strings. If absent, null.
-8. Return ONLY raw JSON. No markdown. No commentary. No code fences.
+8. SCAN THE WHOLE DOCUMENT, both languages. Many fields appear ONLY under an Arabic label — check for: salary الراتب/الأجر/الراتب الشهري, bank اسم البنك/المصرف, IBAN الآيبان/رقم الآيبان/رقم الحساب, passport رقم الجواز/جواز السفر, national id رقم الهوية/الإقامة, start date تاريخ البداية/بداية العقد, end date تاريخ النهاية/نهاية العقد, leave الإجازة السنوية. Do not return null for a field whose value is printed anywhere in the text.
+9. Return ONLY raw JSON. No markdown. No commentary. No code fences.
 
 FIELDS:
 {
