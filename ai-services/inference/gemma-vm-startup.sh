@@ -16,6 +16,9 @@ cat > /etc/systemd/system/ollama.service.d/override.conf <<'EOF'
 [Service]
 Environment="OLLAMA_HOST=0.0.0.0:11434"
 Environment="OLLAMA_KEEP_ALIVE=5m"
+# 16384-token context: long bilingual (AR/EN) contracts are ~7k tokens; the
+# default 4096 truncates the system prompt away and the model emits just "{".
+Environment="OLLAMA_CONTEXT_LENGTH=16384"
 EOF
 
 # Idle watchdog — stop the VM when Gemma has been idle (cost control).

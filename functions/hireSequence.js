@@ -909,9 +909,12 @@ async function gatekeeperContractExtractHandler(event) {
     // pages of clean text plus the start of the wage breakdown.
     const truncatedText = fullText.length > 15000 ? fullText.slice(0, 15000) : fullText;
 
-    // JSON Schema for Ollama structured outputs. With this set the model
-    // can ONLY emit a JSON object with these exact keys — no invented
-    // "sections" array, no markdown prose, no commentary.
+    // Reference shape of the fields we extract. NOT passed as a json_schema:
+    // Ollama's grammar-constrained json_schema TRUNCATES/garbles on long
+    // bilingual (AR/EN) contracts — the model emits just "{" with
+    // finish_reason=length. We use json_object + the explicit field list in
+    // the prompt below instead, which extracts reliably. Kept for reference.
+    // eslint-disable-next-line no-unused-vars
     const CONTRACT_EXTRACT_SCHEMA = {
       type: "object",
       properties: {
@@ -962,8 +965,8 @@ async function gatekeeperContractExtractHandler(event) {
       agent: "gatekeeper",
       type: "contract_extract",
       triggeredBy: "system:pubsub",
-      jsonSchema: CONTRACT_EXTRACT_SCHEMA,
-      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V6",
+      jsonMode: true, // json_object, NOT json_schema — see CONTRACT_EXTRACT_SCHEMA note
+      promptTemplateId: "GATEKEEPER_CONTRACT_EXTRACT_V7",
       systemPrompt: `Extract employment data from a Saudi employment contract. The text is the raw output of pdf-parse.
 
 CRITICAL — GROUNDING: Extract ONLY values that appear in the contract text. Copy each value verbatim. If a field is not present in the text, output null. Never invent, guess, or substitute sample/placeholder values — no "John Doe", no example passport numbers, no made-up banks or IBANs.
