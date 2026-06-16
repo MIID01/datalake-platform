@@ -8,9 +8,22 @@ const Busboy = require("busboy");
 const crypto = require("crypto");
 const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
+const { setGlobalOptions } = require("firebase-functions/v2");
 const { httpErrorStatus } = require("./lib/httpErrors");
 // NOTE: VertexAI / Gemini removed per DTLK-PROMPT-AI-001.
-// All AI inference now runs on self-hosted datalake-ai-inference (Qwen 2.5 7B).
+// All AI inference now runs on the self-hosted Gemma 3 backend (Ollama, me-central2)
+// — the in-KSA GPU VM (datalake-ai-gpu) reached privately over the VPC connector.
+
+// Attach the Serverless VPC connector so functions can reach the in-KSA GPU VM
+// (Gemma 3, private IP 10.216.0.2:11434). PRIVATE_RANGES_ONLY: only RFC-1918
+// destinations use the connector; all public egress (BigQuery, Gmail, Firestore,
+// Cloud Run, Zoho) stays on the direct path — so non-AI functions are unaffected.
+setGlobalOptions({
+  region: "me-central2",
+  vpcConnector: "datalake-ai-connector",
+  vpcConnectorEgressSettings: "PRIVATE_RANGES_ONLY",
+});
+
 const { callLLM, callOCR, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
 const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 
