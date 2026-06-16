@@ -936,6 +936,7 @@ async function gatekeeperContractExtractHandler(event) {
         salary_monthly_sar:      { type: ["number", "null"] },
         housing_allowance_sar:   { type: ["number", "null"] },
         transport_allowance_sar: { type: ["number", "null"] },
+        currency:                { type: ["string", "null"] },
         probation_period_months: { type: ["number", "null"] },
         notice_period_days:      { type: ["number", "null"] },
         annual_leave_days:       { type: ["number", "null"] },
@@ -971,6 +972,7 @@ RULES:
 1. Extract ONLY what is explicitly written in the contract. Do not derive, calculate, assume, or fill in any value.
 2. If a field is present, copy it exactly as written. If it is not present, use null.
 3. Do not infer salary breakdowns from percentages. Do not apply any policy. Read the actual printed numbers.
+3b. CURRENCY — DO NOT CONVERT. Record every money amount exactly as printed. Put the contract's currency code in "currency" (e.g. SAR, USD, EUR, TND, AED). If the contract prints amounts in a foreign currency, put those printed numbers in the salary/allowance fields AS-IS and set "currency" to that foreign code — never convert to SAR, never guess an exchange rate. If no currency is printed, set "currency" to "SAR".
 4. Numbers: digits only, no commas, no currency words. Convert Arabic digits ٠١٢٣٤٥٦٧٨٩ to 0-9.
 5. Dates: YYYY-MM-DD, Gregorian.
 6. English fields: Latin letters only. Arabic field: Arabic letters only.
@@ -1000,6 +1002,7 @@ FIELDS:
   "salary_monthly_sar": number|null,
   "housing_allowance_sar": number|null,
   "transport_allowance_sar": number|null,
+  "currency": string|null,
   "probation_period_months": number|null,
   "notice_period_days": number|null,
   "annual_leave_days": number|null,
@@ -1048,6 +1051,19 @@ FIELDS:
     const fields = parsed.data;
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    // Currency guard — the AI extracts amount + currency verbatim and converts
+    // NOTHING (no LLM-invented FX rates). A contract in SAR (or with no currency
+    // printed, on a Saudi contract) is treated as SAR; any other currency means
+    // the printed amounts are NOT SAR, so we must NOT copy them into the SAR
+    // salary fields on the employee/hire record — Finance converts manually.
+    const rawCurrency = String(fields.currency || "").trim().toUpperCase();
+    const SAR_ALIASES = ["", "SAR", "SR", "SARS", "ر.س", "﷼", "RIYAL", "SAUDI RIYAL", "SAUDI RIYALS"];
+    const isSar = SAR_ALIASES.includes(rawCurrency);
+    fields.currency = rawCurrency || "SAR"; // normalise for storage + display
+
+    // Helper: only mirror a money field to a SAR record field when it IS SAR.
+    const sarMoney = (val) => (isSar && val ? Number(val) : undefined);
+
     // Mirror status fields so both the gatekeeper-facing
     // `contract_extraction_status` and the UI-facing `status` flip together —
     // HRContracts.jsx reads `c.status || c.contract_extraction_status`, so if
@@ -1065,15 +1081,21 @@ FIELDS:
     };
 
     if (hire_id) {
-      if (fields.salary_monthly_sar) update.salary_monthly = Number(fields.salary_monthly_sar);
+      // SAR money fields only when the contract IS in SAR (else Finance converts).
+      const salarySar = sarMoney(fields.salary_monthly_sar);
+      const housingSar = sarMoney(fields.housing_allowance_sar);
+      const transportSar = sarMoney(fields.transport_allowance_sar);
+      const poSar = sarMoney(fields.po_value_sar);
+      if (salarySar !== undefined) update.salary_monthly = salarySar;
       if (fields.contract_start_date) update.start_date = fields.contract_start_date;
       if (fields.job_title) update.job_title = fields.job_title;
       if (fields.po_number) update.po_number = fields.po_number;
-      if (fields.po_value_sar) update.po_value_sar = Number(fields.po_value_sar);
+      if (poSar !== undefined) update.po_value_sar = poSar;
       if (fields.contract_end_date) update.contract_end_date = fields.contract_end_date;
-      if (fields.housing_allowance_sar) update.housing_allowance_sar = Number(fields.housing_allowance_sar);
-      if (fields.transport_allowance_sar) update.transport_allowance_sar = Number(fields.transport_allowance_sar);
+      if (housingSar !== undefined) update.housing_allowance_sar = housingSar;
+      if (transportSar !== undefined) update.transport_allowance_sar = transportSar;
       if (fields.work_location) update.work_location = fields.work_location;
+      if (!isSar) update.salary_currency = fields.currency; // flag for the SAR-conversion step
       await docRef.update(update);
     } else {
       await docRef.update(update);
@@ -1084,14 +1106,15 @@ FIELDS:
       if (fields.job_title) employeeUpdate.job_title = fields.job_title;
       if (fields.client_name) employeeUpdate.client_name = fields.client_name;
       if (fields.po_number) employeeUpdate.po_number = fields.po_number;
-      if (fields.po_value_sar) employeeUpdate.po_value_sar = Number(fields.po_value_sar);
+      if (sarMoney(fields.po_value_sar) !== undefined) employeeUpdate.po_value_sar = sarMoney(fields.po_value_sar);
       if (fields.contract_start_date) employeeUpdate.contract_start = fields.contract_start_date;
       if (fields.contract_end_date) employeeUpdate.contract_end = fields.contract_end_date;
-      if (fields.salary_monthly_sar) employeeUpdate.salary_monthly = Number(fields.salary_monthly_sar);
-      if (fields.housing_allowance_sar) employeeUpdate.housing_allowance_sar = Number(fields.housing_allowance_sar);
-      if (fields.transport_allowance_sar) employeeUpdate.transport_allowance_sar = Number(fields.transport_allowance_sar);
+      if (sarMoney(fields.salary_monthly_sar) !== undefined) employeeUpdate.salary_monthly = sarMoney(fields.salary_monthly_sar);
+      if (sarMoney(fields.housing_allowance_sar) !== undefined) employeeUpdate.housing_allowance_sar = sarMoney(fields.housing_allowance_sar);
+      if (sarMoney(fields.transport_allowance_sar) !== undefined) employeeUpdate.transport_allowance_sar = sarMoney(fields.transport_allowance_sar);
       if (fields.work_location) employeeUpdate.work_location = fields.work_location;
       if (fields.iqama_national_id) employeeUpdate.national_id = fields.iqama_national_id;
+      if (!isSar) employeeUpdate.salary_currency = fields.currency; // foreign — Finance converts to SAR manually
 
       await db.collection("employees").doc(employee_id).set(employeeUpdate, { merge: true });
     }

@@ -37,9 +37,10 @@ const FIELD_SPECS = [
   { key: 'po_value_sar',          label: 'PO Value (SAR)',          type: 'number' },
   { key: 'contract_start_date',   label: 'Contract Start',          type: 'date' },
   { key: 'contract_end_date',     label: 'Contract End',            type: 'date' },
-  { key: 'salary_monthly_sar',    label: 'Monthly Salary (SAR)',    type: 'number' },
-  { key: 'housing_allowance_sar', label: 'Housing Allowance (SAR)', type: 'number' },
-  { key: 'transport_allowance_sar', label: 'Transport Allowance (SAR)', type: 'number' },
+  { key: 'currency',              label: 'Currency (as printed — no conversion)', type: 'text' },
+  { key: 'salary_monthly_sar',    label: 'Monthly Salary',          type: 'number' },
+  { key: 'housing_allowance_sar', label: 'Housing Allowance',       type: 'number' },
+  { key: 'transport_allowance_sar', label: 'Transport Allowance',   type: 'number' },
   { key: 'probation_period_months', label: 'Probation (months)',    type: 'number' },
   { key: 'notice_period_days',    label: 'Notice Period (days)',    type: 'number' },
   { key: 'work_location',         label: 'Work Location',           type: 'text' },
@@ -438,20 +439,26 @@ export default function HRContracts() {
       if (active.linked_employee_id) {
         const f = reviewFields || {}
         const num = (v) => (v === '' || v == null ? null : Number(v))
+        // SAR money fields are written ONLY when the contract is in SAR. A foreign
+        // currency means the printed amounts are NOT SAR — never write them into a
+        // SAR field; flag the currency so Finance converts manually.
+        const cur = String(f.currency || '').trim().toUpperCase()
+        const isSar = ['', 'SAR', 'SR', 'SARS', 'ر.س', '﷼', 'RIYAL', 'SAUDI RIYAL', 'SAUDI RIYALS'].includes(cur)
         const patch = {
           job_title: f.job_title || null,
           full_name_ar: f.employee_name_ar || null,
           iqama_national_id: f.iqama_national_id || null,
           contract_start: f.contract_start_date || null,
           contract_end:   f.contract_end_date || null,
-          salary_monthly_sar:    num(f.salary_monthly_sar),
-          housing_allowance_sar: num(f.housing_allowance_sar),
-          transport_allowance_sar: num(f.transport_allowance_sar),
+          salary_monthly_sar:    isSar ? num(f.salary_monthly_sar) : null,
+          housing_allowance_sar: isSar ? num(f.housing_allowance_sar) : null,
+          transport_allowance_sar: isSar ? num(f.transport_allowance_sar) : null,
           probation_period_months: num(f.probation_period_months),
           notice_period_days:    num(f.notice_period_days),
           work_location: f.work_location || null,
           // Convenience for payroll calcs that want the total wage in one number.
-          salary: num(f.salary_monthly_sar),
+          salary: isSar ? num(f.salary_monthly_sar) : null,
+          salary_currency: isSar ? null : (cur || null),
           contract_synced_from: active.id,
           contract_synced_at: serverTimestamp(),
           updated_at: serverTimestamp(),
@@ -769,6 +776,21 @@ export default function HRContracts() {
               </div>
             </div>
           )}
+
+          {(() => {
+            const cur = String(reviewFields.currency || '').trim().toUpperCase()
+            const isSar = ['', 'SAR', 'SR', 'SARS', 'ر.س', '﷼', 'RIYAL', 'SAUDI RIYAL', 'SAUDI RIYALS'].includes(cur)
+            if (isSar) return null
+            return (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 12,
+                borderRadius: 8, background: 'rgba(239,88,41,0.10)', border: '1px solid rgba(239,88,41,0.35)',
+                color: '#fdba74', fontSize: '0.78rem', fontWeight: 600,
+              }}>
+                <AlertTriangle size={14} /> Foreign currency ({cur}) — amounts are recorded exactly as printed. Convert to SAR manually (Finance); the SAR salary fields stay blank on the employee record on purpose.
+              </div>
+            )
+          })()}
 
           <div style={styles.grid2}>
             {FIELD_SPECS.map(f => (
