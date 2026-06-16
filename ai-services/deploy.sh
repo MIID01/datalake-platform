@@ -60,7 +60,7 @@ echo "[STEP 1] DONE: datalake-ocr deployed."
 # =============================================================================
 echo ""
 echo "[STEP 2] Building datalake-ai-inference Docker image..."
-echo "         WARNING: This image pre-pulls Qwen 2.5 7B (~4.5GB). Build will take ~10 minutes."
+echo "         WARNING: This image pre-pulls Gemma 3 (gemma3:12b ~8GB / gemma3:4b ~3GB via --build-arg MODEL). Build takes ~10 minutes."
 gcloud builds submit ./ai-services/inference \
   --tag "gcr.io/$PROJECT_ID/ai-inference:latest" \
   --project="$PROJECT_ID" \

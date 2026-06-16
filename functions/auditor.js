@@ -6,7 +6,7 @@
  *
  * DTLK-PROMPT-AI-001 | Agent: Auditor
  * Rules enforced:
- *   - No external AI APIs. Self-hosted Qwen 2.5 7B only.
+ *   - No external AI APIs. Self-hosted open-weight LLM only (Gemma 3, via LLM_MODEL).
  *   - All outputs are DRAFTS pending CEO review.
  *   - EXCEPTION: auditorComplianceCheck is read-only/scheduled — no CEO gate needed per rule 4.
  *   - Every AI call logged to BigQuery datalake_audit.ai_actions.
