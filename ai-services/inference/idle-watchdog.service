@@ -1,0 +1,7 @@
+[Unit]
+Description=Stop the GPU VM when Gemma inference is idle (cost control)
+After=ollama.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/idle-watchdog.sh
