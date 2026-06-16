@@ -6,6 +6,7 @@ const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
 const Busboy = require("busboy");
 const crypto = require("crypto");
+const pdfParse = require("pdf-parse"); // digital-PDF text layer for CV extraction (no PaddleOCR)
 const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
 const { setGlobalOptions } = require("firebase-functions/v2");
@@ -203,20 +204,9 @@ exports.submitCareerApplication = onRequest({
         (async () => {
           try {
             console.log(`[Gatekeeper AI] Starting background CV extraction for ${candidateId}`);
-            const fileBase64 = cvFile.toString("base64");
-            const ocrResult = await callOCR({
-              fileBase64, lang: "en", agent: "gatekeeper", type: "cv_ocr", triggeredBy: "system:submitCareerApplication"
-            });
-            if (!ocrResult.success) throw new Error("OCR failed");
-            
-            const fullText = ocrResult.lines.map(l => l.text).join("\n");
-            if (!fullText.trim()) throw new Error("No text extracted");
-
-            const llmResult = await callLLM({
-              agent: "gatekeeper", type: "cv_extract", triggeredBy: "system:submitCareerApplication",
-              promptTemplateId: "GATEKEEPER_CV_EXTRACT_V1",
-              systemPrompt: `You are the Datalake Gatekeeper AI. Extract structured data from this CV text.
-Return ONLY a valid JSON object with these exact fields (use null for any field not found):
+            const CV_SYS = `You are the Datalake Gatekeeper AI. Extract structured data from this CV.
+GROUNDING: Extract ONLY information actually present in the CV. If a field is not present, use null. Never invent names, employers, dates, emails, phones, certifications, or skills.
+Return ONLY a valid JSON object with these exact fields (use null for any not found):
 {
   "full_name": "candidate full name",
   "email": "email address",
@@ -230,9 +220,30 @@ Return ONLY a valid JSON object with these exact fields (use null for any field 
   "education": [{"degree": "...", "institution": "...", "year": "..."}],
   "certifications": ["cert1", "cert2"]
 }
-Return valid JSON only, no markdown.`,
-              userPrompt: fullText
-            });
+Return valid JSON only, no markdown.`;
+            // Images -> Gemma vision; digital PDFs -> pdf-parse text -> Gemma. No PaddleOCR.
+            let llmResult;
+            if ((cvMimetype || "").startsWith("image/")) {
+              llmResult = await callLLM({
+                agent: "gatekeeper", type: "cv_extract", triggeredBy: "system:submitCareerApplication",
+                promptTemplateId: "GATEKEEPER_CV_EXTRACT_V2_VISION",
+                systemPrompt: CV_SYS,
+                userPrompt: "Read this CV image and extract the candidate data as JSON.",
+                jsonMode: true,
+                images: [{ base64: cvFile.toString("base64"), mimeType: cvMimetype }],
+              });
+            } else {
+              let fullText = "";
+              try { fullText = ((await pdfParse(cvFile)).text || "").trim(); } catch (e) { console.warn("pdf-parse failed:", e.message); }
+              if (!fullText) throw new Error("Scanned PDF with no text layer — cannot extract (upload an image instead)");
+              llmResult = await callLLM({
+                agent: "gatekeeper", type: "cv_extract", triggeredBy: "system:submitCareerApplication",
+                promptTemplateId: "GATEKEEPER_CV_EXTRACT_V2",
+                systemPrompt: CV_SYS,
+                userPrompt: fullText,
+                jsonMode: true,
+              });
+            }
 
             if (llmResult.success) {
               const parsed = parseJsonOutput(llmResult.output);
@@ -2541,44 +2552,15 @@ exports.extractCVData = onRequest(
 
       const triggeredBy = req.headers.authorization ? "authenticated_user" : "anonymous";
 
-      // ── Step 2: OCR — extract raw text via datalake-ocr (PaddleOCR) ──
-      const fileBase64 = cvBuffer.toString("base64");
-      const ocrResult = await callOCR({
-        fileBase64,
-        lang: "en",
-        agent: "gatekeeper",
-        type: "cv_ocr",
-        triggeredBy,
-      });
+      // ── Step 2+3: Extract with Gemma 3 on the in-KSA GPU. Images go straight
+      //    to Gemma VISION (OCR + extraction in ONE pass); digital PDFs are read
+      //    with pdf-parse (milliseconds, no service call) and the text goes to
+      //    Gemma. PaddleOCR is no longer used on the CV path. ──
+      const CV_SYSTEM_PROMPT = `You are the Datalake Gatekeeper AI. Extract structured data from this CV.
 
-      if (!ocrResult.success) {
-        console.error("OCR failed:", ocrResult.error);
-        res.status(503).json({
-          error: "CV OCR temporarily unavailable. Please fill the form manually.",
-          detail: ocrResult.error,
-          fallback: true,
-        });
-        return;
-      }
+GROUNDING: Extract ONLY information actually present in the CV. If a field is not present, use null. Never invent names, employers, dates, emails, phone numbers, certifications, or skills.
 
-      const fullText = ocrResult.lines.map((l) => l.text).join("\n");
-
-      if (!fullText.trim()) {
-        res.status(422).json({
-          error: "Could not extract text from this CV. Please upload a clearer version or fill manually.",
-          fallback: true,
-        });
-        return;
-      }
-
-      // ── Step 3: LLM extraction — Qwen 2.5 7B (self-hosted) ──
-      const llmResult = await callLLM({
-        agent: "gatekeeper",
-        type: "cv_extract",
-        triggeredBy,
-        promptTemplateId: "GATEKEEPER_CV_EXTRACT_V1",
-        systemPrompt: `You are the Datalake Gatekeeper AI. Extract structured data from this CV text.
-Return ONLY a valid JSON object with these exact fields (use null for any field not found):
+Return ONLY a valid JSON object with these exact fields (use null for any not found):
 {
   "full_name": "candidate full name",
   "email": "email address",
@@ -2599,14 +2581,61 @@ Return ONLY a valid JSON object with these exact fields (use null for any field 
   "role_interest": "type of role or null",
   "match_summary": "Brief 2-sentence candidate summary"
 }
-Rules: extract ALL skills; prefer +966 for Saudi phones; return valid JSON only, no markdown.`,
-        userPrompt: fullText,
-      });
+Rules: extract ALL skills; prefer +966 for Saudi phones; keep work_history descriptions short; return valid JSON only, no markdown.`;
+
+      const isImage = (fileMimeType || "").startsWith("image/");
+      let fullText = "";
+      let extractionMethod;
+      let pageCount = 0;
+      let llmResult;
+
+      if (isImage) {
+        // Photo / scan of a CV — Gemma vision reads it directly.
+        extractionMethod = "gemma-vision";
+        llmResult = await callLLM({
+          agent: "gatekeeper",
+          type: "cv_extract",
+          triggeredBy,
+          promptTemplateId: "GATEKEEPER_CV_EXTRACT_V2_VISION",
+          systemPrompt: CV_SYSTEM_PROMPT,
+          userPrompt: "Read this CV image and extract the candidate data as JSON.",
+          jsonMode: true,
+          images: [{ base64: cvBuffer.toString("base64"), mimeType: fileMimeType }],
+        });
+      } else {
+        // PDF — read the embedded text layer (digital PDF). No OCR service call.
+        try {
+          const pdfData = await pdfParse(cvBuffer);
+          fullText = (pdfData.text || "").trim();
+          pageCount = pdfData.numpages || 0;
+        } catch (e) {
+          console.warn("pdf-parse failed:", e.message);
+        }
+        if (!fullText) {
+          // Scanned/image-only PDF with no text layer — we no longer OCR PDFs.
+          res.status(422).json({
+            error: "This looks like a scanned PDF with no text. Please upload it as an image (PNG/JPG), or a text-based PDF.",
+            fallback: true,
+          });
+          return;
+        }
+        extractionMethod = "pdf-parse+gemma";
+        llmResult = await callLLM({
+          agent: "gatekeeper",
+          type: "cv_extract",
+          triggeredBy,
+          promptTemplateId: "GATEKEEPER_CV_EXTRACT_V2",
+          systemPrompt: CV_SYSTEM_PROMPT,
+          userPrompt: fullText,
+          jsonMode: true,
+        });
+      }
 
       if (!llmResult.success) {
-        console.error("LLM extraction failed:", llmResult.error);
+        console.error("CV extraction failed:", llmResult.error);
         res.status(503).json({
           error: "AI extraction temporarily unavailable. Please fill the form manually.",
+          detail: llmResult.error,
           fallback: true,
         });
         return;
@@ -2617,7 +2646,7 @@ Rules: extract ALL skills; prefer +966 for Saudi phones; return valid JSON only,
       let extracted = parsed.success ? parsed.data : {};
 
       if (!parsed.success) {
-        console.warn("LLM JSON parse failed — returning partial data:", parsed.error);
+        console.warn("CV JSON parse failed — returning partial data:", parsed.error);
       }
 
       // Normalise skills to array
@@ -2626,14 +2655,16 @@ Rules: extract ALL skills; prefer +966 for Saudi phones; return valid JSON only,
       }
       if (!Array.isArray(extracted.skills)) extracted.skills = [];
 
-      // Regex fallback for critical fields if LLM missed them
-      if (!extracted.email) {
-        const m = fullText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        if (m) extracted.email = m[0];
-      }
-      if (!extracted.phone) {
-        const m = fullText.match(/\+966\s?[-.]?\s?5\d{8}|05\d{8}/);
-        if (m) extracted.phone = m[0];
+      // Regex fallback for email/phone — only when we have a text layer (PDF path).
+      if (fullText) {
+        if (!extracted.email) {
+          const m = fullText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+          if (m) extracted.email = m[0];
+        }
+        if (!extracted.phone) {
+          const m = fullText.match(/\+966\s?[-.]?\s?5\d{8}|05\d{8}/);
+          if (m) extracted.phone = m[0];
+        }
       }
 
       // ── Step 5: Firestore audit log (no PII — metadata only) ──
@@ -2645,8 +2676,9 @@ Rules: extract ALL skills; prefer +966 for Saudi phones; return valid JSON only,
           file_name: fileName,
           file_size_bytes: cvBuffer.length,
           file_type: fileMimeType,
-          ocr_lines_extracted: ocrResult.lines.length,
-          ocr_pages: ocrResult.pageCount,
+          extraction_method: extractionMethod,
+          pdf_text_chars: fullText.length,
+          pages: pageCount,
           fields_extracted: Object.keys(extracted).filter(
             (k) => extracted[k] !== null && extracted[k] !== ""
           ).length,

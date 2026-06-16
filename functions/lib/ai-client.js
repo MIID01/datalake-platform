@@ -214,6 +214,9 @@ async function logAiAction(action) {
  * @param {string} options.userPrompt      - user content (what to process)
  * @param {string} options.triggeredBy     - uid or 'scheduler'
  * @param {string} options.promptTemplateId - versioned template ID
+ * @param {Array<{base64:string,mimeType:string}>} [options.images] - when set, the
+ *        call is MULTIMODAL: the images are sent to Gemma 3 vision alongside the
+ *        text prompt (OCR + extraction in one GPU call — no separate PaddleOCR step).
  * @returns {{ success: boolean, output: string, inferenceMs: number, error?: string }}
  */
 async function callLLM({
@@ -225,6 +228,7 @@ async function callLLM({
   promptTemplateId,
   jsonMode = false,
   jsonSchema = null,
+  images = null,
 }) {
   const startTime = Date.now();
 
@@ -279,7 +283,21 @@ async function callLLM({
         model: MODEL_NAME,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          // Multimodal when images are supplied: OpenAI-compatible content parts
+          // (text + image_url data URIs). Gemma 3 reads the image directly, so the
+          // model does OCR + extraction in one pass — no separate PaddleOCR call.
+          (images && images.length)
+            ? {
+                role: "user",
+                content: [
+                  { type: "text", text: userPrompt || "" },
+                  ...images.map((img) => ({
+                    type: "image_url",
+                    image_url: { url: `data:${img.mimeType || "image/png"};base64,${img.base64}` },
+                  })),
+                ],
+              }
+            : { role: "user", content: userPrompt },
         ],
         temperature: 0.1, // Low temperature for deterministic compliance outputs
         max_tokens: MAX_TOKENS,
