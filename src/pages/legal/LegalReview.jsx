@@ -22,7 +22,7 @@ const FIELD_SPECS = [
   { key: 'po_number',             label: 'PO Number' },
   { key: 'contract_start_date',   label: 'Contract Start' },
   { key: 'contract_end_date',     label: 'Contract End' },
-  { key: 'currency',              label: 'Currency (as printed)' },
+  { key: 'currency',              label: 'Currency' },
   { key: 'salary_monthly_sar',    label: 'Monthly Salary' },
   { key: 'housing_allowance_sar', label: 'Housing Allowance' },
   { key: 'transport_allowance_sar', label: 'Transport Allowance' },
