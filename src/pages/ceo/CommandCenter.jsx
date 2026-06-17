@@ -200,20 +200,8 @@ export default function CommandCenter() {
       setDecisions(p => ({ ...p, hireRequests: items }))
     }, () => {}))
 
-    // 5d. CRITICAL-priority support tickets (escalations)
-    unsubs.push(onSnapshot(query(collection(db, 'support_tickets'), where('priority', '==', 'Critical')), snap => {
-      const items = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(t => t.status !== 'Resolved' && t.status !== 'Closed')
-        .map(t => ({
-          id: `tkt-${t.id}`, category: 'ticket',
-          title: t.subject || t.ticket_id,
-          subtitle: `${t.category || 'Issue'} · from ${t.engineer_name || t.engineer_email || 'employee'}`,
-          href: '/ceo/tickets',
-          created_at: t.created_at,
-        }))
-      setDecisions(p => ({ ...p, tickets: items }))
-    }, () => {}))
+    // Support tickets (incl. critical) are an IT function handled in the IT Admin
+    // portal (/admin/tickets) — they no longer surface on the CEO Command Center.
 
     // 5e. Leave requests where the type is UNPAID or HAJJ — only these reach the CEO
     unsubs.push(onSnapshot(query(collection(db, 'leave_requests'), where('status', 'in', ['SUBMITTED', 'PENDING', 'PM_APPROVED'])), snap => {

@@ -122,7 +122,6 @@ export default function App() {
           <Route path="expenses" element={<CEOExpenses />} />
           <Route path="leave" element={<CEOLeave />} />
           <Route path="payroll" element={<CEOPayroll />} />
-          <Route path="tickets" element={<CEOTickets />} />
           <Route path="training" element={<CEOTraining />} />
           <Route path="policies" element={<GrcLibrary />} />
           <Route path="contracts" element={<CEOContracts />} />
@@ -154,6 +153,7 @@ export default function App() {
           <Route path="audit" element={<AdminAuditLogs />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="integrations" element={<AdminIntegrations />} />
+          <Route path="tickets" element={<CEOTickets />} />
           <Route path="*" element={<Navigate to="/admin/credentials" replace />} />
         </Route>
 

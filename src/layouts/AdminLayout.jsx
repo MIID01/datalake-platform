@@ -5,7 +5,7 @@ import { useRiyadhTime } from '../hooks/useUtils'
 import { auth } from '../lib/firebase'
 import { signOut } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
-import { KeyRound, ShieldCheck, ScrollText, UserCog, Plug, ChevronLeft, ChevronRight, LogOut, Lock } from 'lucide-react'
+import { KeyRound, ShieldCheck, ScrollText, UserCog, Plug, ChevronLeft, ChevronRight, LogOut, Lock, LifeBuoy } from 'lucide-react'
 import '../styles/ceo.css'
 
 // Distinct from the CEO portal (navy #022873) — IT Administration uses dark teal.
@@ -17,6 +17,7 @@ const navItems = [
   { icon: ScrollText, label: 'Audit Logs', path: '/admin/audit' },
   { icon: UserCog, label: 'User Accounts', path: '/admin/users' },
   { icon: Plug, label: 'Integrations', path: '/admin/integrations' },
+  { icon: LifeBuoy, label: 'Support Tickets', path: '/admin/tickets' },
 ]
 
 export default function AdminLayout() {

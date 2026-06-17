@@ -79,13 +79,8 @@ function useCEOBadges() {
       setCounts(c => ({ ...c, contractsCount: pending }))
     }))
 
-    // ── Support Tickets (/ceo/tickets) ────────────────────────────────────
-    // CEOTickets.jsx reads all support_tickets. Badge = OPEN tickets from
-    // the same collection — no extra filter that could make badge > page count.
-    unsubs.push(onSnapshot(
-      query(collection(db, 'support_tickets'), where('status', '==', 'OPEN')),
-      snap => setCounts(c => ({ ...c, ticketsCount: snap.size }))
-    ))
+    // Support tickets are an IT function — managed in the IT Admin portal
+    // (/admin/tickets), not on the CEO surface. No CEO badge/counter here.
 
     return () => unsubs.forEach(u => u())
   }, [])
@@ -107,7 +102,6 @@ const navItems = [
   { icon: FileText,     label: 'Contracts',           path: '/ceo/contracts',   badgeKey: 'contractsCount' },
   { icon: CheckSquare,  label: 'Approvals',           path: '/ceo/approvals',   badgeKey: 'approvalsCount', glow: true },
   { icon: FileText,     label: 'Leave Requests',      path: '/ceo/leave' },
-  { icon: Inbox,        label: 'Support Tickets',     path: '/ceo/tickets',     badgeKey: 'ticketsCount' },
   { icon: DollarSign,   label: 'Expenses',            path: '/ceo/expenses' },
   { icon: Shield,       label: 'Compliance',          path: '/ceo/compliance' },
   { icon: Users,        label: 'Training Matrix',     path: '/ceo/training' },
