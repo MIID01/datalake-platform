@@ -1,14 +1,15 @@
 /**
  * sendInterviewCV — Cloud Function (onRequest)
  *
- * CEO-only gate. Downloads the prepared interview CV DOCX from the
- * WORM bucket, builds an RFC 2822 email with attachment, and sends
- * it to the client approver via Gmail API (domain delegation).
+ * CEO-only gate. Downloads the prepared interview CV PDF from the
+ * bucket prepareInterviewCV recorded on the candidate
+ * (interview_cv_bucket), builds an RFC 2822 email with attachment,
+ * and sends it to the client approver via Gmail API (domain delegation).
  *
  * Auth: role must be "ceo" — absolute, no bypass.
  * Sender: hr@datalake.sa (impersonated via ADC + domain delegation)
  *
- * DTLK-FORM-HR-CV-002-v2
+ * DTLK-FORM-HR-CV-002-v3
  */
 
 // [TODO: enable domain-wide delegation for the Cloud Functions service account
@@ -22,7 +23,10 @@ const { writeBigQueryAudit } = require("./prepareInterviewCV");
 const { generateScorecardToken } = require("./interviewScorecard");
 
 const db = admin.firestore();
-const wormBucket = admin.storage().bucket("datalake-worm-hr");
+// The bucket the prepared CV lives in is recorded per-candidate
+// (interview_cv_bucket). prepareInterviewCV writes the PDF to the main
+// erasable bucket per PDPL Art.18, NOT the WORM bucket — read it dynamically.
+const DEFAULT_INTERVIEW_CV_BUCKET = "datalake-production-sa.firebasestorage.app";
 
 /**
  * Handler for sendInterviewCV onRequest function.
@@ -100,15 +104,16 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       });
     }
 
-    // ── 4. Download DOCX from WORM bucket ──
-    const wormFile = wormBucket.file(candidate.interview_cv_path);
-    const [fileExists] = await wormFile.exists();
+    // ── 4. Download the prepared CV PDF from the bucket it was stored in ──
+    const cvBucket = admin.storage().bucket(candidate.interview_cv_bucket || DEFAULT_INTERVIEW_CV_BUCKET);
+    const cvFile = cvBucket.file(candidate.interview_cv_path);
+    const [fileExists] = await cvFile.exists();
     if (!fileExists) {
       return res.status(404).json({
-        error: `Prepared CV not found in WORM storage at: ${candidate.interview_cv_path}`,
+        error: `Prepared CV not found in storage at: ${candidate.interview_cv_path}`,
       });
     }
-    const [docxBuffer] = await wormFile.download();
+    const [cvBuffer] = await cvFile.download();
 
     // ── 5. Build Gmail client via ADC + domain delegation ──
     const gmail = await getGmailClient();
@@ -119,9 +124,9 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     );
     const scorecardUrl = `https://datalake-production-sa.web.app/client/scorecard/${scorecardToken}`;
 
-    // ── 6. Build RFC 2822 email with DOCX attachment ──
+    // ── 6. Build RFC 2822 email with PDF attachment ──
     const safeName = candidate.full_name.replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
-    const attachmentFilename = `DTLK-FORM-HR-CV-002-v2_${safeName}.docx`;
+    const attachmentFilename = `DTLK-FORM-HR-CV-002-v3_${safeName}.pdf`;
 
     const emailBody = buildEmailBody({
       candidateName: candidate.full_name,
@@ -140,8 +145,8 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       body: emailBody,
       attachment: {
         filename: attachmentFilename,
-        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        data: docxBuffer,
+        mimeType: "application/pdf",
+        data: cvBuffer,
       },
     });
 
@@ -241,7 +246,7 @@ function buildEmailBody({ candidateName, roleInterest, projectName, clientName, 
     `Project: ${projectName}`,
     `Client: ${clientName}`,
     meetingLine,
-    "The attached document follows the Datalake Skills Portfolio format (DTLK-FORM-HR-CV-002-v2) and contains the candidate's professional summary, technical competencies, and relevant project experience.",
+    "The attached document follows the Datalake Skills Portfolio format (DTLK-FORM-HR-CV-002-v3) and contains the candidate's professional summary, technical competencies, and relevant project experience.",
     "",
     "Please review at your convenience and advise on next steps.",
     "",
@@ -269,7 +274,7 @@ function buildEmailBody({ candidateName, roleInterest, projectName, clientName, 
 }
 
 /**
- * Build a base64url-encoded RFC 2822 MIME email with DOCX attachment.
+ * Build a base64url-encoded RFC 2822 MIME email with file attachment.
  */
 function buildRawEmail({ from, to, subject, body, attachment }) {
   const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;

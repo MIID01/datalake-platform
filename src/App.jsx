@@ -212,6 +212,8 @@ export default function App() {
           <Route path="iqama" element={<HRIqama />} />
           <Route path="scoring" element={<HRScoring />} />
           <Route path="interview-cv" element={<InterviewCVPrep />} />
+          {/* Alias: people naturally type /hr/interview-prep — keep it working */}
+          <Route path="interview-prep" element={<Navigate to="/hr/interview-cv" replace />} />
           <Route path="jobs" element={<HRJobListings />} />
         </Route>
 

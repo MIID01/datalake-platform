@@ -64,7 +64,6 @@ export default function InterviewCVPrep() {
   const [sendResult, setSendResult] = useState(null)
   const [error, setError] = useState('')
   const [userRole, setUserRole] = useState(null)
-  const [networkDebug, setNetworkDebug] = useState(null)
 
   // Load projects + candidates + user role
   useEffect(() => {
@@ -131,13 +130,6 @@ export default function InterviewCVPrep() {
         }),
       })
       const data = await res.json()
-      
-      setNetworkDebug({
-        url: PREPARE_INTERVIEW_CV_URL,
-        status: res.status,
-        body: JSON.stringify(data, null, 2)
-      })
-
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
       setPrepResult(data)
       setStep(4)
@@ -492,18 +484,6 @@ export default function InterviewCVPrep() {
           Candidate CVs are processed under PDPL consent. PURGED candidates are blocked. All preparation and dispatch events are recorded in task_audit_log (append-only). Output files are archived in WORM storage (datalake-worm-hr). CV dispatch requires Management authorization (separation of duties).
         </div>
       </div>
-
-      {networkDebug && (
-        <div style={{ marginTop: 40, padding: 24, background: '#1e293b', border: '2px solid #fbbf24', borderRadius: 12 }}>
-          <h2 style={{ color: '#fbbf24', marginBottom: 16 }}>NETWORK TAB SCREENSHOT SIMULATION</h2>
-          <div style={{ marginBottom: 12 }}><strong style={{ color: '#e2e8f0' }}>Request URL:</strong> <span style={{ color: '#38bdf8' }}>{networkDebug.url}</span></div>
-          <div style={{ marginBottom: 12 }}><strong style={{ color: '#e2e8f0' }}>Status Code:</strong> <span style={{ color: networkDebug.status === 200 ? '#4ade80' : '#ef4444', fontWeight: 'bold' }}>{networkDebug.status}</span></div>
-          <div><strong style={{ color: '#e2e8f0' }}>Response Body:</strong></div>
-          <pre style={{ background: '#0f172a', padding: 16, borderRadius: 8, color: '#e2e8f0', marginTop: 8, overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
-            {networkDebug.body}
-          </pre>
-        </div>
-      )}
 
     </div>
   )
