@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
-import { db } from '../../lib/firebase'
+import { db, RECORD_APPROVAL_URL } from '../../lib/firebase'
 import {
   collection, query, where, getDocs, doc, updateDoc, addDoc,
   arrayUnion, serverTimestamp, limit,
@@ -98,6 +98,11 @@ export default function LegalReview() {
     return { ...(contract.contract_extracted_fields || {}), ...(contract.reviewed_fields || {}) }
   }, [contract])
 
+  // Reject goes through the SERVER-SIDE recordApproval (action:'reject'): the
+  // external reviewer is token-only (unauthenticated) and the client can no
+  // longer write contract status — the function verifies the token, flips the
+  // contract to LEGAL_REJECTED, records the reason + audit, and burns the token.
+  // (Approve is handled separately by <ApprovalButton> → recordApproval.)
   const decide = async (action) => {
     if (!contractId) return
     if (action === 'reject' && !comment.trim()) {
@@ -106,35 +111,22 @@ export default function LegalReview() {
     }
     setState('submitting')
     try {
-      const at = new Date().toISOString()
-      const approved = action === 'approve'
-      const update = {
-        legal_status: approved ? 'LEGAL_APPROVED' : 'LEGAL_REJECTED',
-        status: approved ? 'LEGAL_APPROVED' : 'LEGAL_REJECTED',
-        legal_review_token: null,             // burn the token so the link can't be reused
-        legal_decision_at: serverTimestamp(),
-        legal_decision_action: approved ? 'approved' : 'rejected',
-        legal_decision_comment: comment.trim() || null,
-        status_history: arrayUnion({
-          status: approved ? 'LEGAL_APPROVED' : 'LEGAL_REJECTED',
-          at, by: 'legal:external',
-          notes: comment.trim() || (approved ? 'Approved by external counsel' : 'Flagged by external counsel'),
+      const res = await fetch(RECORD_APPROVAL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parentCollection: 'contracts',
+          parentId: contractId,
+          action: 'reject',
+          token,
+          extra: { comment: comment.trim() || null },
         }),
-        updated_at: serverTimestamp(),
-      }
-      // On approval, set the high-level status to ACTIVE so downstream provisioning kicks in.
-      if (approved) update.status = 'ACTIVE'
-      await updateDoc(doc(db, 'contracts', contractId), update)
-
-      // Audit trail row — Legal is an external party, so we record explicitly.
-      await addDoc(collection(db, 'legal_review_log'), {
-        contract_id: contractId,
-        action: approved ? 'approved' : 'rejected',
-        comment: comment.trim() || null,
-        at: serverTimestamp(),
-        // PDPL: no IP / user-agent captured on legal/GRC records.
       })
-      setState(approved ? 'success' : 'rejected')
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        throw new Error(e.error || `HTTP ${res.status}`)
+      }
+      setState('rejected')
     } catch (e) {
       setState('review')
       alert('Could not submit: ' + e.message)

@@ -64,6 +64,18 @@ const POLICIES = {
       status_history: FieldValue.arrayUnion({ status: "LEGAL_APPROVED", at: nowIso, by: identity.email || identity.name, notes: "Approved via server-recorded signature" }),
       updated_at: now,
     }),
+    // Rejection needs no signature/WORM — just flag the contract, record the
+    // reason, and burn the token so HR can correct it and re-issue.
+    rejectStatus: ({ identity, extra, now, nowIso }) => ({
+      legal_status: "LEGAL_REJECTED",
+      status: "LEGAL_REJECTED",
+      legal_review_token: null,
+      legal_decision_at: now,
+      legal_decision_action: "rejected",
+      legal_decision_comment: (extra && extra.comment) || null,
+      status_history: FieldValue.arrayUnion({ status: "LEGAL_REJECTED", at: nowIso, by: identity.email || identity.name || "legal:external", notes: (extra && extra.comment) || "Flagged by external counsel" }),
+      updated_at: now,
+    }),
   },
   // Payroll run approval — CEO only, segregation of duties. requiresDocument.
   payroll_runs: {
@@ -135,8 +147,12 @@ async function recordApprovalHandler(req, res, { verifyAuth, getUserAccessProfil
     if (!parentCollection || !parentId) return res.status(400).json({ error: "parentCollection and parentId required" });
     const policy = POLICIES[parentCollection];
     if (!policy) return res.status(400).json({ error: `Collection '${parentCollection}' is not approvable via recordApproval` });
-    if (!signature || !signature.base64 || !signature.method) return res.status(400).json({ error: "signature {base64, method} required" });
-    if (policy.requiresDocument && (!document || !document.base64)) return res.status(400).json({ error: "This approval requires a document upload" });
+    // A rejection records a decision + reason — no signature or document required.
+    const isReject = action === "reject" || action === "rejected";
+    if (!isReject) {
+      if (!signature || !signature.base64 || !signature.method) return res.status(400).json({ error: "signature {base64, method} required" });
+      if (policy.requiresDocument && (!document || !document.base64)) return res.status(400).json({ error: "This approval requires a document upload" });
+    }
 
     const parentRef = db.collection(parentCollection).doc(String(parentId));
     const snap = await parentRef.get();
@@ -174,6 +190,34 @@ async function recordApprovalHandler(req, res, { verifyAuth, getUserAccessProfil
     // ── State precondition ──
     if (!policy.precondition(before)) {
       return res.status(409).json({ error: `Parent ${parentCollection}/${parentId} is not in an approvable state.` });
+    }
+
+    // ── Rejection path: no signature/WORM — flag the parent, record the reason,
+    //    burn the token, audit. Mirrors the old client decide('reject') but
+    //    server-side (the client can no longer write contract status). ──
+    if (isReject) {
+      if (!policy.rejectStatus) return res.status(400).json({ error: `${parentCollection} does not support rejection` });
+      const nowR = FieldValue.serverTimestamp();
+      const nowIsoR = new Date().toISOString();
+      await parentRef.set(policy.rejectStatus({ identity, extra, now: nowR, nowIso: nowIsoR }), { merge: true });
+      await db.collection("legal_review_log").add({
+        contract_id: String(parentId), action: "rejected",
+        comment: (extra && extra.comment) || null,
+        reviewer_email: identity.email || null, reviewer_name: identity.name || null,
+        at: nowR,
+      });
+      const rejAudit = {
+        event: "LEGAL_REJECTED", action: "rejected",
+        parent_collection: parentCollection, parent_id: String(parentId),
+        actor: identity.email || identity.name || null, actor_uid: actorUid, role: identity.role || null, auth_method: authMethod,
+        evidence_id: null, before_sha256: null, after_sha256: null,
+        signature_sha256: null, document_sha256: null,
+        worm_manifest_path: null, worm_document_path: null,
+        approved_at_iso: nowIsoR,
+      };
+      await logToBigQuery("datalake_audit", "approval_audit", rejAudit).catch((e) => console.error("BQ reject audit:", e.message));
+      await db.collection("task_audit_log").add({ ...rejAudit, action_at: nowR });
+      return res.status(200).json({ rejected: true, parent_id: String(parentId) });
     }
 
     const now = FieldValue.serverTimestamp();

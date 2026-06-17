@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { auth, db, UPLOAD_CONTRACT_PDF_URL, RETRY_CONTRACT_EXTRACTION_URL } from '../../lib/firebase'
 import {
-  collection, onSnapshot, doc, setDoc, updateDoc, addDoc, query, orderBy,
+  collection, onSnapshot, doc, setDoc, updateDoc, addDoc, deleteDoc, query, orderBy,
   serverTimestamp, arrayUnion,
 } from 'firebase/firestore'
 import {
   Upload, FileText, Loader, CheckCircle2, AlertTriangle, AlertCircle,
-  Send, RefreshCw, X, Eye, Pencil, Scale, Inbox, ShieldCheck,
+  Send, RefreshCw, X, Eye, Pencil, Scale, Inbox, ShieldCheck, Trash2,
 } from 'lucide-react'
 import SearchablePicker from '../../components/SearchablePicker'
 
@@ -419,6 +419,24 @@ export default function HRContracts() {
     else if (e.type === 'dragleave') setDragActive(false)
   }
 
+  // ─── Delete a contract (unblock a wrong/test upload) ──────────
+  // Removes the Firestore record so it leaves the list and the employee can be
+  // re-mapped to a fresh contract. The uploaded PDF stays in the WORM archive.
+  const handleDeleteContract = async () => {
+    if (!active) return
+    const who = (active.contract_extracted_fields?.employee_name) || active.linked_employee_name || active.employee_id || 'this employee'
+    if (!window.confirm(`Delete this contract for ${who}?\n\nIt leaves the list and you can upload a new one. The archived PDF is retained for compliance. This cannot be undone.`)) return
+    setActioning(true)
+    try {
+      await deleteDoc(doc(db, 'contracts', active.id))
+      showToast('Contract deleted — you can upload a new one.')
+      setActiveId(null)
+    } catch (e) {
+      showToast('Delete failed: ' + e.message, 'error')
+    }
+    setActioning(false)
+  }
+
   // ─── Save reviewed fields ─────────────────────────────────────
   const handleSaveReview = async () => {
     if (!active) return
@@ -712,7 +730,13 @@ export default function HRContracts() {
                 Edit anything the AI got wrong before sending to Legal. Original AI output is kept on the doc.
               </p>
             </div>
-            <button onClick={() => setActiveId(null)} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.55)', cursor: 'pointer' }}><X size={18} /></button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={handleDeleteContract} disabled={actioning} title="Delete this contract"
+                style={{ background: 'transparent', border: '1px solid rgba(239,88,41,0.5)', color: '#fca5a5', padding: '6px 12px', borderRadius: 8, cursor: actioning ? 'not-allowed' : 'pointer', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <Trash2 size={13} /> Delete
+              </button>
+              <button onClick={() => setActiveId(null)} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.55)', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
           </div>
 
           {active.contract_extraction_status === 'PENDING_EXTRACTION' && (
