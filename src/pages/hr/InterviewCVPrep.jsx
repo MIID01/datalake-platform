@@ -72,7 +72,12 @@ export default function InterviewCVPrep() {
       try {
         const [projSnap, candSnap] = await Promise.all([
           getDocs(query(collection(db, 'projects'), where('status', '==', 'ACTIVE'))),
-          getDocs(query(collection(db, 'employees'), where('state', '==', 'deployable'))),
+          // Candidates live in talent_pool (the CV store) — NOT employees. The old
+          // employees/state=='deployable' query was wrong on both collection and
+          // field (employees use employment_status), so it always returned nothing
+          // and the CV-prep list was empty. Load the pool; the cv-filter below
+          // narrows to candidates that actually have a CV.
+          getDocs(collection(db, 'talent_pool')),
         ])
         setProjects(projSnap.docs.map(d => ({ id: d.id, ...d.data() })))
         setCandidates(candSnap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -91,6 +96,8 @@ export default function InterviewCVPrep() {
   // Filter candidates
   const filteredCandidates = useMemo(() => {
     return candidates.filter(c => {
+      // Skip rejected candidates — not relevant for interview CV prep.
+      if (c.state === 'REJECTED') return false
       // Must have cv_path or cv_data
       if (!c.cv_path && !c.cv_data) return false
       if (!searchQuery.trim()) return true
