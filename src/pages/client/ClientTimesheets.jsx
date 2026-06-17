@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { db, auth, CLIENT_SIGN_TIMESHEET_URL } from '../../lib/firebase'
 import { CheckCircle, XCircle, Eye, Calendar, Loader } from 'lucide-react'
 
@@ -29,14 +29,13 @@ export default function ClientTimesheets() {
 
   useEffect(() => {
     if (!clientEmail) return
-    // Query timesheets for this client's projects. For V1 testing, just fetch all and filter client side if client_email is not explicitly set, or better just rely on rules and filter locally if needed.
-    // For V1, the timesheet has `client_id` or `client_name`. Let's fetch all and filter if needed, or assume they are assigned.
-    // Actually, to make it work quickly for V1 testing:
-    const unsub = onSnapshot(collection(db, 'timesheets'), snap => {
-      // In a real app, we'd query by `client_id == user.client_id`. Here we'll just show them all or filter if clientEmail matches.
-      // For V1 spec demo, let's just show all SUBMITTED, CLIENT_SIGNED, etc.
+    // PDPL/confidentiality: a client sees ONLY the timesheets they are the
+    // designated approver for — scoped by client_approver_email (the same field
+    // clientSignTimesheet authorises against). The read rule enforces this too.
+    const q = query(collection(db, 'timesheets'), where('client_approver_email', '==', clientEmail))
+    const unsub = onSnapshot(q, snap => {
       setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    })
+    }, err => console.warn('ClientTimesheets listener:', err.message))
     return () => unsub()
   }, [clientEmail])
 

@@ -285,7 +285,17 @@ service cloud.firestore {
       allow write: if isCeoOrCto();
     }
     match /timesheets/{timesheetId} {
-      allow read: if request.auth != null;
+      // PDPL/confidentiality: staff (CEO/CTO/HR/finance/CRM) read all; an engineer
+      // reads only their own (engineer_email); a client reads only those they
+      // approve (client_approver_email). No blanket all-authed read — that let any
+      // client see every other client's engineers, hours and rates.
+      allow read: if request.auth != null && (
+        isCeo()
+        || getUserRole() == "cto" || getUserRole() == "hr" || getUserRole() == "finance"
+        || getUserRole() == "business" || getUserRole() == "sales"
+        || resource.data.engineer_email == request.auth.token.email
+        || resource.data.client_approver_email == request.auth.token.email
+      );
       allow create: if request.auth != null;
       allow delete: if isCeo();
       // CLIENT_SIGNED is the client's INDEPENDENT attestation — produced ONLY by
