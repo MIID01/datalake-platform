@@ -15,12 +15,13 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
     const fetchEngs = async () => {
       try {
         // Canonical employee query — every ACTIVE employee, same source as the HR
-        // roster. (Was where('type','==','deployed'), which silently hid the 3
-        // contractors + 2 internal staff: they could never be assigned to a
-        // project, so their timesheets had no PM to route to.)
+        // roster. (Was where('type','==','deployed'), which also hid the 3
+        // contractors who DO bill to client projects.) Internal staff are NOT
+        // billable to clients, so they are excluded from project assignment —
+        // only deployed engineers + contractors can be assigned (and timesheet).
         const q = query(collection(db, 'employees'), where('employment_status', '==', 'ACTIVE'))
         const snap = await getDocs(q)
-        let emps = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        let emps = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.type !== 'internal')
         
         try {
           const aq = query(collection(db, 'engineer_project_assignments'), where('project_id', '==', project.project_id), where('status', '==', 'ACTIVE'))
