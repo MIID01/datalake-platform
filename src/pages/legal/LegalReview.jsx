@@ -20,7 +20,6 @@ const FIELD_SPECS = [
   { key: 'job_title',             label: 'Job Title' },
   { key: 'client_name',           label: 'Client' },
   { key: 'po_number',             label: 'PO Number' },
-  { key: 'po_value_sar',          label: 'PO Value (SAR)' },
   { key: 'contract_start_date',   label: 'Contract Start' },
   { key: 'contract_end_date',     label: 'Contract End' },
   { key: 'currency',              label: 'Currency (as printed)' },
