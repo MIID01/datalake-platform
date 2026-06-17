@@ -48,18 +48,40 @@ export default function HRDocuments() {
     return () => unsub()
   }, [])
 
-  // ── Load the selected engineer's documents ──
+  // ── Load the selected engineer's documents: employee_documents + the
+  //    canonical contracts collection (mapped by employee_id), merged. ──
   useEffect(() => {
     if (!selected) { setDocs([]); return }
     setLoadingDocs(true)
-    const q = query(collection(db, 'employee_documents'), where('engineer_email', '==', selected.email))
-    const unsub = onSnapshot(q, snap => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      rows.sort((a, b) => (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0))
-      setDocs(rows)
-      setLoadingDocs(false)
-    }, err => { setError(err); setLoadingDocs(false) })
-    return () => unsub()
+    let empDocs = []
+    let contractDocs = []
+    const merge = () => setDocs([...empDocs, ...contractDocs].sort((a, b) => (b._ts || 0) - (a._ts || 0)))
+
+    const unsubD = onSnapshot(
+      query(collection(db, 'employee_documents'), where('engineer_email', '==', selected.email)),
+      snap => {
+        empDocs = snap.docs.map(d => { const x = { id: d.id, ...d.data() }; return { ...x, _ts: x.created_at?.seconds || 0 } })
+        merge(); setLoadingDocs(false)
+      }, err => { setError(err); setLoadingDocs(false) })
+
+    // Contracts mapped to this engineer (by linked_employee_id / employee_id).
+    const unsubC = onSnapshot(collection(db, 'contracts'), snap => {
+      contractDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .filter(c => (c.linked_employee_id || c.employee_id) === selected.employee_id)
+        .map(c => ({
+          id: 'contract-' + c.id,
+          title: c.contract_pdf_filename || c.original_filename || 'Employment Contract',
+          category: 'Contract',
+          created_at: c.created_at || c.uploaded_at,
+          _ts: (c.created_at || c.uploaded_at)?.seconds || 0,
+          uploaded_by: 'system',
+          _isContract: true,
+          _status: c.status || c.contract_extraction_status || '—',
+        }))
+      merge(); setLoadingDocs(false)
+    }, () => {})
+
+    return () => { unsubD(); unsubC() }
   }, [selected])
 
   const filteredEmployees = useMemo(() => {
@@ -217,9 +239,14 @@ export default function HRDocuments() {
                           </td>
                           <td><span className="badge badge-info">{d.category}</span></td>
                           <td style={{ fontSize: '0.82rem' }}>{fmtDate(d.created_at)}</td>
-                          <td style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>{d.uploaded_by === 'hr' ? 'HR' : 'Employee'}</td>
+                          <td style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>{d._isContract ? 'Contract record' : d.uploaded_by === 'hr' ? 'HR' : 'Employee'}</td>
                           <td>
-                            {d.file_url ? (
+                            {d._isContract ? (
+                              <a href="/hr/contracts" className="btn btn-outline"
+                                style={{ padding: '6px 12px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <FileText size={12} /> Open in Contracts
+                              </a>
+                            ) : d.file_url ? (
                               <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-outline"
                                 style={{ padding: '6px 12px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                 <Download size={12} /> Download

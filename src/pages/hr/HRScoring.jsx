@@ -72,6 +72,31 @@ export default function HRScoring() {
   const updateScore = (key, value) => setScores(prev => ({ ...prev, [key]: value }))
   const updateNotes = (key, value) => setNotes(prev => ({ ...prev, [key]: value }))
 
+  // ── Draft autosave: scoring progress survives navigate-away / refresh.
+  //    Keyed per candidate in localStorage; restored on select, cleared on submit. ──
+  const [draftSavedAt, setDraftSavedAt] = useState(null)
+  useEffect(() => {
+    if (!selectedCandidate) { setDraftSavedAt(null); return }
+    try {
+      const raw = localStorage.getItem(`hrscore_draft_${selectedCandidate.id}`)
+      if (raw) {
+        const d = JSON.parse(raw)
+        setScores(d.scores || {}); setNotes(d.notes || {}); setHrInterviewNotes(d.hrInterviewNotes || '')
+        setDraftSavedAt(d.savedAt || null)
+      }
+    } catch (_) {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCandidate])
+  useEffect(() => {
+    if (!selectedCandidate || submitted) return
+    if (!(Object.keys(scores).length || Object.keys(notes).length || hrInterviewNotes.trim())) return
+    try {
+      const at = Date.now()
+      localStorage.setItem(`hrscore_draft_${selectedCandidate.id}`, JSON.stringify({ scores, notes, hrInterviewNotes, savedAt: at }))
+      setDraftSavedAt(at)
+    } catch (_) {}
+  }, [scores, notes, hrInterviewNotes, selectedCandidate, submitted])
+
   const totalScore = useMemo(() => {
     let sum = 0
     criteriaConfig.forEach(c => {
@@ -112,6 +137,7 @@ export default function HRScoring() {
       if (!res.ok) throw new Error(data.error || 'Submission failed')
       setSubmitResult(data)
       setSubmitted(true)
+      try { localStorage.removeItem(`hrscore_draft_${selectedCandidate.id}`) } catch (_) {}
     } catch (err) {
       setSubmitError(err.message)
     } finally { setSubmitting(false) }
@@ -235,7 +261,10 @@ export default function HRScoring() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                     <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#333', margin: 0 }}>{cand.full_name || 'Unnamed'}</h2>
                     <span style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: '#64748b', background: '#f0f0f0', padding: '2px 8px', borderRadius: 4 }}>{cand.id}</span>
-                    <button className="hrs-no-print" onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setHrInterviewNotes(''); setSubmitted(false); setSubmitResult(null) }} style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#1598CC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>← Change candidate</button>
+                    {draftSavedAt && !submitted && (
+                      <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: '#27ae60', fontWeight: 600 }}>✓ Progress saved</span>
+                    )}
+                    <button className="hrs-no-print" onClick={() => { setSelectedCandidate(null); setScores({}); setNotes({}); setHrInterviewNotes(''); setSubmitted(false); setSubmitResult(null) }} style={{ marginLeft: draftSavedAt && !submitted ? 16 : 'auto', fontSize: '0.75rem', color: '#1598CC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>← Change candidate</button>
                     <button className="hrs-no-print" onClick={() => window.print()} style={{ fontSize: '0.75rem', color: '#475569', background: '#f0f0f0', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={13} /> Print</button>
                   </div>
                   {cand.consent_granted_at && (
