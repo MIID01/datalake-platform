@@ -1058,6 +1058,14 @@ FIELDS:
     const fields = parsed.data;
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    // Identity-number rule: a non-resident employee may have no Iqama (residence
+    // ID) yet — fall back to the passport number as their identity number so the
+    // record always has an ID. Flag it so we know the source.
+    if (!fields.iqama_national_id && fields.passport_number) {
+      fields.iqama_national_id = fields.passport_number;
+      fields.iqama_is_passport_fallback = true;
+    }
+
     // Currency guard — the AI extracts amount + currency verbatim and converts
     // NOTHING (no LLM-invented FX rates). A contract in SAR (or with no currency
     // printed, on a Saudi contract) is treated as SAR; any other currency means
