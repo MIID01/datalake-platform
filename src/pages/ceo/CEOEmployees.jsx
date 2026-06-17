@@ -166,15 +166,17 @@ export default function CEOEmployees() {
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Type & Dept</th>
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Status</th>
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Role / Onboarding</th>
+              <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>PDPL Consent</th>
+              <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Contract End</th>
               <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Project</th>
               <th style={{ padding: '14px 20px', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}><Loader size={24} className="spin" style={{ margin: '0 auto 12px' }}/>Loading directory...</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}><Loader size={24} className="spin" style={{ margin: '0 auto 12px' }}/>Loading directory...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>No employees found.</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>No employees found.</td></tr>
             ) : filtered.map(e => {
               const st = STATUS_COLORS[e.employment_status] || STATUS_COLORS.ACTIVE
               const isPending = e.employment_status === 'PENDING_APPROVAL' || e.employment_status === 'ONBOARDING'
@@ -183,7 +185,12 @@ export default function CEOEmployees() {
               const isActive = !isPending && !isTerminated && !isPendingOffboard
               const u = userFor(e)
               const onboardingDone = e.onboarding_complete === true || u.onboarding_complete === true
-              
+              const consent = u.pdpl_consent_state || u.pdpl_consent || 'Unknown'
+              const ce = e.contract_end?.toDate ? e.contract_end.toDate() : (e.contract_end ? new Date(e.contract_end) : null)
+              const ceDays = ce ? Math.ceil((ce.getTime() - Date.now()) / 86400000) : null
+              const consentOk = /granted|consent/i.test(consent)
+              const consentPending = /pending/i.test(consent)
+
               return (
                 <tr key={e.id} style={{ borderBottom: '1px solid #1e3050' }} className="table-row-hover">
                   <td style={{ padding: '16px 20px' }}>
@@ -204,6 +211,23 @@ export default function CEOEmployees() {
                     <div style={{ fontSize: '0.7rem', color: onboardingDone ? '#34BF3A' : '#94a3b8', marginTop: 3 }}>
                       {onboardingDone ? '✓ Onboarded' : 'Not onboarded'}
                     </div>
+                  </td>
+                  <td style={{ padding: '16px 20px' }}>
+                    <span style={{ padding: '3px 9px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 700,
+                      background: consentOk ? 'rgba(52,191,58,0.15)' : consentPending ? 'rgba(243,156,18,0.15)' : 'rgba(148,163,184,0.12)',
+                      color: consentOk ? '#34BF3A' : consentPending ? '#F39C12' : '#94a3b8' }}>
+                      {consent}
+                    </span>
+                  </td>
+                  <td style={{ padding: '16px 20px', color: '#94a3b8', fontSize: '0.78rem' }}>
+                    {ce ? (
+                      <>
+                        {ce.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        <div style={{ fontSize: '0.68rem', color: ceDays != null && ceDays <= 30 ? '#EF5829' : '#64748b', marginTop: 2 }}>
+                          {ceDays != null ? `${ceDays} days left` : ''}
+                        </div>
+                      </>
+                    ) : '—'}
                   </td>
                   <td style={{ padding: '16px 20px', color: '#94a3b8' }}>
                     {projectsFor(e)}

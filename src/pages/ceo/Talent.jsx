@@ -236,54 +236,19 @@ export default function Talent() {
       {/* ═══════════════════════════════════════════════════ */}
       {/* SECTION A: CURRENT EMPLOYEES */}
       {/* ═══════════════════════════════════════════════════ */}
+      {/* Current employees now live ONLY in the single master Employee Directory
+          (/ceo/employees) — this section is a pointer, not a second roster. */}
       <div style={{ marginBottom: 40 }}>
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-primary)', paddingBottom: 8 }}>Section A: Current Employees</h2>
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Title</th>
-                  <th>Email</th>
-                  <th>Onboarding</th>
-                  <th>PDPL Consent</th>
-                  <th>Contract End</th>
-                  <th>Project</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentEmployees.length === 0 && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-tertiary)' }}>No active employees found</td></tr>
-                )}
-                {currentEmployees.map(e => (
-                  <tr key={e.id}>
-                    <td style={{ fontWeight: 600 }}>{e.full_name || e.name}</td>
-                    <td style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{e.job_title || 'Engineer'}</td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>{e.email || e.id}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      {e.onboardingComplete ? <CheckCircle size={16} color="var(--green)" /> : <XCircle size={16} color="var(--red)" />}
-                    </td>
-                    <td>
-                      <span className={`badge ${e.pdplConsent === 'Consented' ? 'badge-success' : e.pdplConsent === 'Pending' ? 'badge-warning' : 'badge-neutral'}`}>
-                        {e.pdplConsent}
-                      </span>
-                    </td>
-                    <td>
-                      <div>{e.contractEndStr}</div>
-                      <div style={{ fontSize: '0.7rem', color: e.daysLeft < 60 ? 'var(--amber)' : 'var(--text-tertiary)' }}>
-                        {e.daysLeft} days left
-                      </div>
-                    </td>
-                    <td><span style={{ fontSize: '0.78rem', background: 'var(--bg-surface)', padding: '2px 8px', borderRadius: 4 }}>{e.projects}</span></td>
-                    <td><span className="badge badge-success">ACTIVE</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-primary)', paddingBottom: 8 }}>Current Employees</h2>
+        <a href="/ceo/employees" className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, textDecoration: 'none', color: 'inherit' }}>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>{currentEmployees.length} active employees</div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              The full roster — type, role, onboarding, PDPL consent, contract end, project &amp; status — now lives in one place: the master <strong>Employee Directory</strong>. No second copy here.
+            </div>
           </div>
-        </div>
+          <span style={{ color: 'var(--accent-primary, #1598CC)', fontWeight: 700, whiteSpace: 'nowrap' }}>Open Employee Directory →</span>
+        </a>
       </div>
 
       {/* ═══════════════════════════════════════════════════ */}
