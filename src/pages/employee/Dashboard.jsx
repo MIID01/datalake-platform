@@ -51,7 +51,7 @@ export default function Dashboard() {
         
         // Fetch real stats
         try {
-          const timesheetsQ = query(collection(db, 'timesheets'), where('engineer_email', '==', user.email), where('status', '==', 'SUBMITTED'))
+          const timesheetsQ = query(collection(db, 'timesheets'), where('engineer_email', '==', user.email), where('state', '==', 'SUBMITTED'))
           unsubs.push(onSnapshot(timesheetsQ, snap => {
             setDashboardStats(prev => ({ ...prev, pendingTimesheets: { value: snap.size, period: 'Pending Approval' } }))
           }))

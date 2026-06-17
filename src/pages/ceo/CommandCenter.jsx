@@ -132,7 +132,7 @@ export default function CommandCenter() {
     }, e => console.warn('activeProjects:', e.message)))
 
     // 4. Timesheets (count where status=SUBMITTED)
-    unsubs.push(onSnapshot(query(collection(db, 'timesheets'), where('status', '==', 'SUBMITTED')), snap => {
+    unsubs.push(onSnapshot(query(collection(db, 'timesheets'), where('state', '==', 'SUBMITTED')), snap => {
       setLiveKPIs(p => ({ ...p, pendingTimesheets: { value: snap.size, trend: 0 } }))
     }, e => console.warn(e)))
 
