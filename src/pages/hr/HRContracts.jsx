@@ -32,8 +32,7 @@ const FIELD_SPECS = [
   { key: 'employee_name_ar',      label: 'Employee Name (Arabic)',  type: 'text' },
   { key: 'iqama_national_id',     label: 'Iqama / National ID',     type: 'text' },
   { key: 'job_title',             label: 'Job Title',               type: 'text' },
-  { key: 'client_name',           label: 'Client',                  type: 'client' },
-  { key: 'po_number',             label: 'PO Number',               type: 'text' },
+  { key: 'project',               label: 'Project / Engagement (client + PO)', type: 'project' },
   { key: 'contract_start_date',   label: 'Contract Start',          type: 'date' },
   { key: 'contract_end_date',     label: 'Contract End',            type: 'date' },
   { key: 'currency',              label: 'Currency',                type: 'text' },
@@ -102,7 +101,7 @@ export default function HRContracts() {
   const [reviewFields, setReviewFields] = useState({})
   const [actioning, setActioning] = useState(false)
   const [toast, setToast] = useState(null)
-  const [clients, setClients] = useState([])
+  const [projects, setProjects] = useState([])
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -114,12 +113,12 @@ export default function HRContracts() {
     const unsubE = onSnapshot(query(collection(db, 'employees'), orderBy('employee_id')),
       snap => setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     )
-    // Canonical client list (clients collection) for the Client dropdown.
-    const unsubC = onSnapshot(query(collection(db, 'clients'), orderBy('client_name')),
-      snap => setClients(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => c.client_name)),
+    // Canonical projects (clients + PO bundled) for the Project dropdown.
+    const unsubP = onSnapshot(query(collection(db, 'projects'), orderBy('client_name')),
+      snap => setProjects(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.client_name)),
       () => {},
     )
-    return () => { unsub(); unsubE(); unsubC() }
+    return () => { unsub(); unsubE(); unsubP() }
   }, [])
 
   const active = useMemo(() => contracts.find(c => c.id === activeId) || null, [contracts, activeId])
@@ -825,22 +824,44 @@ export default function HRContracts() {
             {FIELD_SPECS.map(f => (
               <div key={f.key}>
                 <label style={styles.label}>{f.label}</label>
-                {f.type === 'client' ? (
-                  <select
-                    style={styles.input}
-                    value={reviewFields[f.key] ?? ''}
-                    onChange={e => setReviewFields(p => ({ ...p, [f.key]: e.target.value }))}
-                  >
-                    <option value="">— Select client —</option>
-                    {clients.map(c => (
-                      <option key={c.id} value={c.client_name}>{c.client_name}</option>
-                    ))}
-                    {/* Preserve an extracted value that isn't a known client so it isn't lost */}
-                    {reviewFields[f.key] && !clients.some(c => c.client_name === reviewFields[f.key]) && (
-                      <option value={reviewFields[f.key]}>{reviewFields[f.key]} (from contract — not in client list)</option>
-                    )}
-                  </select>
-                ) : (
+                {f.type === 'project' ? (() => {
+                  // One picker for the engagement: selecting a project sets BOTH
+                  // client_name and po_number (a project = client + PO). The current
+                  // value is derived from the stored client/PO so the extracted
+                  // values pre-select a matching project.
+                  const rfClient = (reviewFields.client_name || '').trim()
+                  const rfPo = String(reviewFields.po_number || '').trim()
+                  const match = projects.find(pr =>
+                    (pr.client_name || '').trim().toLowerCase() === rfClient.toLowerCase() &&
+                    String(pr.po_number || '').trim() === rfPo)
+                  const curVal = match ? match.id : (rfClient ? '__extracted__' : '')
+                  return (
+                    <select
+                      style={styles.input}
+                      value={curVal}
+                      onChange={e => {
+                        const v = e.target.value
+                        if (v === '__extracted__') return
+                        const pr = projects.find(p => p.id === v)
+                        setReviewFields(prev => ({
+                          ...prev,
+                          client_name: pr ? (pr.client_name || '') : '',
+                          po_number: pr ? (pr.po_number || '') : '',
+                          client_id: pr ? (pr.client_id || null) : null,
+                          project_id: pr ? pr.id : null,
+                        }))
+                      }}
+                    >
+                      <option value="">— Select project —</option>
+                      {projects.map(p => (
+                        <option key={p.id} value={p.id}>{p.client_name} · {p.po_number || 'no PO'}</option>
+                      ))}
+                      {rfClient && !match && (
+                        <option value="__extracted__">{rfClient}{rfPo ? ' · ' + rfPo : ''} (from contract — not a saved project)</option>
+                      )}
+                    </select>
+                  )
+                })() : (
                   <input
                     style={styles.input}
                     type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
