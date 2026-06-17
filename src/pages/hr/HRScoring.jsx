@@ -367,7 +367,7 @@ export default function HRScoring() {
                       <div style={{ fontSize: '2rem', marginBottom: 8 }}>✅</div>
                       <div style={{ fontSize: '1rem', fontWeight: 700, color: '#27ae60', marginBottom: 4 }}>Candidate Shortlisted</div>
                       <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: 12 }}>{submitResult.message}</div>
-                      <a href="/hr/interview-prep" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#1598CC', color: '#fff', borderRadius: 8, fontWeight: 600, fontSize: '0.85rem', textDecoration: 'none' }}>Go to Interview Prep <ArrowRight size={14} /></a>
+                      <a href="/hr/interview-cv" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#1598CC', color: '#fff', borderRadius: 8, fontWeight: 600, fontSize: '0.85rem', textDecoration: 'none' }}>Go to Interview Prep <ArrowRight size={14} /></a>
                     </>
                   )}
                   {submitResult.next_action === 'BELOW_THRESHOLD' && !submitResult.override_requested && (

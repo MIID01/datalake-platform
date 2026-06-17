@@ -182,7 +182,7 @@ export default function HRTalentPool() {
                     )}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       {c.state === 'SHORTLISTED' && (
-                        <Link to="/hr/interview-prep" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#1598CC', color: '#fff', borderRadius: 7, fontSize: '0.78rem', fontWeight: 600, textDecoration: 'none' }}>
+                        <Link to="/hr/interview-cv" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#1598CC', color: '#fff', borderRadius: 7, fontSize: '0.78rem', fontWeight: 600, textDecoration: 'none' }}>
                           Go to Interview Prep <ArrowRight size={12} />
                         </Link>
                       )}
