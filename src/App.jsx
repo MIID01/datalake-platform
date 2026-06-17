@@ -79,6 +79,7 @@ import InterviewCVPrep from './pages/hr/InterviewCVPrep'
 import HRJobListings from './pages/hr/HRJobListings'
 import HREmployees from './pages/hr/HREmployees'
 import HRContracts from './pages/hr/HRContracts'
+import HRDocuments from './pages/hr/HRDocuments'
 import HRIqama from './pages/hr/HRIqama'
 import HRAcknowledgments from './pages/hr/HRAcknowledgments'
 
@@ -207,6 +208,7 @@ export default function App() {
           <Route path="employees" element={<HREmployees />} />
           <Route path="acknowledgments" element={<HRAcknowledgments />} />
           <Route path="contracts" element={<HRContracts />} />
+          <Route path="documents" element={<HRDocuments />} />
           <Route path="iqama" element={<HRIqama />} />
           <Route path="scoring" element={<HRScoring />} />
           <Route path="interview-cv" element={<InterviewCVPrep />} />
