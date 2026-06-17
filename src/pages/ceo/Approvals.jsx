@@ -20,6 +20,7 @@ async function getToken() {
 export default function Approvals() {
   const [activeTab, setActiveTab] = useState('All')
   const [items, setItems] = useState([])
+  const [contracts, setContracts] = useState([])
   const [selected, setSelected] = useState(new Set())
   const [detailItem, setDetailItem] = useState(null)
   const [showBulkModal, setShowBulkModal] = useState(false)
@@ -89,6 +90,11 @@ export default function Approvals() {
         ...prev.filter(i => i._source !== 'pending_hires'),
         ...rows,
       ])
+    }))
+
+    // ── contracts — looked up to show details on a contract-approval card ──
+    unsubs.push(onSnapshot(collection(db, 'contracts'), snap => {
+      setContracts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     }))
 
     // ── 4. leave_requests — only those still pending CEO decision ──
@@ -342,6 +348,45 @@ export default function Approvals() {
                   </div>
                 </div>
               )}
+
+              {/* Contract detail — show what is actually being signed */}
+              {detailItem.type === 'contract' && (() => {
+                const raw = detailItem._raw || {}
+                const empId = raw.linked_employee_id || raw.employee_id || raw.candidate_name
+                const c = contracts
+                  .filter(x => (x.linked_employee_id || x.employee_id) && (x.linked_employee_id || x.employee_id) === (raw.linked_employee_id || raw.employee_id))
+                  .sort((a, b) => (b.created_at?.toMillis?.() || 0) - (a.created_at?.toMillis?.() || 0))[0]
+                const f = c ? { ...(c.contract_extracted_fields || {}), ...(c.reviewed_fields || {}) } : null
+                return (
+                  <div style={{ marginBottom: 24 }}>
+                    <h4 style={{ marginBottom: 12, color: 'var(--text-secondary)' }}>Contract Details</h4>
+                    <div className="card" style={{ background: 'var(--bg-surface)' }}>
+                      {!c ? (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)' }}>
+                          No matching contract record found for {empId || 'this employee'}. Review it in HR → Contracts before approving.
+                        </p>
+                      ) : !f || Object.keys(f).filter(k => f[k] != null && f[k] !== '').length === 0 ? (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)' }}>
+                          Contract uploaded for {empId} but not yet extracted/reviewed. Open HR → Contracts to review the fields first.
+                        </p>
+                      ) : (
+                        <p style={{ fontSize: '0.9rem', lineHeight: 1.9 }}>
+                          <strong>Employee:</strong> {f.employee_name || empId}<br />
+                          <strong>Job Title:</strong> {f.job_title || '—'}<br />
+                          <strong>Project:</strong> {f.client_name || '—'}{f.po_number ? ' · ' + f.po_number : ''}<br />
+                          <strong>Salary:</strong> {f.salary_monthly_sar ? `${f.salary_monthly_sar} ${f.currency || 'SAR'}` : '—'}<br />
+                          <strong>Term:</strong> {f.contract_start_date || '—'} → {f.contract_end_date || '—'}<br />
+                          <strong>Bank / IBAN:</strong> {f.bank_name || '—'}{f.iban ? ' · ' + f.iban : ''}<br />
+                          <strong>Status:</strong> {c.status || c.contract_extraction_status || '—'}<br />
+                        </p>
+                      )}
+                      <a href="/hr/contracts" style={{ fontSize: '0.78rem', color: 'var(--accent-primary, #1598CC)', marginTop: 8, display: 'inline-block', fontWeight: 600 }}>
+                        Open the full contract (fields + PDF) in HR → Contracts →
+                      </a>
+                    </div>
+                  </div>
+                )
+              })()}
 
               <div style={{ marginBottom: 24 }}>
                 <h4 style={{ marginBottom: 12, color: 'var(--text-secondary)' }}>SLA Status</h4>
