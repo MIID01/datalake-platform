@@ -14,7 +14,11 @@ export default function AssignEngineerModal({ project, onClose, onAssigned }) {
   useEffect(() => {
     const fetchEngs = async () => {
       try {
-        const q = query(collection(db, 'employees'), where('type', '==', 'deployed'))
+        // Canonical employee query — every ACTIVE employee, same source as the HR
+        // roster. (Was where('type','==','deployed'), which silently hid the 3
+        // contractors + 2 internal staff: they could never be assigned to a
+        // project, so their timesheets had no PM to route to.)
+        const q = query(collection(db, 'employees'), where('employment_status', '==', 'ACTIVE'))
         const snap = await getDocs(q)
         let emps = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         
