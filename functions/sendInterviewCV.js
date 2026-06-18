@@ -60,6 +60,11 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       return res.status(400).json({ error: "candidate_id and project_id are required" });
     }
 
+    // Extra recipients ("whoever we need added") — accept an array or a
+    // comma/semicolon-separated string; keep only well-formed addresses.
+    const ccRaw = Array.isArray(req.body.cc) ? req.body.cc : String(req.body.cc || "").split(/[,;]/);
+    const ccList = [...new Set(ccRaw.map((e) => String(e).trim()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))];
+
     // ── 2. Load candidate — verify interview CV exists ──
     const candidateDoc = await db.collection("talent_pool").doc(candidate_id).get();
     if (!candidateDoc.exists) {
@@ -124,9 +129,9 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     );
     const scorecardUrl = `https://datalake-production-sa.web.app/client/scorecard/${scorecardToken}`;
 
-    // ── 6. Build RFC 2822 email with PDF attachment ──
+    // ── 6. Build RFC 2822 email with the filled Skills Portfolio (DOCX) ──
     const safeName = candidate.full_name.replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
-    const attachmentFilename = `DTLK-FORM-HR-CV-002-v3_${safeName}.pdf`;
+    const attachmentFilename = `DTLK-FORM-HR-CV-002-v1.1_${safeName}.docx`;
 
     const emailBody = buildEmailBody({
       candidateName: candidate.full_name,
@@ -141,11 +146,12 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     const rawEmail = buildRawEmail({
       from: "Datalake HR <hr@datalake.sa>",
       to: `${project.client_approver_name} <${project.client_approver_email}>`,
+      cc: ccList,
       subject: `Candidate Profile: ${candidate.full_name} — ${project.project_name}`,
       body: emailBody,
       attachment: {
         filename: attachmentFilename,
-        mimeType: "application/pdf",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         data: cvBuffer,
       },
     });
@@ -166,6 +172,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     await db.collection("talent_pool").doc(candidate_id).update({
       interview_cv_sent_at: now,
       interview_cv_sent_to: project.client_approver_email,
+      interview_cv_sent_cc: ccList,
       interview_cv_sent_by: profile.email,
       interview_cv_gmail_id: gmailMessageId,
     });
@@ -195,6 +202,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
         client_name: project.client_name,
         sent_to: project.client_approver_email,
         sent_to_name: project.client_approver_name,
+        cc: ccList,
         gmail_message_id: gmailMessageId,
       },
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
@@ -204,6 +212,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       success: true,
       sent_to: project.client_approver_email,
       sent_to_name: project.client_approver_name,
+      cc: ccList,
       gmail_message_id: gmailMessageId,
       sent_at: sentAt,
     });
@@ -246,7 +255,7 @@ function buildEmailBody({ candidateName, roleInterest, projectName, clientName, 
     `Project: ${projectName}`,
     `Client: ${clientName}`,
     meetingLine,
-    "The attached document follows the Datalake Skills Portfolio format (DTLK-FORM-HR-CV-002-v3) and contains the candidate's professional summary, technical competencies, and relevant project experience.",
+    "The attached document follows the Datalake Skills Portfolio format (DTLK-FORM-HR-CV-002 v1.1) and contains the candidate's professional summary, technical competencies, and relevant project experience.",
     "",
     "Please review at your convenience and advise on next steps.",
     "",
@@ -276,12 +285,14 @@ function buildEmailBody({ candidateName, roleInterest, projectName, clientName, 
 /**
  * Build a base64url-encoded RFC 2822 MIME email with file attachment.
  */
-function buildRawEmail({ from, to, subject, body, attachment }) {
+function buildRawEmail({ from, to, cc, subject, body, attachment }) {
   const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const ccHeader = Array.isArray(cc) && cc.length ? [`Cc: ${cc.join(", ")}`] : [];
 
   const mimeMessage = [
     `From: ${from}`,
     `To: ${to}`,
+    ...ccHeader,
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,

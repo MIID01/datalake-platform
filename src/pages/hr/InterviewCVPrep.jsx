@@ -62,6 +62,7 @@ export default function InterviewCVPrep() {
   const [sending, setSending] = useState(false)
   const [prepResult, setPrepResult] = useState(null)
   const [sendResult, setSendResult] = useState(null)
+  const [ccEmails, setCcEmails] = useState('')
   const [error, setError] = useState('')
   const [userRole, setUserRole] = useState(null)
 
@@ -149,6 +150,7 @@ export default function InterviewCVPrep() {
           candidate_id: selectedCandidate.id,
           project_id: selectedProject.id,
           meeting_date: meetingDate || undefined,
+          cc: ccEmails.trim() || undefined,
         }),
       })
       const data = await res.json()
@@ -195,7 +197,7 @@ export default function InterviewCVPrep() {
 
   const resetAll = () => {
     setStep(0); setSelectedProject(null); setSelectedCandidate(null)
-    setJdText(''); setMeetingDate(''); setPrepResult(null); setSendResult(null); setError(''); setStagingResult(null); setCvDownloadUrl(null)
+    setJdText(''); setMeetingDate(''); setPrepResult(null); setSendResult(null); setError(''); setStagingResult(null); setCvDownloadUrl(null); setCcEmails('')
   }
 
   if (loading) return (
@@ -208,7 +210,7 @@ export default function InterviewCVPrep() {
   return (
     <div style={s.page}>
       <h1 style={s.h1}>Interview CV Preparation</h1>
-      <div style={s.sub}>Prepare and dispatch candidate Skills Portfolio to clients · DTLK-FORM-HR-CV-002-v2</div>
+      <div style={s.sub}>Prepare and dispatch candidate Skills Portfolio to clients · DTLK-FORM-HR-CV-002 v1.1</div>
 
       {/* Progress bar */}
       <div style={s.steps}>
@@ -424,14 +426,14 @@ export default function InterviewCVPrep() {
       {/* ── STEP 4: Preview & Send ── */}
       {step === 4 && prepResult && (
         <>
-          <div style={s.alert('success')}><CheckCircle size={16} />CV prepared successfully — {prepResult.format.toUpperCase()} stored in WORM archive</div>
+          <div style={s.alert('success')}><CheckCircle size={16} />CV prepared successfully — {prepResult.format.toUpperCase()} stored securely (PDPL retention)</div>
 
           <div style={s.card}>
             <div style={s.cardTitle}><Eye size={20} color={BRAND.green} />Preview</div>
             {prepResult.format === 'docx' ? (
               <div style={{ textAlign: 'center', padding: '32px 20px' }}>
                 <FileText size={48} style={{ color: BRAND.sky, marginBottom: 16 }} />
-                <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 8 }}>DTLK-FORM-HR-CV-002-v2_{prepResult.candidate_name.replace(/\s+/g, '_')}.docx</div>
+                <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 8 }}>DTLK-FORM-HR-CV-002-v1.1_{prepResult.candidate_name.replace(/\s+/g, '_')}.docx</div>
                 <a href={prepResult.signed_url} target="_blank" rel="noopener noreferrer" style={{ ...s.btn(BRAND.sky, false), textDecoration: 'none', display: 'inline-flex' }}>
                   <Download size={16} /> Download DOCX
                 </a>
@@ -464,7 +466,17 @@ export default function InterviewCVPrep() {
             ) : userRole !== 'ceo' ? (
               <div style={{ ...s.alert('warn'), marginTop: 16 }}><AlertTriangle size={16} />Only Management can dispatch CVs to clients. Your role: {userRole || 'unknown'}</div>
             ) : (
-              <div style={{ marginTop: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div style={{ marginTop: 16 }}>
+                <label style={s.label}>CC (optional) — add anyone else who should receive this</label>
+                <input
+                  style={s.input}
+                  placeholder="name@example.com, another@example.com"
+                  value={ccEmails}
+                  onChange={e => setCcEmails(e.target.value)}
+                />
+                <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: 6, marginBottom: 14 }}>
+                  Comma-separated. Goes out as CC alongside {prepResult.client_approver_email}.
+                </div>
                 <button style={s.btn(BRAND.green, sending)} disabled={sending} onClick={handleSend}>
                   {sending ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Sending...</> : <><Send size={16} /> Send to {prepResult.client_approver_name}</>}
                 </button>

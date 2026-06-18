@@ -1,23 +1,31 @@
 /**
  * prepareInterviewCV — Cloud Function (onRequest)
  *
- * Reformats a candidate's CV into a Datalake "Skills Portfolio" interview PDF,
- * tailored to a client job description. Runs on the in-KSA GPU model (callLLM →
- * Qwen/Gemma on the VM) — NO external cv-agent. The candidate's CV is already
- * structured in talent_pool.ai_extracted_data; if absent we pdf-parse the raw CV.
- * Output is stored in the main (erasable) bucket per PDPL Art.18 retention.
+ * Reformats a candidate's CV into Datalake's "Skills Portfolio" interview form
+ * by FILLING the agreed DOCX template (DTLK-FORM-HR-CV-002 v1.1) with extracted,
+ * role-tailored data. Runs on the in-KSA GPU model (callLLM → Qwen/Gemma on the
+ * VM) — NO external cv-agent. The candidate's CV is already structured in
+ * talent_pool.ai_extracted_data; if absent we pdf-parse the raw CV. Output is a
+ * DOCX stored in the main (erasable) bucket per PDPL Art.18 retention.
  *
  * Auth: role must be "hr" or "ceo".  PDPL: blocks PURGED / no-consent candidates.
- * DTLK-FORM-HR-CV-002-v3 (GPU)
+ * DTLK-FORM-HR-CV-002 v1.1
  */
 
 const admin = require("firebase-admin");
-const PDFDocument = require("pdfkit");
+const fs = require("fs");
+const path = require("path");
+const PizZip = require("pizzip");
+const Docxtemplater = require("docxtemplater");
 const { httpErrorStatus } = require("./lib/httpErrors");
 const { callLLM, parseJsonOutput } = require("./lib/ai-client");
-const { LEGAL_FOOTER_EN } = require("./lib/company-legal");
 let pdfParse;
 try { pdfParse = require("pdf-parse"); } catch (_) { /* optional fallback */ }
+
+// The agreed client-facing form. We FILL this docxtemplater template ({placeholder}
+// tags) — we do not generate our own layout — so the output is exactly the form HR
+// signed off on (DTLK-FORM-HR-CV-002 v1.1).
+const CV_TEMPLATE_PATH = path.join(__dirname, "assets", "DTLK-FORM-HR-CV-002_v1.1.docx");
 
 const db = admin.firestore();
 const cvBucket = admin.storage().bucket("datalake-cv-uploads");
@@ -80,20 +88,31 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       agent: "gatekeeper",
       type: "interview_cv_prepare",
       triggeredBy: profile.email,
-      promptTemplateId: "INTERVIEW_CV_PREP_V1_GPU",
+      promptTemplateId: "INTERVIEW_CV_PREP_V2_FORM",
       jsonMode: true,
-      systemPrompt: `You prepare a candidate's CV into a Datalake Saudi Arabia LLC interview "Skills Portfolio" tailored to a client role.
+      systemPrompt: `You fill Datalake Saudi Arabia LLC's "Skills Portfolio" form for a candidate, tailored to a client role.
 
-GROUNDING (critical): Use ONLY facts present in the candidate CV data. NEVER invent experience, skills, employers, job titles, dates, certifications or education. Reorganise and summarise honestly to highlight relevance to the job description — if something is not in the CV, leave it out.
+GROUNDING (critical): Use ONLY facts present in the candidate CV data. NEVER invent experience, skills, employers, job titles, dates, numbers, certifications or education. If a field is not supported by the CV, return an empty string "" — do NOT guess and do NOT fill a category just to look complete.
 
-Return ONLY a JSON object:
+Categorise the candidate's REAL skills into the fixed buckets below (leave a bucket "" if the CV shows nothing for it). Write experience/education/certifications as readable multi-line text using \\n between lines and a blank line between entries.
+
+Return ONLY this JSON object (all values strings unless noted):
 {
-  "headline": "one-line professional headline grounded in the CV",
-  "summary": "3-4 sentence professional summary tailored to the role, only from the CV",
-  "key_skills": ["a skill present in the CV that is relevant to the role"],
-  "experience": [{"role":"","company":"","period":"","highlights":["",""]}],
-  "education": [{"degree":"","institution":"","year":""}],
-  "certifications": [""]
+  "professional_summary": "3-4 sentence summary tailored to the role, only from the CV",
+  "best_fit_role": "the role title this candidate best fits for this client",
+  "seniority": "Junior / Mid / Senior / Lead — only if evident, else \\"\\"",
+  "years_experience": "integer years of professional experience, or \\"\\" if unclear",
+  "skills_cloud": "comma-separated cloud platforms present in the CV (AWS, Azure, GCP...)",
+  "skills_data_eng": "data engineering (Spark, Kafka, ETL, Airflow, dbt...)",
+  "skills_programming": "languages (Python, Java, Scala, SQL...)",
+  "skills_databases": "databases (PostgreSQL, Oracle, MongoDB, BigQuery...)",
+  "skills_bi": "BI & visualization (Power BI, Tableau, Looker...)",
+  "skills_devops": "DevOps/MLOps (Docker, Kubernetes, CI/CD, Terraform...)",
+  "skills_regulatory": "regulatory/domain (SAMA, PDPL, banking, finance, healthcare...)",
+  "experience_content": "each role as 'Title — Company (period)' then bullet lines starting with '• ', entries separated by a blank line",
+  "certifications_content": "one certification per line, or \\"\\" if none in the CV",
+  "education_content": "'Degree, Institution (year)' per line",
+  "key_achievements": "notable, quantified achievements from the CV as '• ' bullet lines, or \\"\\""
 }`,
       userPrompt: `JOB DESCRIPTION:\n${jdContent}\n\nCANDIDATE CV DATA:\n${cvData ? JSON.stringify(cvData) : cvRawText}`,
     });
@@ -101,19 +120,20 @@ Return ONLY a JSON object:
     const parsed = parseJsonOutput(llm.output);
     const portfolio = parsed.success ? parsed.data : {};
 
-    // ── 6. Render the branded interview-CV PDF ──
-    const outputBuffer = await renderInterviewCvPdf({ portfolio, candidate, project });
+    // ── 6. Fill the agreed Skills Portfolio form (DOCX) ──
+    const preparedDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const outputBuffer = fillInterviewCvDocx({ portfolio, candidate, preparedDate });
 
     // ── 7. Store in the main (erasable) bucket with PDPL retention metadata ──
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const safeName = String(candidate.full_name || "candidate").replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
-    const interviewCvPath = `interview-cvs/${project_id}/${candidate_id}/${timestamp}_DTLK-FORM-HR-CV-002_${safeName}.pdf`;
+    const interviewCvPath = `interview-cvs/${project_id}/${candidate_id}/${timestamp}_DTLK-FORM-HR-CV-002_${safeName}.docx`;
     const pdplPurgeAfter = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
     const interviewCvFile = interviewCvBucket.file(interviewCvPath);
     await interviewCvFile.save(outputBuffer, {
       metadata: {
-        contentType: "application/pdf",
+        contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         metadata: {
           candidate_id, project_id, prepared_by: profile.email,
           regulatory_basis: "PDPL Art. 4, 5, 18; NCA ECC-1:2018",
@@ -135,7 +155,7 @@ Return ONLY a JSON object:
       interview_cv_prepared_at: now,
       interview_cv_prepared_by: profile.email,
       interview_cv_project_id: project_id,
-      interview_cv_format: "pdf",
+      interview_cv_format: "docx",
     });
 
     await writeBigQueryAudit({
@@ -152,12 +172,12 @@ Return ONLY a JSON object:
       details: {
         candidate_id, candidate_name: candidate.full_name, project_id,
         project_name: project.project_name, client_name: project.client_name,
-        path: interviewCvPath, format: "pdf", model: llm.modelName || null,
+        path: interviewCvPath, format: "docx", model: llm.modelName || null,
       },
     });
 
     return res.status(200).json({
-      success: true, signed_url: signedUrl, worm_path: interviewCvPath, format: "pdf",
+      success: true, signed_url: signedUrl, worm_path: interviewCvPath, format: "docx",
       candidate_name: candidate.full_name,
       client_approver_email: project.client_approver_email || null,
       client_approver_name: project.client_approver_name || null,
@@ -168,59 +188,42 @@ Return ONLY a JSON object:
   }
 }
 
-// ── Branded interview-CV PDF (PDFKit) ──
-function renderInterviewCvPdf({ portfolio, candidate, project }) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: "A4", bufferPages: true });
-    const chunks = [];
-    doc.on("data", (c) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
+// ── Fill the agreed Skills Portfolio form (DTLK-FORM-HR-CV-002 v1.1) ──
+// We fill the real template's {placeholder} tags rather than drawing our own
+// layout, so the client receives exactly the signed-off form. Word inserts
+// <w:proofErr/> spell/grammar markers mid-text that split tags (e.g.
+// {prepared_date}); we strip them from the document part before rendering.
+function fillInterviewCvDocx({ portfolio, candidate, preparedDate }) {
+  const templateBinary = fs.readFileSync(CV_TEMPLATE_PATH, "binary");
+  const zip = new PizZip(templateBinary);
 
-    const navy = "#022873", sky = "#1598CC";
-    doc.rect(0, 0, doc.page.width, 72).fill(navy);
-    doc.fillColor("#ffffff").fontSize(19).text("Datalake Saudi Arabia LLC", 50, 22);
-    doc.fontSize(10).fillColor("#cfe3f5").text("Candidate Skills Portfolio — Interview", 50, 48);
+  const DOC_XML = "word/document.xml";
+  const cleanedXml = zip.file(DOC_XML).asText().replace(/<w:proofErr[^>]*\/>/g, "");
+  zip.file(DOC_XML, cleanedXml);
 
-    doc.fillColor(navy).fontSize(18).text(candidate.full_name || "Candidate", 50, 92);
-    if (portfolio.headline) doc.fillColor(sky).fontSize(11).text(String(portfolio.headline));
-    doc.moveDown(0.4).fillColor("#444").fontSize(9)
-      .text(`Prepared for ${project.client_name || ""}${project.project_name ? " · " + project.project_name : ""}`);
-    doc.moveDown(0.8).fillColor("#111");
-
-    const section = (title) => {
-      doc.moveDown(0.6).fillColor(navy).fontSize(12).text(title);
-      doc.moveTo(50, doc.y + 2).lineTo(doc.page.width - 50, doc.y + 2).strokeColor(sky).lineWidth(1).stroke();
-      doc.moveDown(0.4).fillColor("#222").fontSize(10);
-    };
-
-    if (portfolio.summary) { section("Professional Summary"); doc.text(String(portfolio.summary)); }
-    if (Array.isArray(portfolio.key_skills) && portfolio.key_skills.filter(Boolean).length) {
-      section("Key Skills"); doc.text(portfolio.key_skills.filter(Boolean).join("   ·   "));
-    }
-    if (Array.isArray(portfolio.experience) && portfolio.experience.length) {
-      section("Experience");
-      portfolio.experience.forEach((x) => {
-        doc.fillColor(navy).fontSize(10).text(`${x.role || ""}${x.company ? " — " + x.company : ""}`);
-        if (x.period) doc.fillColor("#777").fontSize(8.5).text(String(x.period));
-        (x.highlights || []).filter(Boolean).forEach((h) => doc.fillColor("#222").fontSize(9.5).text("•  " + h, { indent: 8 }));
-        doc.moveDown(0.4);
-      });
-    }
-    if (Array.isArray(portfolio.education) && portfolio.education.length) {
-      section("Education");
-      portfolio.education.forEach((e) =>
-        doc.fillColor("#222").fontSize(9.5).text(`${e.degree || ""}${e.institution ? ", " + e.institution : ""}${e.year ? " (" + e.year + ")" : ""}`));
-    }
-    if (Array.isArray(portfolio.certifications) && portfolio.certifications.filter(Boolean).length) {
-      section("Certifications");
-      portfolio.certifications.filter(Boolean).forEach((c) => doc.fillColor("#222").fontSize(9.5).text("•  " + c));
-    }
-
-    doc.fontSize(7).fillColor("#888")
-      .text(LEGAL_FOOTER_EN, 50, doc.page.height - 58, { width: doc.page.width - 100, align: "center" });
-    doc.end();
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  const str = (v) => (v == null ? "" : String(v));
+  doc.render({
+    prepared_date: preparedDate,
+    candidate_name: str(candidate.full_name),
+    professional_summary: str(portfolio.professional_summary),
+    best_fit_role: str(portfolio.best_fit_role || candidate.role_interest),
+    seniority: str(portfolio.seniority),
+    years_experience: str(portfolio.years_experience),
+    skills_cloud: str(portfolio.skills_cloud),
+    skills_data_eng: str(portfolio.skills_data_eng),
+    skills_programming: str(portfolio.skills_programming),
+    skills_databases: str(portfolio.skills_databases),
+    skills_bi: str(portfolio.skills_bi),
+    skills_devops: str(portfolio.skills_devops),
+    skills_regulatory: str(portfolio.skills_regulatory),
+    experience_content: str(portfolio.experience_content),
+    certifications_content: str(portfolio.certifications_content),
+    education_content: str(portfolio.education_content),
+    key_achievements: str(portfolio.key_achievements),
   });
+
+  return doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
 function buildDefaultJD(project, candidate) {
