@@ -384,6 +384,14 @@ function PayrollRunDetail({ run, onClose, downloadFromPdf }) {
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#022873' }}>
                   <FileSpreadsheet size={13} /> WPS SIF: <code style={{ fontSize: '0.72rem', background: '#f4f6f9', padding: '2px 6px', borderRadius: 4 }}>{run.wps_file_url}</code>
                 </span>
+              ) : run.wps_status === 'BLOCKED_NO_MOL' ? (
+                <span style={{ color: '#B45309', display: 'inline-flex', alignItems: 'center', gap: 4 }} title={run.wps_error || ''}>
+                  <AlertTriangle size={13} /> WPS blocked — MOL number not configured
+                </span>
+              ) : run.wps_status === 'FAILED' ? (
+                <span style={{ color: '#B91C1C', display: 'inline-flex', alignItems: 'center', gap: 4 }} title={run.wps_error || ''}>
+                  <AlertCircle size={13} /> WPS failed — {run.wps_error || 'unknown error'}
+                </span>
               ) : (
                 <span style={{ color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <Clock size={13} /> WPS generating…
@@ -392,6 +400,10 @@ function PayrollRunDetail({ run, onClose, downloadFromPdf }) {
               {run.gosi_report_url ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#022873' }}>
                   <ShieldCheck size={13} /> GOSI: <code style={{ fontSize: '0.72rem', background: '#f4f6f9', padding: '2px 6px', borderRadius: 4 }}>{run.gosi_report_url}</code>
+                </span>
+              ) : run.gosi_status === 'FAILED' ? (
+                <span style={{ color: '#B91C1C', display: 'inline-flex', alignItems: 'center', gap: 4 }} title={run.gosi_error || ''}>
+                  <AlertCircle size={13} /> GOSI failed — {run.gosi_error || 'unknown error'}
                 </span>
               ) : (
                 <span style={{ color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>

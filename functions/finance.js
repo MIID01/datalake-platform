@@ -2,6 +2,7 @@ const admin = require("firebase-admin");
 const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
 const { logToBigQuery } = require("./lib/bigquery");
+const { COMPANY } = require("./lib/company-legal");
 
 const db = admin.firestore();
 
@@ -216,24 +217,35 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
 // Placeholder handlers for remaining Phase 5 tasks to be implemented next
 // ═══════════════════════════════════════════════════════════════════
 async function generateWPSFileHandler(event) {
+  const { payroll_run_id } = event.data?.message?.json || {};
   console.log("[Controller AI] Starting generateWPSFile...");
   try {
-    const { payroll_run_id } = event.data.message.json;
     if (!payroll_run_id) throw new Error("Missing payroll_run_id in event payload.");
 
     const payrollDoc = await db.collection("payroll_runs").doc(payroll_run_id).get();
     if (!payrollDoc.exists) throw new Error(`Payroll run ${payroll_run_id} not found.`);
-    
+
     const payroll = payrollDoc.data();
     if (payroll.status !== "APPROVED") {
       console.warn(`[Controller AI] Payroll ${payroll_run_id} is not APPROVED (status: ${payroll.status}). Skipping WPS generation.`);
       return;
     }
 
+    // Employer MOL (Ministry of Labour establishment number) is mandatory for a
+    // valid WPS/SIF file. We NEVER emit a placeholder — the bank would reject it
+    // and it would misrepresent a real payment file. Block honestly if unset.
+    const employerMOLNumber = String(COMPANY.mol_number || "").trim();
+    if (!employerMOLNumber) {
+      console.error("[WPS] MOL not configured — not emitting a WPS file.");
+      await payrollDoc.ref.update({
+        wps_status: "BLOCKED_NO_MOL",
+        wps_error: "Establishment MOL number not configured. Set COMPANY.mol_number in company-legal.js, then regenerate the WPS file.",
+      });
+      return;
+    }
+
     // WPS Saudi Arabia SIF/CSV Format Generation
-    // Expected basic columns for SI Format: Employee ID/Iqama, Employee Name, Bank Name, IBAN, Net Salary, Employer MOL Number, Remarks
-    // For Datalake, MOL number is a placeholder if not present in DB.
-    const employerMOLNumber = "7-1234567"; // Placeholder MOL
+    // Columns: Employee Name, ID/Iqama, Bank Name, IBAN, Net Salary, Employer MOL, Remarks
     const csvRows = [
       ["Employee Name", "Employee ID / Iqama", "Bank Name", "IBAN", "Net Salary", "Employer MOL Number", "Remarks"]
     ];
@@ -283,6 +295,8 @@ async function generateWPSFileHandler(event) {
     // Update payroll run
     await payrollDoc.ref.update({
       wps_file_url,
+      wps_status: "GENERATED",
+      wps_error: null,
       wps_generated_at: now
     });
 
@@ -302,14 +316,18 @@ async function generateWPSFileHandler(event) {
 
   } catch (error) {
     console.error("[Controller AI] generateWPSFile error:", error);
-    throw error;
+    if (payroll_run_id) {
+      await db.collection("payroll_runs").doc(payroll_run_id)
+        .update({ wps_status: "FAILED", wps_error: String(error.message || error).slice(0, 500) })
+        .catch(() => {});
+    }
   }
 }
 
 async function generateGOSIReportHandler(event) {
+  const { payroll_run_id } = event.data?.message?.json || {};
   console.log("[Controller AI] Starting generateGOSIReport...");
   try {
-    const { payroll_run_id } = event.data.message.json;
     if (!payroll_run_id) throw new Error("Missing payroll_run_id in event payload.");
 
     const payrollDoc = await db.collection("payroll_runs").doc(payroll_run_id).get();
@@ -369,6 +387,8 @@ async function generateGOSIReportHandler(event) {
     // Update payroll run
     await payrollDoc.ref.update({
       gosi_report_url,
+      gosi_status: "GENERATED",
+      gosi_error: null,
       gosi_generated_at: now
     });
 
@@ -385,7 +405,11 @@ async function generateGOSIReportHandler(event) {
 
   } catch (error) {
     console.error("[Controller AI] generateGOSIReport error:", error);
-    throw error;
+    if (payroll_run_id) {
+      await db.collection("payroll_runs").doc(payroll_run_id)
+        .update({ gosi_status: "FAILED", gosi_error: String(error.message || error).slice(0, 500) })
+        .catch(() => {});
+    }
   }
 }
 
