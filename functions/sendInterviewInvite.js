@@ -16,6 +16,7 @@ const admin = require("firebase-admin");
 const { getGmailClient } = require("./lib/gmail");
 const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 const { writeBigQueryAudit } = require("./prepareInterviewCV");
+const { isGraphConfigured, createTeamsCalendarEvent } = require("./lib/msgraph");
 
 const db = admin.firestore();
 const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000; // Asia/Riyadh = UTC+3, no DST.
@@ -68,43 +69,68 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
     const locStr = location || (mode === "online" ? "Online — meeting link to follow" : "Datalake Saudi Arabia LLC, Riyadh");
     const summary = `Interview: ${candidate.full_name} — ${project.project_name || project.client_name || ""}`.trim();
 
-    // ── 5. Build the .ics invite ──
-    const ics = buildIcs({
-      uid: `interview-${candidate_id}-${start.getTime()}@datalake.sa`,
-      start, end,
-      summary,
-      description: [
-        `Interview for ${candidate.full_name}${candidate.role_interest ? " (" + candidate.role_interest + ")" : ""}.`,
-        `Client: ${project.client_name || ""}  |  Project: ${project.project_name || ""}`,
-        notes ? `Notes: ${notes}` : "",
-        `Arranged by Datalake Saudi Arabia LLC.`,
-      ].filter(Boolean).join("\n"),
-      location: locStr,
-      organizerName: "Datalake HR", organizerEmail: "hr@datalake.sa",
-      attendees: toList,
-    });
-
-    // ── 6. Send via Gmail (DWD as hr@datalake.sa) with .ics ──
-    const gmail = await getGmailClient();
+    // ── 5. Create the meeting + send the invite ──
+    // Full-Outlook path: when M365/Graph is configured, create the event on the
+    // organizer's mailbox — Outlook auto-sends the invite to attendees and Teams
+    // mints the join link. Otherwise fall back to the Google .ics path so the
+    // feature still works before M365 is wired up.
     const bodyText = buildInviteBody({ candidate, project, start, durMin, locStr, clientName, notes });
-    const raw = buildRawWithIcs({
-      from: "Datalake HR <hr@datalake.sa>",
-      to: toList.join(", "),
-      cc: ccList,
-      subject: summary,
-      bodyText,
-      ics,
-    });
-    const sendResult = await gmail.users.messages.send({ userId: "hr@datalake.sa", requestBody: { raw } });
-    const gmailMessageId = sendResult.data.id;
+    let meetingProvider, joinUrl = null, graphEventId = null, gmailMessageId = null;
 
-    // ── 7. Move candidate to INTERVIEW_SCHEDULED + record ──
+    if (isGraphConfigured()) {
+      meetingProvider = "teams";
+      const startLocal = `${start_datetime}:00`;
+      const endLocal = addMinutesToLocalString(start_datetime, durMin);
+      const result = await createTeamsCalendarEvent({
+        organizer: process.env.MS_INTERVIEW_ORGANIZER,
+        subject: summary,
+        bodyHtml: bodyText.replace(/\n/g, "<br>"),
+        startLocal, endLocal, timeZone: "Arabia Standard Time",
+        location: locStr,
+        attendees: [
+          ...toList.map((e) => ({ email: e, optional: false })),
+          ...ccList.map((e) => ({ email: e, optional: true })),
+        ],
+      });
+      joinUrl = result.joinUrl;
+      graphEventId = result.id;
+    } else {
+      meetingProvider = "ics";
+      const ics = buildIcs({
+        uid: `interview-${candidate_id}-${start.getTime()}@datalake.sa`,
+        start, end, summary,
+        description: [
+          `Interview for ${candidate.full_name}${candidate.role_interest ? " (" + candidate.role_interest + ")" : ""}.`,
+          `Client: ${project.client_name || ""}  |  Project: ${project.project_name || ""}`,
+          notes ? `Notes: ${notes}` : "",
+          `Arranged by Datalake Saudi Arabia LLC.`,
+        ].filter(Boolean).join("\n"),
+        location: locStr,
+        organizerName: "Datalake HR", organizerEmail: "hr@datalake.sa",
+        attendees: toList,
+      });
+      const gmail = await getGmailClient();
+      const raw = buildRawWithIcs({
+        from: "Datalake HR <hr@datalake.sa>",
+        to: toList.join(", "),
+        cc: ccList,
+        subject: summary,
+        bodyText,
+        ics,
+      });
+      const sendResult = await gmail.users.messages.send({ userId: "hr@datalake.sa", requestBody: { raw } });
+      gmailMessageId = sendResult.data.id;
+    }
+
+    // ── 6. Move candidate to INTERVIEW_SCHEDULED + record ──
     const now = admin.firestore.FieldValue.serverTimestamp();
     await db.collection("talent_pool").doc(candidate_id).update({
       state: "INTERVIEW_SCHEDULED",
       interview_datetime: start.toISOString(),
       interview_duration_minutes: durMin,
       interview_location: locStr,
+      interview_meeting_provider: meetingProvider,
+      interview_join_url: joinUrl,
       interview_invited_to: toList,
       interview_invited_cc: ccList,
       interview_invited_by: profile.email,
@@ -119,7 +145,9 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
         candidate_id, candidate_name: candidate.full_name, project_id,
         project_name: project.project_name, client_name: project.client_name,
         start: start.toISOString(), duration_minutes: durMin, location: locStr,
-        to: toList, cc: ccList, pdpl_consent_verified: true, gmail_message_id: gmailMessageId,
+        to: toList, cc: ccList, pdpl_consent_verified: true,
+        meeting_provider: meetingProvider, join_url: joinUrl,
+        graph_event_id: graphEventId, gmail_message_id: gmailMessageId,
       },
     });
 
@@ -132,6 +160,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
       recipient_email: toList.join(", "),
       cc: ccList.join(", "),
       interview_start: start.toISOString(),
+      meeting_provider: meetingProvider,
       gmail_message_id: gmailMessageId,
     });
 
@@ -141,6 +170,8 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
       cc: ccList,
       start: start.toISOString(),
       duration_minutes: durMin,
+      meeting_provider: meetingProvider,
+      join_url: joinUrl,
       gmail_message_id: gmailMessageId,
     });
   } catch (err) {
@@ -162,6 +193,18 @@ function parseRiyadhLocal(s) {
   const asUtc = Date.UTC(y, mo - 1, d, h, mi, 0);
   if (Number.isNaN(asUtc)) return null;
   return new Date(asUtc - RIYADH_OFFSET_MS);
+}
+
+// Add minutes to a wall-clock "YYYY-MM-DDTHH:mm" string, returning the same
+// local format with seconds (for Graph's start/end dateTime, which carry their
+// own timeZone field so no UTC conversion is wanted).
+function addMinutesToLocalString(s, minutes) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(s || ""));
+  if (!m) return s;
+  const [, y, mo, d, h, mi] = m.map(Number);
+  const t = new Date(Date.UTC(y, mo - 1, d, h, mi) + minutes * 60000);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}T${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:00`;
 }
 
 // UTC stamp for .ics: 20260620T113000Z
