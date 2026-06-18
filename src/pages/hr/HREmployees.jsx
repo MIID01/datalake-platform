@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore'
-import { auth, db, RESET_ONBOARDING_URL } from '../../lib/firebase'
+import { auth, db, RESET_ONBOARDING_URL, ASSIGN_ENGINEER_URL } from '../../lib/firebase'
 import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, CheckCircle, Trash2, Edit2, Send, Archive, UserMinus, Eye, RefreshCcw } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import AddEmployeeModal from '../../components/AddEmployeeModal'
@@ -22,6 +22,8 @@ export default function HREmployees() {
   const [employees, setEmployees] = useState([])
   // Canonical project assignment (engineer_project_assignments), keyed by engineer_id.
   const [assignMap, setAssignMap] = useState({})
+  const [projectsMap, setProjectsMap] = useState({})   // id → project doc (for names + dropdown)
+  const [assignTarget, setAssignTarget] = useState(null) // → AssignProjectModal
   // Users-by-uid join lets us show role_id + onboarding_complete next to each
   // employee. employees holds HR data; users holds auth data; same person, two
   // collections — surface both in one row.
@@ -91,7 +93,12 @@ export default function HREmployees() {
       },
       err => console.warn('assignments listener:', err.message)
     )
-    return () => { unsub(); unsubUsers(); unsubAssign() }
+    const unsubProjects = onSnapshot(collection(db, 'projects'), snap => {
+      const m = {}
+      snap.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() } })
+      setProjectsMap(m)
+    }, err => console.warn('projects listener:', err.message))
+    return () => { unsub(); unsubUsers(); unsubAssign(); unsubProjects() }
   }, [])
 
   // Pick the matching users row for an employee — try uid, then employee_id (some
@@ -101,11 +108,24 @@ export default function HREmployees() {
     || (e.email && usersMap[`email:${String(e.email).toLowerCase()}`])
     || {}
 
-  // Canonical project(s) for an employee from engineer_project_assignments.
-  const projectsFor = (e) => {
-    const ids = assignMap[e.id] || []
-    return ids.length ? Array.from(new Set(ids)).join(', ') : 'Unassigned'
+  // Canonical project(s) for an employee from engineer_project_assignments,
+  // resolved to project NAMES (ids fall back to themselves if not yet loaded).
+  const projectName = (id) => projectsMap[id]?.project_name || id
+  const projectIdsFor = (e) => Array.from(new Set(assignMap[e.id] || []))
+  // Payroll readiness: salary present + (verified or legacy). 'none' blocks payroll,
+  // 'unverified' = auto-mapped from a contract, awaiting HR confirmation.
+  const salaryState = (e) => {
+    const sal = Number(e.salary_monthly_sar || e.salary_sar || e.salary_monthly || e.salary || 0)
+    if (sal <= 0) return 'none'
+    return e.salary_verified === false ? 'unverified' : 'ok'
   }
+  const isActiveEmp = (e) => !e.archived && String(e.employment_status || e.status || '').toLowerCase() === 'active'
+
+  // Active employees with no project assignment (can't submit timesheets) or no
+  // usable salary (won't be paid next run) — surfaced so HR can fix before payroll.
+  const activeEmps = employees.filter(isActiveEmp)
+  const unassignedCount = activeEmps.filter(e => projectIdsFor(e).length === 0).length
+  const salaryGapCount = activeEmps.filter(e => salaryState(e) !== 'ok').length
 
   const handleDelete = async (id) => {
     if(window.confirm('Remove this pending employee completely?')) {
@@ -161,6 +181,13 @@ export default function HREmployees() {
         // stray object shape doesn't crash the page with React #31.
         <div className="animate-fade-in-up" style={{ padding: '12px 20px', background: 'rgba(52,191,58,0.12)', border: '1px solid rgba(52,191,58,0.3)', borderRadius: 8, color: '#34BF3A', fontSize: '0.85rem', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
           <CheckCircle size={16} /> {typeof toast === 'string' ? toast : (toast?.msg || JSON.stringify(toast))}
+        </div>
+      )}
+
+      {(unassignedCount > 0 || salaryGapCount > 0) && (
+        <div style={{ padding: '12px 18px', background: 'rgba(243,156,18,0.1)', border: '1px solid rgba(243,156,18,0.35)', borderRadius: 8, color: '#F39C12', fontSize: '0.82rem', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Filter size={15} />
+          <span><strong>Payroll / timesheet readiness:</strong>{unassignedCount > 0 ? ` ${unassignedCount} active employee(s) have no project assignment (can't submit timesheets).` : ''}{salaryGapCount > 0 ? ` ${salaryGapCount} have no usable / unverified salary for the next pay run.` : ''} Fix below so everything matches.</span>
         </div>
       )}
 
@@ -258,7 +285,25 @@ export default function HREmployees() {
                     ) : '—'}
                   </td>
                   <td style={{ padding: '16px 20px', color: '#94a3b8' }}>
-                    {projectsFor(e)}
+                    {projectIdsFor(e).length ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {projectIdsFor(e).map(pid => (
+                          <span key={pid} style={{ color: '#e2e8f0', fontSize: '0.82rem' }}>{projectName(pid)}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#EF5829', fontWeight: 700, fontSize: '0.76rem' }}>⚠ Unassigned</span>
+                    )}
+                    {isActive && (
+                      <button onClick={() => setAssignTarget(e)} className="btn-action" title="Assign to a project (writes the canonical assignment)" style={{ marginTop: 6, background: 'rgba(21,152,204,0.1)', color: '#1598CC', border: '1px solid rgba(21,152,204,0.3)' }}>
+                        <Briefcase size={12} /> {projectIdsFor(e).length ? 'Change' : 'Assign'}
+                      </button>
+                    )}
+                    {isActive && salaryState(e) !== 'ok' && (
+                      <div style={{ marginTop: 6, fontSize: '0.7rem', fontWeight: 700, color: salaryState(e) === 'none' ? '#EF5829' : '#F39C12' }}>
+                        {salaryState(e) === 'none' ? '⚠ No salary — payroll will skip' : '⚠ Salary unverified'}
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '16px 20px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 340, marginLeft: 'auto' }}>
@@ -336,6 +381,19 @@ export default function HREmployees() {
       {editEmployee && <AddEmployeeModal onClose={() => setEditEmployee(null)} initialData={editEmployee} isEdit={true} />}
       {viewEmployee && <AddEmployeeModal onClose={() => setViewEmployee(null)} initialData={viewEmployee} isEdit={true} />}
       {consentEmployee && <OnboardingDetailModal employee={consentEmployee} onClose={() => setConsentEmployee(null)} />}
+      {assignTarget && (
+        <AssignProjectModal
+          employee={assignTarget}
+          projects={Object.values(projectsMap).filter(p => String(p.status || '').toUpperCase() === 'ACTIVE')}
+          currentIds={projectIdsFor(assignTarget)}
+          onClose={() => setAssignTarget(null)}
+          onDone={() => {
+            setToast(`${assignTarget.full_name || 'Employee'} assigned to project`)
+            setAssignTarget(null)
+            setTimeout(() => setToast(null), 4000)
+          }}
+        />
+      )}
       {emailEmployee && (
         <SendEmailModal
           employee={emailEmployee}
@@ -404,6 +462,92 @@ export default function HREmployees() {
         .btn-action { background: transparent; border: 1px solid #1e3050; color: #e2e8f0; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-family: inherit; font-size: 0.75rem; font-weight: 600; transition: all 0.2s; }
         .btn-action:hover { filter: brightness(1.2); }
       `}</style>
+    </div>
+  )
+}
+
+// Assign an employee to a project — writes the CANONICAL engineer_project_assignments
+// store via assignEngineerToProject (never a parallel field on the employee), so the
+// directory, timesheet view and payroll all stay in sync.
+function AssignProjectModal({ employee, projects, currentIds = [], onClose, onDone }) {
+  const [project_id, setProjectId] = useState('')
+  const [role_on_project, setRole] = useState(employee.job_title || 'Engineer')
+  const [start, setStart] = useState(new Date().toISOString().slice(0, 10))
+  const [end, setEnd] = useState(String(employee.contract_end || '').slice(0, 10))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const inp = { width: '100%', padding: '10px 12px', background: '#0d1829', border: '1px solid #1e3050', borderRadius: 8, color: '#e2e8f0', fontSize: '0.88rem', boxSizing: 'border-box', marginTop: 4, fontFamily: 'inherit' }
+  const lbl = { fontSize: '0.76rem', fontWeight: 600, color: '#94a3b8', marginTop: 14, display: 'block' }
+
+  const submit = async () => {
+    if (!project_id) { setErr('Pick a project.'); return }
+    if (!employee.email) { setErr('This employee has no email on file — required to assign.'); return }
+    setBusy(true); setErr('')
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(ASSIGN_ENGINEER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify({
+          project_id,
+          engineer_id: employee.id,
+          engineer_name: employee.full_name || employee.id,
+          engineer_email: employee.email,
+          role_on_project,
+          assignment_start_date: start,
+          assignment_end_date: end || start,
+          allocation_percentage: 100,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      onDone()
+    } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+
+  return (
+    <div onClick={() => !busy && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#111e33', border: '1px solid #1e3050', borderRadius: 12, padding: 22, width: 440, maxWidth: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: '1.02rem', fontWeight: 700, color: '#e2e8f0' }}>Assign to project</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
+        </div>
+        <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: 6 }}>
+          {employee.full_name} ({employee.employee_id || employee.id})
+          {currentIds.length ? ' — already assigned; this adds another assignment.' : ''}
+        </p>
+
+        <label style={lbl}>Project</label>
+        <select style={inp} value={project_id} onChange={e => setProjectId(e.target.value)}>
+          <option value="">Choose an active project…</option>
+          {projects.map(p => <option key={p.id} value={p.project_id || p.id} style={{ background: '#0d1829' }}>{p.project_name}{p.client_name ? ` — ${p.client_name}` : ''}</option>)}
+        </select>
+
+        <label style={lbl}>Role on project</label>
+        <input style={inp} value={role_on_project} onChange={e => setRole(e.target.value)} />
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label style={lbl}>Start date</label>
+            <input type="date" style={inp} value={start} onChange={e => setStart(e.target.value)} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={lbl}>End date</label>
+            <input type="date" style={inp} value={end} onChange={e => setEnd(e.target.value)} />
+          </div>
+        </div>
+
+        {err && <div style={{ marginTop: 12, color: '#EF5829', fontSize: '0.8rem' }}>{err}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+          <button onClick={onClose} disabled={busy} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #1e3050', background: 'transparent', color: '#94a3b8', fontWeight: 600, fontSize: '0.84rem', fontFamily: 'inherit', cursor: 'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={busy || !project_id} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: busy || !project_id ? '#1e293b' : '#1598CC', color: '#fff', fontWeight: 700, fontSize: '0.84rem', fontFamily: 'inherit', cursor: busy ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy ? <Loader size={13} className="spin" /> : <Briefcase size={13} />} Assign
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
