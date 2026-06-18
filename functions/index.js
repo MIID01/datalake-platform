@@ -3138,6 +3138,7 @@ exports.updateAccessMatrix = onRequest(
 exports.syncZohoFinance = require('./syncZohoFinance').syncZohoFinance;
 const { handler: prepareInterviewCVHandler } = require("./prepareInterviewCV");
 const { handler: sendInterviewCVHandler } = require("./sendInterviewCV");
+const { handler: sendInterviewInviteHandler } = require("./sendInterviewInvite");
 
 const interviewCVHelpers = { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS };
 
@@ -3159,10 +3160,22 @@ exports.sendInterviewCV = onRequest(
     memory: "512MiB",
     timeoutSeconds: 120,
     cors: ALLOWED_ORIGINS,
-    
-    
+
+
   },
   (req, res) => sendInterviewCVHandler(req, res, interviewCVHelpers)
+);
+
+// sendInterviewInvite — HR/CEO: email a calendar (.ics) interview invite with
+// date+time to the candidate + client approver (+ CC); moves to INTERVIEW_SCHEDULED.
+exports.sendInterviewInvite = onRequest(
+  {
+    region: "me-central2",
+    memory: "512MiB",
+    timeoutSeconds: 120,
+    cors: ALLOWED_ORIGINS,
+  },
+  (req, res) => sendInterviewInviteHandler(req, res, interviewCVHelpers)
 );
 
 // ═══════════════════════════════════════════════════════════════════

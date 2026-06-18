@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, getDocs, query, where } from 'firebase/firestore'
-import { db, auth, PREPARE_INTERVIEW_CV_URL, SEND_INTERVIEW_CV_URL, DOWNLOAD_CANDIDATE_CV_URL, UPDATE_CANDIDATE_STAGE_URL } from '../../lib/firebase'
+import { db, auth, PREPARE_INTERVIEW_CV_URL, SEND_INTERVIEW_CV_URL, SEND_INTERVIEW_INVITE_URL, DOWNLOAD_CANDIDATE_CV_URL } from '../../lib/firebase'
 import { FolderKanban, User, FileText, Send, CheckCircle, AlertTriangle, Loader, Search, Calendar, ChevronRight, ChevronLeft, Download, Eye, Shield, Star, ClipboardList } from 'lucide-react'
 
 const BRAND = { navy: '#022873', sky: '#1598CC', orange: '#EF5829', green: '#34BF3A' }
@@ -55,7 +55,12 @@ export default function InterviewCVPrep() {
   const [selectedProject, setSelectedProject] = useState(null)
   const [selectedCandidate, setSelectedCandidate] = useState(null)
   const [jdText, setJdText] = useState('')
-  const [meetingDate, setMeetingDate] = useState('')
+  const [inviteDateTime, setInviteDateTime] = useState('')
+  const [inviteDuration, setInviteDuration] = useState('45')
+  const [inviteLocation, setInviteLocation] = useState('')
+  const [inviteCc, setInviteCc] = useState('')
+  const [inviteSending, setInviteSending] = useState(false)
+  const [inviteResult, setInviteResult] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [preparing, setPreparing] = useState(false)
@@ -149,7 +154,6 @@ export default function InterviewCVPrep() {
         body: JSON.stringify({
           candidate_id: selectedCandidate.id,
           project_id: selectedProject.id,
-          meeting_date: meetingDate || undefined,
           cc: ccEmails.trim() || undefined,
         }),
       })
@@ -162,7 +166,6 @@ export default function InterviewCVPrep() {
 
   const [cvDownloading, setCvDownloading] = useState(false)
   const [cvDownloadUrl, setCvDownloadUrl] = useState(null)
-  const [stagingResult, setStagingResult] = useState(null)
 
   const handleDownloadOriginalCV = async () => {
     if (!selectedCandidate || cvDownloading) return
@@ -182,22 +185,35 @@ export default function InterviewCVPrep() {
     setCvDownloading(false)
   }
 
-  const handleScheduleInterview = async () => {
-    if (!selectedCandidate || !meetingDate) return
+  const handleSendInvite = async () => {
+    if (!selectedCandidate || !selectedProject || !inviteDateTime || inviteSending) return
+    setInviteSending(true)
+    setError('')
     try {
       const idToken = await auth.currentUser.getIdToken()
-      await fetch(UPDATE_CANDIDATE_STAGE_URL, {
+      const res = await fetch(SEND_INTERVIEW_INVITE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ candidate_id: selectedCandidate.id, new_state: 'INTERVIEW_SCHEDULED', notes: `Interview scheduled for ${meetingDate}`, interview_date: meetingDate }),
+        body: JSON.stringify({
+          candidate_id: selectedCandidate.id,
+          project_id: selectedProject.id,
+          start_datetime: inviteDateTime,
+          duration_minutes: Number(inviteDuration) || 45,
+          location: inviteLocation.trim() || undefined,
+          cc: inviteCc.trim() || undefined,
+        }),
       })
-      setStagingResult('INTERVIEW_SCHEDULED')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
+      setInviteResult(data)
     } catch (err) { setError(err.message) }
+    setInviteSending(false)
   }
 
   const resetAll = () => {
     setStep(0); setSelectedProject(null); setSelectedCandidate(null)
-    setJdText(''); setMeetingDate(''); setPrepResult(null); setSendResult(null); setError(''); setStagingResult(null); setCvDownloadUrl(null); setCcEmails('')
+    setJdText(''); setInviteDateTime(''); setInviteDuration('45'); setInviteLocation(''); setInviteCc(''); setInviteResult(null)
+    setPrepResult(null); setSendResult(null); setError(''); setCvDownloadUrl(null); setCcEmails('')
   }
 
   if (loading) return (
@@ -358,18 +374,49 @@ export default function InterviewCVPrep() {
             <textarea style={s.textarea} placeholder="Leave empty to auto-generate from project context..." value={jdText} onChange={e => setJdText(e.target.value)} />
           </div>
 
-          <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div>
-              <label style={s.label}>Interview Date (optional — included in email)</label>
-              <input type="date" style={{ ...s.input, maxWidth: 220 }} value={meetingDate} onChange={e => setMeetingDate(e.target.value)} />
+          {/* Interview invite — emails a calendar (.ics) invite with date+time to the
+              candidate + client approver (+ CC) and moves the candidate to INTERVIEW_SCHEDULED. */}
+          <div style={{ marginTop: 20, padding: '16px 18px', background: 'rgba(52,191,58,0.06)', border: '1px solid rgba(52,191,58,0.25)', borderRadius: 10 }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#4ade80', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Calendar size={16} /> Send Interview Invite
             </div>
-            {meetingDate && !stagingResult && (
-              <button style={s.btn(BRAND.green, false)} onClick={handleScheduleInterview}>
-                <Calendar size={14} /> Schedule Interview
-              </button>
-            )}
-            {stagingResult === 'INTERVIEW_SCHEDULED' && (
-              <div style={{ fontSize: '0.82rem', color: '#4ade80', fontWeight: 600 }}>✓ Candidate moved to INTERVIEW_SCHEDULED</div>
+            <div style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: 14 }}>
+              Emails a calendar invite (.ics) to {selectedCandidate.email || 'the candidate'} and {selectedProject.client_approver_email}. Times are Riyadh (Asia/Riyadh).
+            </div>
+
+            {inviteResult ? (
+              <div style={{ fontSize: '0.82rem', color: '#4ade80', fontWeight: 600 }}>
+                ✓ Invite sent to {(inviteResult.sent_to || []).join(', ')}{inviteResult.cc?.length ? ` (cc ${inviteResult.cc.join(', ')})` : ''} · candidate moved to INTERVIEW_SCHEDULED
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div>
+                    <label style={s.label}>Date &amp; time</label>
+                    <input type="datetime-local" style={{ ...s.input, maxWidth: 230 }} value={inviteDateTime} onChange={e => setInviteDateTime(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={s.label}>Duration</label>
+                    <select style={{ ...s.select, maxWidth: 140 }} value={inviteDuration} onChange={e => setInviteDuration(e.target.value)}>
+                      <option value="30">30 min</option>
+                      <option value="45">45 min</option>
+                      <option value="60">60 min</option>
+                      <option value="90">90 min</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <label style={s.label}>Location / link (optional)</label>
+                  <input style={s.input} placeholder="Datalake office, Riyadh — or a meeting link" value={inviteLocation} onChange={e => setInviteLocation(e.target.value)} />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <label style={s.label}>CC (optional)</label>
+                  <input style={s.input} placeholder="name@example.com, another@example.com" value={inviteCc} onChange={e => setInviteCc(e.target.value)} />
+                </div>
+                <button style={{ ...s.btn(BRAND.green, !inviteDateTime || inviteSending), marginTop: 14 }} disabled={!inviteDateTime || inviteSending} onClick={handleSendInvite}>
+                  {inviteSending ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Sending…</> : <><Send size={14} /> Send Interview Invite</>}
+                </button>
+              </>
             )}
           </div>
 
