@@ -15,6 +15,7 @@
 const admin = require("firebase-admin");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const PizZip = require("pizzip");
 const Docxtemplater = require("docxtemplater");
 const { httpErrorStatus } = require("./lib/httpErrors");
@@ -128,6 +129,10 @@ Return ONLY this JSON object (all values strings unless noted):
     // ── 6. Fill the agreed Skills Portfolio form (DOCX) ──
     const preparedDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const outputBuffer = fillInterviewCvDocx({ portfolio, candidate, preparedDate });
+    // Tamper-evident fingerprint of the exact artifact — recomputed at dispatch
+    // time so we can prove what was prepared and that it was unchanged when sent.
+    const cvSha256 = crypto.createHash("sha256").update(outputBuffer).digest("hex");
+    const cvBytes = outputBuffer.length;
 
     // ── 7. Store in the main (erasable) bucket with PDPL retention metadata ──
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -141,6 +146,7 @@ Return ONLY this JSON object (all values strings unless noted):
         contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         metadata: {
           candidate_id, project_id, prepared_by: profile.email,
+          sha256: cvSha256,
           regulatory_basis: "PDPL Art. 4, 5, 18; NCA ECC-1:2018",
           pdpl_purge_after: pdplPurgeAfter.toISOString(),
           retention_note: "Candidate interview CV reformat — erasable per PDPL Art.18 retention policy",
@@ -161,11 +167,14 @@ Return ONLY this JSON object (all values strings unless noted):
       interview_cv_prepared_by: profile.email,
       interview_cv_project_id: project_id,
       interview_cv_format: "docx",
+      interview_cv_sha256: cvSha256,
+      interview_cv_bytes: cvBytes,
     });
 
     await writeBigQueryAudit({
       event_type: "INTERVIEW_CV_PREPARED", actor: profile.email,
       candidate_id, project_id, pdpl_consent_verified: true,
+      artifact_path: interviewCvPath, artifact_sha256: cvSha256, artifact_bytes: cvBytes,
       regulatory_basis: "PDPL Art. 4, 5; NCA ECC-1:2018",
     });
 
@@ -178,6 +187,7 @@ Return ONLY this JSON object (all values strings unless noted):
         candidate_id, candidate_name: candidate.full_name, project_id,
         project_name: project.project_name, client_name: project.client_name,
         path: interviewCvPath, format: "docx", model: llm.modelName || null,
+        sha256: cvSha256, bytes: cvBytes, pdpl_consent_verified: true,
       },
     });
 
@@ -252,7 +262,14 @@ async function writeBigQueryAudit(eventData) {
   try {
     const { BigQuery } = require("@google-cloud/bigquery");
     const bq = new BigQuery({ projectId: "datalake-production-sa", location: "me-central2" });
-    await bq.dataset("datalake_audit").table("system_events").insert([{ ...eventData, timestamp: new Date().toISOString() }]);
+    // ignoreUnknownValues: a caller adding a new field (e.g. artifact_sha256)
+    // must NOT silently drop the whole audit row when the table lacks that
+    // column — keep the row, ignore the extra field. The full immutable record
+    // (with hashes/recipients) always lands in Firestore task_audit_log.
+    await bq.dataset("datalake_audit").table("system_events").insert(
+      [{ ...eventData, timestamp: new Date().toISOString() }],
+      { ignoreUnknownValues: true },
+    );
   } catch (err) {
     console.warn("BigQuery audit write failed (non-blocking):", err.message);
   }

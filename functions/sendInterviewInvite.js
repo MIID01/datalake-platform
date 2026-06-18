@@ -15,6 +15,7 @@
 const admin = require("firebase-admin");
 const { getGmailClient } = require("./lib/gmail");
 const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
+const { writeBigQueryAudit } = require("./prepareInterviewCV");
 
 const db = admin.firestore();
 const RIYADH_OFFSET_MS = 3 * 60 * 60 * 1000; // Asia/Riyadh = UTC+3, no DST.
@@ -118,8 +119,20 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
         candidate_id, candidate_name: candidate.full_name, project_id,
         project_name: project.project_name, client_name: project.client_name,
         start: start.toISOString(), duration_minutes: durMin, location: locStr,
-        to: toList, cc: ccList, gmail_message_id: gmailMessageId,
+        to: toList, cc: ccList, pdpl_consent_verified: true, gmail_message_id: gmailMessageId,
       },
+    });
+
+    await writeBigQueryAudit({
+      event_type: "INTERVIEW_INVITE_SENT",
+      actor: profile.email,
+      candidate_id, project_id,
+      pdpl_consent_verified: true,
+      regulatory_basis: "PDPL Art. 4, 5; NCA ECC-1:2018",
+      recipient_email: toList.join(", "),
+      cc: ccList.join(", "),
+      interview_start: start.toISOString(),
+      gmail_message_id: gmailMessageId,
     });
 
     return res.status(200).json({

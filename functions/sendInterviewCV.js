@@ -17,6 +17,7 @@
 //   subject: hr@datalake.sa]
 
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 const { google } = require("googleapis");
 const { writeBigQueryAudit } = require("./prepareInterviewCV");
@@ -120,6 +121,14 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     }
     const [cvBuffer] = await cvFile.download();
 
+    // Recompute the fingerprint of exactly what we're about to send and compare
+    // it to the hash captured at preparation time — proves the dispatched file
+    // is the unmodified prepared artifact (tamper-evident audit).
+    const dispatchedSha256 = crypto.createHash("sha256").update(cvBuffer).digest("hex");
+    const sha256Verified = candidate.interview_cv_sha256
+      ? candidate.interview_cv_sha256 === dispatchedSha256
+      : null; // null = no prepare-time hash on record (older artifact)
+
     // ── 5. Build Gmail client via ADC + domain delegation ──
     const gmail = await getGmailClient();
 
@@ -184,8 +193,12 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
       candidate_id,
       project_id,
       pdpl_consent_verified: true,
+      artifact_path: candidate.interview_cv_path,
+      artifact_sha256: dispatchedSha256,
+      artifact_sha256_verified: sha256Verified,
       regulatory_basis: "PDPL Art. 4, 5; NCA ECC-1:2018",
       recipient_email: project.client_approver_email,
+      cc: ccList.join(", "),
       gmail_message_id: gmailMessageId,
     });
 
@@ -203,6 +216,10 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
         sent_to: project.client_approver_email,
         sent_to_name: project.client_approver_name,
         cc: ccList,
+        artifact: "prepared_skills_portfolio", // never the raw CV
+        artifact_path: candidate.interview_cv_path,
+        sha256: dispatchedSha256,
+        sha256_verified: sha256Verified,
         gmail_message_id: gmailMessageId,
       },
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
