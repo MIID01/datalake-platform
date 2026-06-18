@@ -160,7 +160,7 @@ export default function Timesheets() {
         })
         const data = await parseJsonSafe(res)
         if (!res.ok || !data) throw new Error(data?.error || `Could not load projects (server returned ${res.status}).`)
-        const projs = (data.projects || []).filter(p => p.status === 'ACTIVE')
+        const projs = (data.projects || []).filter(p => String(p.status || '').toUpperCase() === 'ACTIVE')
         setLiveProjects(projs)
         if (projs.length > 0) setSelectedProjectId(projs[0].project_id)
       } catch (err) {

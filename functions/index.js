@@ -1250,6 +1250,32 @@ exports.assignEngineerToProject = onRequest(
 );
 
 // ============================================================
+// Resolve a logged-in engineer's ACTIVE project assignments robustly. Firestore
+// equality is case-sensitive, so an assignment stored with a differently-cased
+// engineer_email (or linked only by engineer_id) would otherwise look
+// "unassigned" — the bug where every employee saw "no active project assignment".
+// Matches by email (exact + lowercased) and by engineer_id (resolved from the
+// employees directory), then filters status case-insensitively to ACTIVE.
+async function findActiveEngineerAssignments(email, projectId) {
+  const col = db.collection("engineer_project_assignments");
+  const emailLc = String(email || "").toLowerCase();
+  const found = new Map();
+  const add = (snap) => snap.forEach((d) => found.set(d.id, d.data()));
+
+  add(await col.where("engineer_email", "==", email).get());
+  if (emailLc && emailLc !== email) add(await col.where("engineer_email", "==", emailLc).get());
+
+  let employeeId = null;
+  let eq = await db.collection("employees").where("email", "==", email).limit(1).get();
+  if (eq.empty && emailLc !== email) eq = await db.collection("employees").where("email", "==", emailLc).limit(1).get();
+  if (!eq.empty) employeeId = eq.docs[0].data().employee_id || eq.docs[0].id;
+  if (employeeId) add(await col.where("engineer_id", "==", employeeId).get());
+
+  let list = [...found.values()].filter((a) => String(a.status || "").toUpperCase() === "ACTIVE");
+  if (projectId) list = list.filter((a) => a.project_id === projectId);
+  return list;
+}
+
 // HTTP endpoint: getEngineerProjectView
 // Returns projects assigned to the calling engineer with
 // financial and commercial fields STRIPPED
@@ -1301,14 +1327,10 @@ exports.getEngineerProjectView = onRequest(
     try {
       const engineerEmail = decodedToken.email;
 
-      // Find active assignments for this engineer
-      const assignmentsSnapshot = await db
-        .collection("engineer_project_assignments")
-        .where("engineer_email", "==", engineerEmail)
-        .where("status", "==", "ACTIVE")
-        .get();
+      // Find active assignments for this engineer (robust to email case / id link)
+      const assignments = await findActiveEngineerAssignments(engineerEmail);
 
-      if (assignmentsSnapshot.empty) {
+      if (assignments.length === 0) {
         res
           .status(200)
           .json({ projects: [], message: "No active assignments" });
@@ -1316,11 +1338,7 @@ exports.getEngineerProjectView = onRequest(
       }
 
       // Get unique project IDs
-      const projectIds = [
-        ...new Set(
-          assignmentsSnapshot.docs.map((d) => d.data().project_id)
-        ),
-      ];
+      const projectIds = [...new Set(assignments.map((a) => a.project_id))];
 
       // Fetch project docs and build filtered view
       const projectsData = [];
@@ -1348,19 +1366,16 @@ exports.getEngineerProjectView = onRequest(
           work_location_address: full.work_location_address || null,
           status: full.status,
           // Engineer's own assignment details ONLY (no rate, no allocation %)
-          my_assignment: assignmentsSnapshot.docs
-            .filter((d) => d.data().project_id === projectId)
-            .map((d) => {
-              const a = d.data();
-              return {
-                assignment_id: a.assignment_id,
-                role_on_project: a.role_on_project,
-                assignment_start_date: a.assignment_start_date,
-                assignment_end_date: a.assignment_end_date,
-                status: a.status,
-                // STRIPPED: rate_sar, allocation_percentage, notes
-              };
-            })[0] || null,
+          my_assignment: assignments
+            .filter((a) => a.project_id === projectId)
+            .map((a) => ({
+              assignment_id: a.assignment_id,
+              role_on_project: a.role_on_project,
+              assignment_start_date: a.assignment_start_date,
+              assignment_end_date: a.assignment_end_date,
+              status: a.status,
+              // STRIPPED: rate_sar, allocation_percentage, notes
+            }))[0] || null,
         };
 
         projectsData.push(engineerView);
@@ -1522,13 +1537,10 @@ exports.submitTimesheet = onRequest(
         return;
       }
 
-      // Verify engineer assignment
-      const assignQ = await db.collection("engineer_project_assignments")
-        .where("engineer_email", "==", decodedToken.email)
-        .where("project_id", "==", project_id)
-        .where("status", "==", "ACTIVE").limit(1).get();
-      if (assignQ.empty) { res.status(403).json({ error: "You are not assigned to this project" }); return; }
-      const assignment = assignQ.docs[0].data();
+      // Verify engineer assignment (robust to email case / engineer_id link)
+      const myAssignments = await findActiveEngineerAssignments(decodedToken.email, project_id);
+      if (myAssignments.length === 0) { res.status(403).json({ error: "You are not assigned to this project" }); return; }
+      const assignment = myAssignments[0];
 
       const projectDoc = await db.collection("projects").doc(project_id).get();
       if (!projectDoc.exists) { res.status(404).json({ error: "Project not found" }); return; }
