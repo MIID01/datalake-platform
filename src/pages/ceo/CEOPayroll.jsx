@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   collection, onSnapshot, query, orderBy, where, getDocs,
 } from 'firebase/firestore'
-import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL, VERIFY_EMPLOYEE_SALARY_URL } from '../../lib/firebase'
+import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL, VERIFY_EMPLOYEE_SALARY_URL, CANCEL_PAYROLL_RUN_URL } from '../../lib/firebase'
 import {
   AlertTriangle, CheckCircle, Clock, ShieldCheck, Plus, Loader, FileText,
   Users, DollarSign, Download, FileSpreadsheet, AlertCircle, X,
@@ -72,6 +72,23 @@ export default function CEOPayroll() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
       window.alert("Saved. Re-create this month's run (Create Payroll Run) to apply it.")
+    } catch (e) { window.alert(e.message) }
+  }
+
+  // CEO-only: void a run and re-credit any deductions it consumed.
+  const cancelRun = async (run) => {
+    const reason = window.prompt(`Cancel payroll run ${run.period || run.id}? This voids it${run.status === 'APPROVED' ? ' and re-credits any deductions it consumed' : ''}. Enter a reason:`)
+    if (reason == null || !reason.trim()) return
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(CANCEL_PAYROLL_RUN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify({ payroll_run_id: run.id, reason: reason.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      window.alert('Run cancelled.')
     } catch (e) { window.alert(e.message) }
   }
 
@@ -254,6 +271,11 @@ export default function CEOPayroll() {
                       {r.status === 'APPROVED' && (
                         <button onClick={() => downloadFromPdf('payslip', r.id, `${r.id}-summary.pdf`)} style={btn('ghost')}>
                           <FileText size={11} /> Summary PDF
+                        </button>
+                      )}
+                      {userRole === 'ceo' && (r.status === 'APPROVED' || r.status === 'FINANCE_APPROVED') && (
+                        <button onClick={() => cancelRun(r)} style={{ background: '#fff', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, padding: '5px 10px', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Cancel
                         </button>
                       )}
                     </div>

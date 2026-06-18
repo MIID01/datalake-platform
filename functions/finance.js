@@ -663,6 +663,99 @@ async function verifyEmployeeSalaryHandler(req, res, { getUserAccessProfile } = 
   }
 }
 
+// Reverse the installment consumption a cancelled run had applied: re-credit
+// each deduction's balance for that period (idempotent — only entries actually
+// recorded for the period are unwound).
+async function reversePayrollDeductions(after) {
+  const period = after.period;
+  for (const emp of (after.employees || [])) {
+    for (const line of (emp.deduction_lines || [])) {
+      if (!line.deduction_id) continue;
+      const ref = db.collection("deductions").doc(line.deduction_id);
+      try {
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) return;
+          const dd = snap.data();
+          const applied = Array.isArray(dd.applied_periods) ? dd.applied_periods : [];
+          const entry = applied.find(a => a.period === period);
+          if (!entry) return; // nothing consumed for this period
+          tx.update(ref, {
+            remaining_balance: Number(dd.remaining_balance || 0) + Number(entry.amount || 0),
+            amount_deducted_to_date: Math.max(0, Number(dd.amount_deducted_to_date || 0) - Number(entry.amount || 0)),
+            installments_paid: Math.max(0, Number(dd.installments_paid || 0) - 1),
+            applied_periods: applied.filter(a => a.period !== period),
+            status: "ACTIVE",
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+      } catch (e) {
+        console.error(`[Payroll] deduction reversal failed for ${line.deduction_id}:`, e.message);
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HTTP wrapper — cancel a payroll run. CEO ONLY. Sets status=CANCELLED,
+// records the reason + audit, and reverses any installment deductions the run
+// consumed. WPS/GOSI WORM files are immutable and remain on record (the run is
+// marked void, not deleted) — re-create a fresh run if you need to re-pay.
+// ═══════════════════════════════════════════════════════════════════
+async function cancelPayrollRunHandler(req, res, { getUserAccessProfile } = {}) {
+  if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
+  try {
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing auth token" });
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+    const profile = (getUserAccessProfile && await getUserAccessProfile(decoded.uid)) || null;
+    const role = profile?.role_id || (decoded.email === "m.alqumri@datalake.sa" ? "ceo" : null);
+    if (role !== "ceo") return res.status(403).json({ error: "Only the CEO can cancel a payroll run" });
+
+    const { payroll_run_id, reason } = req.body || {};
+    if (!payroll_run_id) return res.status(400).json({ error: "payroll_run_id required" });
+    if (!reason || !String(reason).trim()) return res.status(400).json({ error: "A cancellation reason is required" });
+
+    const ref = db.collection("payroll_runs").doc(payroll_run_id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Payroll run not found" });
+    const run = snap.data();
+    if (!["APPROVED", "FINANCE_APPROVED", "DRAFT"].includes(run.status)) {
+      return res.status(409).json({ error: `Run is ${run.status} — cannot cancel` });
+    }
+    if (run.status === "CANCELLED") return res.status(409).json({ error: "Run already cancelled" });
+
+    // Only an APPROVED run had its deductions consumed — reverse those.
+    if (run.status === "APPROVED") await reversePayrollDeductions(run);
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await ref.update({
+      status: "CANCELLED",
+      cancelled_by: profile?.email || decoded.email,
+      cancelled_at: now,
+      cancel_reason: String(reason).trim().slice(0, 500),
+      previous_status: run.status,
+      updated_at: now,
+    });
+
+    const audit = {
+      event: "PAYROLL_RUN_CANCELLED", action_by: profile?.email || decoded.email, action_at: now,
+      details: { payroll_run_id, previous_status: run.status, reason: String(reason).trim().slice(0, 500), deductions_reversed: run.status === "APPROVED" },
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+    };
+    await db.collection("task_audit_log").add(audit);
+    await logToBigQuery("datalake_audit", "ai_actions", {
+      agent_name: "Finance", action_type: "CANCEL_PAYROLL_RUN", entity_id: payroll_run_id,
+      result: "SUCCESS", duration_ms: 0, regulatory_reference: "Payroll cancellation", timestamp: new Date(),
+    }).catch(() => {});
+
+    return res.status(200).json({ success: true, status: "CANCELLED", deductions_reversed: run.status === "APPROVED" });
+  } catch (err) {
+    console.error("cancelPayrollRun error:", err);
+    return res.status(500).json({ error: err.message || "Internal error" });
+  }
+}
+
 module.exports = {
   calculatePayrollHandler,
   generateWPSFileHandler,
@@ -672,4 +765,5 @@ module.exports = {
   publishPayrollApprovedHandler,
   listMyPayslipsHandler,
   verifyEmployeeSalaryHandler,
+  cancelPayrollRunHandler,
 };

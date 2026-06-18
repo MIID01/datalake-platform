@@ -3690,7 +3690,7 @@ exports.setpasswordchangerequired = setpasswordchangerequired;
 const {
   calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler,
   controllerMonthlyOpsHandler, createPayrollRunHandler, publishPayrollApprovedHandler,
-  listMyPayslipsHandler, verifyEmployeeSalaryHandler,
+  listMyPayslipsHandler, verifyEmployeeSalaryHandler, cancelPayrollRunHandler,
 } = require("./finance");
 
 exports.calculatePayroll = onSchedule(
@@ -3743,6 +3743,12 @@ exports.cancelDeduction = onRequest(
 exports.verifyEmployeeSalary = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => verifyEmployeeSalaryHandler(req, res, hireHelpers),
+);
+
+// Cancel a payroll run (CEO only) — voids it + reverses consumed deductions.
+exports.cancelPayrollRun = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => cancelPayrollRunHandler(req, res, hireHelpers),
 );
 
 // ── Password reset (Gmail DWD path, bypasses Firebase default sender) ──
