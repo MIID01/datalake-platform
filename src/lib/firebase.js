@@ -169,6 +169,8 @@ export const LIST_DEDUCTIONS_URL =
   "https://listdeductions-ifzodp5svq-wx.a.run.app";
 export const CANCEL_DEDUCTION_URL =
   "https://canceldeduction-ifzodp5svq-wx.a.run.app";
+export const VERIFY_EMPLOYEE_SALARY_URL =
+  "https://verifyemployeesalary-ifzodp5svq-wx.a.run.app";
 
 // Backfill & GRC APIs
 export const BACKFILL_EMPLOYEE_URL = 

@@ -3690,7 +3690,7 @@ exports.setpasswordchangerequired = setpasswordchangerequired;
 const {
   calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler,
   controllerMonthlyOpsHandler, createPayrollRunHandler, publishPayrollApprovedHandler,
-  listMyPayslipsHandler,
+  listMyPayslipsHandler, verifyEmployeeSalaryHandler,
 } = require("./finance");
 
 exports.calculatePayroll = onSchedule(
@@ -3736,6 +3736,13 @@ exports.listDeductions = onRequest(
 exports.cancelDeduction = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => cancelDeductionHandler(req, res, hireHelpers),
+);
+
+// Verify / set an employee's SAR salary (HR/Finance/CEO) — clears the unverified
+// flag and lets Finance enter the SAR figure for a foreign-currency contract.
+exports.verifyEmployeeSalary = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => verifyEmployeeSalaryHandler(req, res, hireHelpers),
 );
 
 // ── Password reset (Gmail DWD path, bypasses Firebase default sender) ──

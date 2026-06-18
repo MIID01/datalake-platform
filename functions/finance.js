@@ -611,6 +611,58 @@ async function listMyPayslipsHandler(req, res) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// HTTP wrapper — verify / set an employee's SAR salary. HR/Finance/CEO.
+// Flips salary_verified=true; if salary_monthly_sar is supplied (e.g. Finance
+// converting a foreign-currency contract), writes the SAR figure and clears the
+// foreign marker. Applies to the NEXT payroll run (existing DRAFTs are snapshots
+// — recreate the run to pick it up).
+// ═══════════════════════════════════════════════════════════════════
+async function verifyEmployeeSalaryHandler(req, res, { getUserAccessProfile } = {}) {
+  if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
+  try {
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing auth token" });
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+    const profile = (getUserAccessProfile && await getUserAccessProfile(decoded.uid)) || null;
+    const role = profile?.role_id || (decoded.email === "m.alqumri@datalake.sa" ? "ceo" : null);
+    if (!role || !["ceo", "finance", "hr"].includes(role)) return res.status(403).json({ error: "Requires HR, Finance or CEO" });
+
+    const { employee_id, salary_monthly_sar } = req.body || {};
+    if (!employee_id) return res.status(400).json({ error: "employee_id required" });
+    const ref = db.collection("employees").doc(employee_id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Employee not found" });
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const update = { salary_verified: true, salary_verified_by: profile?.email || decoded.email, salary_verified_at: now, updated_at: now };
+    const setAmount = salary_monthly_sar !== undefined && salary_monthly_sar !== null && salary_monthly_sar !== "";
+    if (setAmount) {
+      const amt = Number(salary_monthly_sar);
+      if (!(amt > 0)) return res.status(400).json({ error: "salary_monthly_sar must be a positive number" });
+      update.salary_monthly_sar = amt;
+      update.salary_monthly = amt;
+      update.salary = amt;
+      update.salary_currency = "SAR";
+      update.salary_monthly_foreign = admin.firestore.FieldValue.delete();
+      update.salary_source = "manual_verified";
+    }
+    await ref.set(update, { merge: true });
+
+    await db.collection("task_audit_log").add({
+      event: "EMPLOYEE_SALARY_VERIFIED",
+      action_by: profile?.email || decoded.email, action_at: now,
+      details: { employee_id, set_salary_sar: setAmount ? Number(salary_monthly_sar) : null, flag_only: !setAmount },
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("verifyEmployeeSalary error:", err);
+    return res.status(500).json({ error: err.message || "Internal error" });
+  }
+}
+
 module.exports = {
   calculatePayrollHandler,
   generateWPSFileHandler,
@@ -619,4 +671,5 @@ module.exports = {
   createPayrollRunHandler,
   publishPayrollApprovedHandler,
   listMyPayslipsHandler,
+  verifyEmployeeSalaryHandler,
 };

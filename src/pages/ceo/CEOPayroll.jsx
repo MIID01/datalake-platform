@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   collection, onSnapshot, query, orderBy, where, getDocs,
 } from 'firebase/firestore'
-import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL } from '../../lib/firebase'
+import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL, VERIFY_EMPLOYEE_SALARY_URL } from '../../lib/firebase'
 import {
   AlertTriangle, CheckCircle, Clock, ShieldCheck, Plus, Loader, FileText,
   Users, DollarSign, Download, FileSpreadsheet, AlertCircle, X,
@@ -51,6 +51,29 @@ export default function CEOPayroll() {
       .then(s => { if (!s.empty) setUserRole(s.docs[0].data().role_id || null) })
       .catch(() => {})
   }, [])
+
+  // Verify / set an employee's SAR salary (clears UNVERIFIED, or converts a
+  // foreign-currency contract). Updates the employee → recreate the run to apply.
+  const verifySalary = async (employee_id, name, withAmount) => {
+    let salary_monthly_sar
+    if (withAmount) {
+      const v = window.prompt(`Enter ${name}'s monthly salary in SAR:`)
+      if (v == null) return
+      salary_monthly_sar = Number(v)
+      if (!(salary_monthly_sar > 0)) { window.alert('Enter a positive number.'); return }
+    }
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(VERIFY_EMPLOYEE_SALARY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify({ employee_id, salary_monthly_sar }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      window.alert("Saved. Re-create this month's run (Create Payroll Run) to apply it.")
+    } catch (e) { window.alert(e.message) }
+  }
 
   const activeRun = useMemo(() => runs.find(r => r.id === activeRunId) || null, [runs, activeRunId])
   const pendingFinance = useMemo(() => runs.filter(r => r.status === 'DRAFT'), [runs])
@@ -321,6 +344,9 @@ function PayrollRunDetail({ run, onClose, downloadFromPdf }) {
                   {p.name} ({p.employee_id}) — {p.reason === 'needs_currency_conversion'
                     ? `salary in ${p.currency || 'foreign currency'}${p.foreign_amount ? ` (${p.foreign_amount})` : ''} — needs SAR conversion by Finance`
                     : 'no salary on file'}
+                  {p.reason === 'needs_currency_conversion' && (
+                    <button onClick={() => verifySalary(p.employee_id, p.name, true)} style={{ marginLeft: 8, fontSize: '0.7rem', fontWeight: 700, color: '#022873', background: '#fff', border: '1px solid #022873', borderRadius: 6, padding: '1px 8px', cursor: 'pointer' }}>Set SAR</button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -350,9 +376,12 @@ function PayrollRunDetail({ run, onClose, downloadFromPdf }) {
                   <td>
                     {fmtMoney(emp.base_salary)}
                     {emp.salary_verified === false && (
-                      <span title="Salary auto-mapped from the contract but not yet verified by HR" style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 700, color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 6, padding: '1px 5px', whiteSpace: 'nowrap' }}>
-                        ⚠ UNVERIFIED
-                      </span>
+                      <>
+                        <span title="Salary auto-mapped from the contract but not yet verified by HR" style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 700, color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 6, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                          ⚠ UNVERIFIED
+                        </span>
+                        <button onClick={() => verifySalary(emp.employee_id, emp.name, false)} style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 700, color: '#15803D', background: '#fff', border: '1px solid #86EFAC', borderRadius: 6, padding: '1px 6px', cursor: 'pointer' }}>Verify</button>
+                      </>
                     )}
                   </td>
                   <td>{fmtMoney(emp.housing)}</td>
