@@ -1072,8 +1072,7 @@ FIELDS:
     // the printed amounts are NOT SAR, so we must NOT copy them into the SAR
     // salary fields on the employee/hire record — Finance converts manually.
     const rawCurrency = String(fields.currency || "").trim().toUpperCase();
-    const SAR_ALIASES = ["", "SAR", "SR", "SARS", "ر.س", "﷼", "RIYAL", "SAUDI RIYAL", "SAUDI RIYALS"];
-    const isSar = SAR_ALIASES.includes(rawCurrency);
+    const isSar = isSarCurrency(rawCurrency);
     fields.currency = rawCurrency || "SAR"; // normalise for storage + display
 
     // Helper: only mirror a money field to a SAR record field when it IS SAR.
@@ -1209,14 +1208,26 @@ function buildRawEmail({ from, to, subject, body }) {
 // ═══════════════════════════════════════════════════════════════════
 // 8. syncContractToEmployee — onDocumentUpdated trigger (contracts/{contractId})
 // ═══════════════════════════════════════════════════════════════════
+
+// Single source of truth for "is this a SAR contract?" — used by both the
+// extraction path and the sync. A contract in any other currency must NOT have
+// its printed amounts copied into the SAR salary fields (Finance converts).
+const SAR_CURRENCY_ALIASES = ["", "SAR", "SR", "SARS", "ر.س", "﷼", "RIYAL", "SAUDI RIYAL", "SAUDI RIYALS"];
+function isSarCurrency(currency) {
+  return SAR_CURRENCY_ALIASES.includes(String(currency || "").trim().toUpperCase());
+}
+
 async function syncContractToEmployeeHandler(event) {
   const before = event.data.before.data();
   const after = event.data.after.data();
 
   // Fire when:
-  // 1. Status changes to REVIEWED or APPROVED (HR saved their review)
-  // 2. reviewed_fields or contract_extracted_fields changed while in those states
-  const validStatuses = ["REVIEWED", "APPROVED"];
+  // 1. AI extraction lands (EXTRACTED) — auto-map so payroll isn't blocked, but
+  //    the salary is flagged unverified until HR reviews it.
+  // 2. Status changes to REVIEWED or APPROVED (HR saved their review) — flips
+  //    the salary to verified.
+  // 3. reviewed_fields or contract_extracted_fields changed while in those states.
+  const validStatuses = ["EXTRACTED", "REVIEWED", "APPROVED"];
   if (!validStatuses.includes(after.contract_extraction_status)) return;
   if (!after.employee_id) return;
 
@@ -1233,6 +1244,11 @@ async function syncContractToEmployeeHandler(event) {
   const num = (v) => (v === '' || v == null ? null : Number(v));
   const employeeUpdate = {};
 
+  // Currency guard (mirrors the extraction path): SAR amounts may flow into the
+  // employee's SAR salary fields; foreign amounts must not — Finance converts.
+  const currency = String(fields.currency || "").trim().toUpperCase() || "SAR";
+  const contractIsSar = isSarCurrency(currency);
+
   // Map all 15 Gatekeeper fields to employee document schema
   if (fields.employee_name) employeeUpdate.full_name = fields.employee_name;
   if (fields.employee_name_ar) employeeUpdate.full_name_ar = fields.employee_name_ar;
@@ -1242,12 +1258,28 @@ async function syncContractToEmployeeHandler(event) {
   if (fields.po_value_sar) employeeUpdate.po_value_sar = num(fields.po_value_sar);
   if (fields.contract_start_date) employeeUpdate.contract_start = fields.contract_start_date;
   if (fields.contract_end_date) employeeUpdate.contract_end = fields.contract_end_date;
-  if (fields.salary_monthly_sar) {
-    employeeUpdate.salary_monthly = num(fields.salary_monthly_sar);
-    employeeUpdate.salary = num(fields.salary_monthly_sar); // convenience alias
+  if (fields.salary_monthly_sar != null && fields.salary_monthly_sar !== "") {
+    const amount = num(fields.salary_monthly_sar);
+    const verified = ["REVIEWED", "APPROVED"].includes(after.contract_extraction_status);
+    if (contractIsSar) {
+      employeeUpdate.salary_monthly_sar = amount; // canonical field payroll reads first
+      employeeUpdate.salary_monthly = amount;
+      employeeUpdate.salary = amount; // convenience alias
+      // Verified only once HR has reviewed/approved; an EXTRACTED (raw AI) sync
+      // maps the number but marks it unverified so payroll flags it.
+      employeeUpdate.salary_verified = verified;
+      employeeUpdate.salary_source = verified ? "hr_reviewed_contract" : "ai_extracted_contract";
+    } else {
+      // Foreign currency: keep the printed amount + code for Finance to convert.
+      // Do NOT touch the SAR salary fields (never overwrite a manual conversion).
+      employeeUpdate.salary_monthly_foreign = amount;
+      employeeUpdate.salary_currency = currency;
+      employeeUpdate.salary_verified = false;
+      employeeUpdate.salary_source = "ai_extracted_contract_foreign";
+    }
   }
-  if (fields.housing_allowance_sar) employeeUpdate.housing_allowance_sar = num(fields.housing_allowance_sar);
-  if (fields.transport_allowance_sar) employeeUpdate.transport_allowance_sar = num(fields.transport_allowance_sar);
+  if (contractIsSar && fields.housing_allowance_sar) employeeUpdate.housing_allowance_sar = num(fields.housing_allowance_sar);
+  if (contractIsSar && fields.transport_allowance_sar) employeeUpdate.transport_allowance_sar = num(fields.transport_allowance_sar);
   if (fields.probation_period_months) employeeUpdate.probation_period_months = num(fields.probation_period_months);
   if (fields.notice_period_days) employeeUpdate.notice_period_days = num(fields.notice_period_days);
   if (fields.work_location) employeeUpdate.work_location = fields.work_location;

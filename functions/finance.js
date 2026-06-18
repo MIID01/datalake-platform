@@ -47,7 +47,11 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
       const empId = emp.employee_id || doc.id;
 
       // Determine base salary and allowances (with fallbacks for legacy schemas).
-      const base_salary = Number(emp.salary_monthly_sar || emp.salary_sar || emp.salary || 0);
+      // salary_monthly is included because the contract→employee sync writes it.
+      const base_salary = Number(emp.salary_monthly_sar || emp.salary_sar || emp.salary_monthly || emp.salary || 0);
+      // Auto-mapped-from-contract salaries are flagged unverified until HR reviews
+      // the contract; only an explicit `false` means unverified (legacy/manual = verified).
+      const salary_verified = emp.salary_verified !== false;
       const housing = Number(emp.housing_allowance_sar || emp.contract_extracted_fields?.housing_allowance_sar || 0);
       const transport = Number(emp.transport_allowance_sar || emp.contract_extracted_fields?.transport_allowance_sar || 0);
 
@@ -55,11 +59,17 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
       // payroll math. We don't want a "SAR 0 net" row in WPS for someone whose
       // contract isn't loaded yet — that's the bug from the user's spec.
       if (base_salary <= 0) {
+        // Distinguish "no salary on file" from "salary is in a foreign currency
+        // awaiting SAR conversion" so Finance knows it's a conversion task, not a
+        // missing contract. We never pay a non-SAR amount as if it were SAR.
+        const fx = emp.salary_currency && String(emp.salary_currency).toUpperCase() !== 'SAR';
         pending_contract.push({
           employee_id: empId,
           name: emp.full_name || emp.name || empId,
           nationality: emp.nationality || null,
-          reason: 'no_salary_data',
+          reason: fx ? 'needs_currency_conversion' : 'no_salary_data',
+          currency: emp.salary_currency || null,
+          foreign_amount: emp.salary_monthly_foreign || null,
         });
         continue;
       }
@@ -116,7 +126,8 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
         gosi_employee,
         deductions: total_deductions,
         reimbursements: total_reimbursements,
-        net_pay
+        net_pay,
+        salary_verified,
       });
 
       // Mark expenses as reimbursed in this payroll

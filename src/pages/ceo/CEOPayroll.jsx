@@ -287,7 +287,11 @@ function PayrollRunDetail({ run, onClose, downloadFromPdf }) {
             </div>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.82rem' }}>
               {(run.pending_contract || []).map(p => (
-                <li key={p.employee_id}>{p.name} ({p.employee_id}) — {p.reason}</li>
+                <li key={p.employee_id}>
+                  {p.name} ({p.employee_id}) — {p.reason === 'needs_currency_conversion'
+                    ? `salary in ${p.currency || 'foreign currency'}${p.foreign_amount ? ` (${p.foreign_amount})` : ''} — needs SAR conversion by Finance`
+                    : 'no salary on file'}
+                </li>
               ))}
             </ul>
           </div>
@@ -313,7 +317,14 @@ function PayrollRunDetail({ run, onClose, downloadFromPdf }) {
                 <tr key={emp.employee_id}>
                   <td style={{ fontWeight: 600 }}>{emp.name}<br/><span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>{emp.employee_id}</span></td>
                   <td>{emp.gosi_type}</td>
-                  <td>{fmtMoney(emp.base_salary)}</td>
+                  <td>
+                    {fmtMoney(emp.base_salary)}
+                    {emp.salary_verified === false && (
+                      <span title="Salary auto-mapped from the contract but not yet verified by HR" style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 700, color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 6, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                        ⚠ UNVERIFIED
+                      </span>
+                    )}
+                  </td>
                   <td>{fmtMoney(emp.housing)}</td>
                   <td>{fmtMoney(emp.transport)}</td>
                   <td style={{ color: 'var(--text-tertiary)' }}>{fmtMoney(emp.gosi_employee)}</td>
