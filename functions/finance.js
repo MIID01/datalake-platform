@@ -34,6 +34,7 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
     let total_net = 0;
     let total_gosi_employee = 0;
     let total_gosi_employer = 0;
+    let total_bonuses = 0;
     const payroll_employees = [];
     // Employees who are active but have no salary data — listed separately
     // so HR can see who's blocked on a contract, not silently zeroed out.
@@ -84,6 +85,7 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
       // but do NOT mutate the deduction docs here — consumption happens on
       // approval (consumePayrollDeductions) so re-creating a DRAFT is idempotent.
       let total_deductions = 0;
+      let total_additions = 0; // bonuses / positive adjustments (direction === "add")
       const deduction_lines = [];
       const deductionsSnapshot = await db.collection("deductions")
         .where("employee_id", "==", empId)
@@ -96,14 +98,20 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
         const remaining = Number(dd.remaining_balance != null ? dd.remaining_balance
           : (dd.total_amount != null ? dd.total_amount : dd.amount || 0));
         if (remaining <= 0) return;
-        // monthly installment amount; one-off deductions take the whole balance.
+        // monthly installment amount; one-off entries take the whole balance.
         const monthly = Number(dd.monthly_amount || dd.amount || dd.total_amount || 0);
         const thisAmount = Math.min(monthly > 0 ? monthly : remaining, remaining);
         if (thisAmount <= 0) return;
-        total_deductions += thisAmount;
+        // A bonus (direction "add") is paid TO the employee; everything else is
+        // subtracted. Same balance/installment machinery, opposite sign on net.
+        const direction = dd.direction === "add" ? "add" : "deduct";
+        if (direction === "add") total_additions += thisAmount;
+        else total_deductions += thisAmount;
         deduction_lines.push({
           deduction_id: d.id,
-          description: dd.description || dd.reason || "Deduction",
+          description: dd.description || dd.reason || (direction === "add" ? "Bonus" : "Deduction"),
+          category: dd.category || null,
+          direction,
           type: dd.type || "one_off",
           amount: thisAmount,
           installment_no: Number(dd.installments_paid || 0) + 1,
@@ -128,14 +136,15 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
         }
       });
 
-      // Calculate Net Pay
-      const net_pay = base_salary + housing + transport - gosi_employee - total_deductions + total_reimbursements;
+      // Calculate Net Pay (bonuses add, deductions subtract)
+      const net_pay = base_salary + housing + transport - gosi_employee - total_deductions + total_reimbursements + total_additions;
 
       // Accumulate totals
-      total_gross += (base_salary + housing + transport);
+      total_gross += (base_salary + housing + transport + total_additions);
       total_net += net_pay;
       total_gosi_employee += gosi_employee;
       total_gosi_employer += gosi_employer;
+      total_bonuses += total_additions;
 
       payroll_employees.push({
         employee_id: empId,
@@ -147,6 +156,7 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
         transport,
         gosi_employee,
         deductions: total_deductions,
+        bonuses: total_additions,
         deduction_lines,
         reimbursements: total_reimbursements,
         net_pay,
@@ -172,6 +182,7 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
       total_net,
       total_gosi_employee,
       total_gosi_employer,
+      total_bonuses,
       employees: payroll_employees,
       employee_count: payroll_employees.length,
       pending_contract,

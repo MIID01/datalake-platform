@@ -16,7 +16,7 @@ const navItems = [
   { icon: Shield, label: 'Iqama Lifecycle', path: '/hr/iqama' },
   { icon: ClipboardCheck, label: 'Interview Scoring', path: '/hr/scoring' },
   { icon: FileText, label: 'Interview CV Prep', path: '/hr/interview-cv' },
-  { icon: MinusCircle, label: 'Deductions', path: '/hr/deductions' },
+  { icon: MinusCircle, label: 'Deductions & Bonuses', path: '/hr/deductions' },
   { icon: Briefcase, label: 'Job Listings', path: '/hr/jobs' },
 ]
 

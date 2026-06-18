@@ -14,9 +14,9 @@ const STATUS_COLOR = {
 
 // HR deduction categories — keep in sync with functions/deductions.js CATEGORIES.
 const CATEGORIES = [
+  { value: 'bonus', label: 'Bonus (added to pay)' },
   { value: 'loan', label: 'Loan' },
   { value: 'advance', label: 'Salary Advance' },
-  { value: 'bounce', label: 'Bounced / Returned Payment' },
   { value: 'fine', label: 'Fine / Penalty' },
   { value: 'absence', label: 'Absence / Unpaid Leave' },
   { value: 'damage', label: 'Damage / Equipment Loss' },
@@ -24,6 +24,7 @@ const CATEGORIES = [
   { value: 'other', label: 'Other' },
 ]
 const CAT_LABEL = Object.fromEntries(CATEGORIES.map(c => [c.value, c.label]))
+const isBonus = (d) => d.direction === 'add' || d.category === 'bonus'
 
 export default function HRDeductions() {
   const [deductions, setDeductions] = useState([])
@@ -87,14 +88,14 @@ export default function HRDeductions() {
     <div style={{ padding: '28px 24px', maxWidth: 1100, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#022873', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <MinusCircle size={22} color="#EF5829" /> Payroll Deductions
+          <MinusCircle size={22} color="#EF5829" /> Deductions &amp; Bonuses
         </h1>
         <button onClick={() => setShowAdd(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: '#022873', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
-          <Plus size={16} /> Add Deduction
+          <Plus size={16} /> Add Entry
         </button>
       </div>
       <p style={{ color: '#64748B', fontSize: '0.85rem', marginBottom: 22 }}>
-        One-off or multi-month installments per employee. Each payroll run applies the right installment and the balance reduces automatically on approval. {active.length} active.
+        Per-employee payroll adjustments — deductions (loans, advances, fines…) subtract; bonuses add. One-off or multi-month installments; each run applies the right amount and the balance reduces on approval. {active.length} active.
       </p>
 
       {error && <div style={{ padding: '10px 14px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 8, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}><AlertTriangle size={16} />{error}</div>}
@@ -126,10 +127,13 @@ export default function HRDeductions() {
                 return (
                   <tr key={d.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#0F172A' }}>{d.employee_name || d.employee_id}</td>
-                    <td style={{ padding: '11px 14px' }}>{CAT_LABEL[d.category] || '—'}</td>
+                    <td style={{ padding: '11px 14px' }}>
+                      {CAT_LABEL[d.category] || '—'}
+                      {isBonus(d) && <span style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 700, color: '#15803D', background: '#DCFCE7', borderRadius: 6, padding: '1px 6px' }}>+ ADDED</span>}
+                    </td>
                     <td style={{ padding: '11px 14px' }}>{d.description}</td>
                     <td style={{ padding: '11px 14px' }}>{d.type === 'installment' ? `Installment ×${d.installments}` : 'One-off'}</td>
-                    <td style={{ padding: '11px 14px' }}>{SAR(d.total_amount)}</td>
+                    <td style={{ padding: '11px 14px', color: isBonus(d) ? '#15803D' : 'inherit', fontWeight: isBonus(d) ? 700 : 400 }}>{isBonus(d) ? '+ ' : ''}{SAR(d.total_amount)}</td>
                     <td style={{ padding: '11px 14px' }}>{SAR(d.monthly_amount)}</td>
                     <td style={{ padding: '11px 14px' }}>{Number(d.installments_paid || 0)} / {d.installments || 1}</td>
                     <td style={{ padding: '11px 14px', fontWeight: 600 }}>{SAR(d.remaining_balance)}</td>
@@ -188,7 +192,7 @@ function AddDeductionModal({ employees, onClose, onSubmit, submitting }) {
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,8,23,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: 460, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#022873' }}>Add Deduction</h2>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#022873' }}>Add Deduction or Bonus</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={20} /></button>
         </div>
 
@@ -227,9 +231,12 @@ function AddDeductionModal({ employees, onClose, onSubmit, submitting }) {
 
         {Number(total_amount) > 0 && (
           <div style={{ marginTop: 14, padding: '10px 12px', background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.82rem', color: '#475569' }}>
-            {type === 'installment'
-              ? `${SAR(monthly)} / month for ${installments} months, starting ${start_period}.`
-              : `${SAR(total_amount)} deducted once, in ${start_period}.`}
+            {(() => {
+              const verb = category === 'bonus' ? 'added to pay' : 'deducted'
+              return type === 'installment'
+                ? `${SAR(monthly)} / month ${verb} for ${installments} months, starting ${start_period}.`
+                : `${SAR(total_amount)} ${verb} once, in ${start_period}.`
+            })()}
           </div>
         )}
 

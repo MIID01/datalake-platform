@@ -17,7 +17,8 @@ const ALLOWED = ["ceo", "finance", "hr"];
 
 // HR deduction categories (the dropdown). Keep in sync with the frontend list
 // in src/pages/hr/HRDeductions.jsx. Stored for reporting; does not change math.
-const CATEGORIES = ["loan", "advance", "bounce", "fine", "absence", "damage", "gosi_adjustment", "other"];
+// "bonus" is a positive adjustment (added to pay); everything else is subtracted.
+const CATEGORIES = ["loan", "advance", "bonus", "fine", "absence", "damage", "gosi_adjustment", "other"];
 
 async function authorize(req, { getUserAccessProfile }) {
   const authHeader = req.headers.authorization || "";
@@ -38,6 +39,7 @@ async function createDeductionHandler(req, res, helpers = {}) {
     const { employee_id, description, total_amount, type, installments, start_period, category } = req.body || {};
     if (!employee_id) return res.status(400).json({ error: "employee_id is required" });
     const cat = CATEGORIES.includes(category) ? category : "other";
+    const direction = cat === "bonus" ? "add" : "deduct"; // bonus pays out; others subtract
     const total = Number(total_amount);
     if (!(total > 0)) return res.status(400).json({ error: "total_amount must be a positive number" });
     const dtype = type === "installment" ? "installment" : "one_off";
@@ -68,6 +70,7 @@ async function createDeductionHandler(req, res, helpers = {}) {
       employee_id,
       employee_name,
       category: cat,
+      direction,
       description: String(description || "Deduction").slice(0, 200),
       type: dtype,
       total_amount: total,
