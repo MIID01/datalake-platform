@@ -3,6 +3,8 @@ const { PubSub } = require("@google-cloud/pubsub");
 const pubsub = new PubSub();
 const { logToBigQuery } = require("./lib/bigquery");
 const { COMPANY } = require("./lib/company-legal");
+const { getGmailClient } = require("./lib/gmail");
+const { renderPayslipPdf } = require("./lib/payslip-pdf");
 
 const db = admin.firestore();
 
@@ -533,8 +535,81 @@ async function publishPayrollApprovedHandler(event) {
 
     // Consume installment deductions now that the run is final.
     await consumePayrollDeductions(after);
+
+    // Auto-email each employee their payslip PDF (also stays in the portal).
+    await emailPayslipsForRun(after, payrollRunId);
   } catch (err) {
     console.error("publishPayrollApproved error:", err);
+  }
+}
+
+// Build a base64url RFC-2822 email with a single PDF attachment.
+function buildPdfEmail({ from, to, subject, bodyText, filename, pdf }) {
+  const b = `b_${Date.now().toString(16)}`;
+  const msg = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="${b}"`,
+    "",
+    `--${b}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 7bit",
+    "",
+    bodyText,
+    "",
+    `--${b}`,
+    `Content-Type: application/pdf; name="${filename}"`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename="${filename}"`,
+    "",
+    pdf.toString("base64"),
+    "",
+    `--${b}--`,
+  ].join("\r\n");
+  return Buffer.from(msg).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// On final approval, render + email each employee their payslip. Best-effort per
+// employee (one failure doesn't block the rest); records sent/failed on the run.
+async function emailPayslipsForRun(run, runId) {
+  try {
+    const empSnap = await db.collection("employees").get();
+    const byId = new Map();
+    empSnap.forEach(d => { const e = d.data(); byId.set(e.employee_id || d.id, e); });
+
+    const gmail = await getGmailClient();
+    const sent = [];
+    const failed = [];
+    for (const line of (run.employees || [])) {
+      const emp = byId.get(line.employee_id) || {};
+      const to = String(emp.email || "").trim();
+      if (!to) { failed.push({ employee_id: line.employee_id, reason: "no_email" }); continue; }
+      try {
+        const pdf = await renderPayslipPdf({ run, employeeId: line.employee_id, employee: emp });
+        const raw = buildPdfEmail({
+          from: "Datalake HR <hr@datalake.sa>",
+          to,
+          subject: `Your payslip — ${run.period}`,
+          bodyText: `Dear ${line.name || ""},\n\nPlease find attached your payslip for ${run.period}. It is also available in your employee portal under Documents.\n\nThis document contains personal compensation data — please keep it confidential.\n\nDatalake HR\nhr@datalake.sa`,
+          filename: `payslip-${run.period}-${line.employee_id}.pdf`,
+          pdf,
+        });
+        const r = await gmail.users.messages.send({ userId: "hr@datalake.sa", requestBody: { raw } });
+        sent.push({ employee_id: line.employee_id, to, gmail_message_id: r.data.id });
+      } catch (e) {
+        failed.push({ employee_id: line.employee_id, reason: String(e.message || e).slice(0, 200) });
+      }
+    }
+    await db.collection("payroll_runs").doc(runId).update({
+      payslips_emailed_at: admin.firestore.FieldValue.serverTimestamp(),
+      payslips_emailed_count: sent.length,
+      payslips_email_failed: failed,
+    }).catch(() => {});
+    console.log(`[Payroll] payslips emailed for ${runId}: ${sent.length} ok, ${failed.length} failed`);
+  } catch (e) {
+    console.error("[Payroll] emailPayslipsForRun error:", e.message);
   }
 }
 

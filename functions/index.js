@@ -3713,7 +3713,7 @@ exports.createPayrollRun = onRequest(
 // Firestore trigger: payroll_runs/{id} DRAFT → APPROVED → publish Pub/Sub
 // so WPS + GOSI generators run.
 exports.publishPayrollApproved = onDocumentUpdated(
-  { document: "payroll_runs/{payrollRunId}", region: "me-central2" },
+  { document: "payroll_runs/{payrollRunId}", region: "me-central2", memory: "512MiB", timeoutSeconds: 300 },
   (event) => publishPayrollApprovedHandler(event),
 );
 

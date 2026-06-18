@@ -193,16 +193,24 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
         doc.fontSize(11).fillColor('black')
            .text(`  Basic salary       SAR ${Math.round(line.base_salary || 0).toLocaleString().padStart(12)}`)
            .text(`  Housing allowance  SAR ${Math.round(line.housing || 0).toLocaleString().padStart(12)}`)
-           .text(`  Transport allow.   SAR ${Math.round(line.transport || 0).toLocaleString().padStart(12)}`)
-           .text(`  Reimbursements     SAR ${Math.round(line.reimbursements || 0).toLocaleString().padStart(12)}`);
-        const grossOne = (Number(line.base_salary || 0) + Number(line.housing || 0) + Number(line.transport || 0) + Number(line.reimbursements || 0));
+           .text(`  Transport allow.   SAR ${Math.round(line.transport || 0).toLocaleString().padStart(12)}`);
+        if (Number(line.bonuses || 0) > 0) doc.text(`  Bonuses            SAR ${Math.round(line.bonuses).toLocaleString().padStart(12)}`);
+        if (Number(line.reimbursements || 0) > 0) doc.text(`  Reimbursements     SAR ${Math.round(line.reimbursements).toLocaleString().padStart(12)}`);
+        const grossOne = (Number(line.base_salary || 0) + Number(line.housing || 0) + Number(line.transport || 0) + Number(line.bonuses || 0) + Number(line.reimbursements || 0));
         doc.text(`  Gross              SAR ${Math.round(grossOne).toLocaleString().padStart(12)}`);
         doc.moveDown(0.5);
 
         doc.fontSize(12).fillColor(primaryColor).text("Deductions");
         doc.fontSize(11).fillColor('black')
-           .text(`  GOSI (employee)    SAR ${Math.round(line.gosi_employee || 0).toLocaleString().padStart(12)}`)
-           .text(`  Other deductions   SAR ${Math.round(line.deductions || 0).toLocaleString().padStart(12)}`);
+           .text(`  GOSI (employee)    SAR ${Math.round(line.gosi_employee || 0).toLocaleString().padStart(12)}`);
+        // Itemise each deduction by its description (Loan, Fine, …); fall back to
+        // the lump only for legacy runs that have no per-line breakdown.
+        const dedLines = (line.deduction_lines || []).filter(l => l.direction !== 'add' && Number(l.amount) > 0);
+        if (dedLines.length) {
+          dedLines.forEach(l => doc.text(`  ${String(l.description || 'Deduction').slice(0, 18).padEnd(18)} SAR ${Math.round(l.amount || 0).toLocaleString().padStart(12)}`));
+        } else if (Number(line.deductions || 0) > 0) {
+          doc.text(`  Other deductions   SAR ${Math.round(line.deductions || 0).toLocaleString().padStart(12)}`);
+        }
         doc.moveDown(0.5);
 
         doc.fontSize(13).fillColor(primaryColor).text("Net Pay");
