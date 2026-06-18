@@ -12,6 +12,19 @@ const STATUS_COLOR = {
   CANCELLED: { bg: '#F1F5F9', color: '#64748B' },
 }
 
+// HR deduction categories — keep in sync with functions/deductions.js CATEGORIES.
+const CATEGORIES = [
+  { value: 'loan', label: 'Loan' },
+  { value: 'advance', label: 'Salary Advance' },
+  { value: 'bounce', label: 'Bounced / Returned Payment' },
+  { value: 'fine', label: 'Fine / Penalty' },
+  { value: 'absence', label: 'Absence / Unpaid Leave' },
+  { value: 'damage', label: 'Damage / Equipment Loss' },
+  { value: 'gosi_adjustment', label: 'GOSI / Insurance Adjustment' },
+  { value: 'other', label: 'Other' },
+]
+const CAT_LABEL = Object.fromEntries(CATEGORIES.map(c => [c.value, c.label]))
+
 export default function HRDeductions() {
   const [deductions, setDeductions] = useState([])
   const [employees, setEmployees] = useState([])
@@ -96,6 +109,7 @@ export default function HRDeductions() {
             <thead>
               <tr style={{ textAlign: 'left', color: '#64748B', borderBottom: '1px solid #E5E7EB' }}>
                 <th style={{ padding: '12px 14px' }}>Employee</th>
+                <th style={{ padding: '12px 14px' }}>Category</th>
                 <th style={{ padding: '12px 14px' }}>Description</th>
                 <th style={{ padding: '12px 14px' }}>Type</th>
                 <th style={{ padding: '12px 14px' }}>Total</th>
@@ -112,6 +126,7 @@ export default function HRDeductions() {
                 return (
                   <tr key={d.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#0F172A' }}>{d.employee_name || d.employee_id}</td>
+                    <td style={{ padding: '11px 14px' }}>{CAT_LABEL[d.category] || '—'}</td>
                     <td style={{ padding: '11px 14px' }}>{d.description}</td>
                     <td style={{ padding: '11px 14px' }}>{d.type === 'installment' ? `Installment ×${d.installments}` : 'One-off'}</td>
                     <td style={{ padding: '11px 14px' }}>{SAR(d.total_amount)}</td>
@@ -155,6 +170,7 @@ export default function HRDeductions() {
 
 function AddDeductionModal({ employees, onClose, onSubmit, submitting }) {
   const [employee_id, setEmployeeId] = useState('')
+  const [category, setCategory] = useState('loan')
   const [description, setDescription] = useState('')
   const [total_amount, setTotal] = useState('')
   const [type, setType] = useState('one_off')
@@ -182,8 +198,13 @@ function AddDeductionModal({ employees, onClose, onSubmit, submitting }) {
           {employees.map(e => <option key={e.id} value={e.employee_id || e.id}>{e.full_name || e.name || e.id}</option>)}
         </select>
 
+        <label style={lbl}>Category</label>
+        <select style={inp} value={category} onChange={e => setCategory(e.target.value)}>
+          {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </select>
+
         <label style={lbl}>Description / reason</label>
-        <input style={inp} placeholder="e.g. Salary advance, loan repayment, fine" value={description} onChange={e => setDescription(e.target.value)} />
+        <input style={inp} placeholder="e.g. Car loan, Jan advance, late penalty" value={description} onChange={e => setDescription(e.target.value)} />
 
         <label style={lbl}>Total amount (SAR)</label>
         <input style={inp} type="number" min="0" step="0.01" value={total_amount} onChange={e => setTotal(e.target.value)} />
@@ -216,7 +237,7 @@ function AddDeductionModal({ employees, onClose, onSubmit, submitting }) {
           <button onClick={onClose} style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button
             disabled={!valid || submitting}
-            onClick={() => onSubmit({ employee_id, description, total_amount: Number(total_amount), type, installments: Number(installments), start_period })}
+            onClick={() => onSubmit({ employee_id, category, description, total_amount: Number(total_amount), type, installments: Number(installments), start_period })}
             style={{ flex: 1, padding: '11px', borderRadius: 8, border: 'none', background: valid && !submitting ? '#EF5829' : '#FCA5A5', color: '#fff', fontWeight: 700, cursor: valid && !submitting ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             {submitting ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Saving…</> : 'Add Deduction'}
           </button>

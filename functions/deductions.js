@@ -15,6 +15,10 @@ const db = admin.firestore();
 
 const ALLOWED = ["ceo", "finance", "hr"];
 
+// HR deduction categories (the dropdown). Keep in sync with the frontend list
+// in src/pages/hr/HRDeductions.jsx. Stored for reporting; does not change math.
+const CATEGORIES = ["loan", "advance", "bounce", "fine", "absence", "damage", "gosi_adjustment", "other"];
+
 async function authorize(req, { getUserAccessProfile }) {
   const authHeader = req.headers.authorization || "";
   if (!authHeader.startsWith("Bearer ")) return { error: 401, message: "Missing auth token" };
@@ -31,8 +35,9 @@ async function createDeductionHandler(req, res, helpers = {}) {
     const auth = await authorize(req, helpers);
     if (auth.error) return res.status(auth.error).json({ error: auth.message });
 
-    const { employee_id, description, total_amount, type, installments, start_period } = req.body || {};
+    const { employee_id, description, total_amount, type, installments, start_period, category } = req.body || {};
     if (!employee_id) return res.status(400).json({ error: "employee_id is required" });
+    const cat = CATEGORIES.includes(category) ? category : "other";
     const total = Number(total_amount);
     if (!(total > 0)) return res.status(400).json({ error: "total_amount must be a positive number" });
     const dtype = type === "installment" ? "installment" : "one_off";
@@ -62,6 +67,7 @@ async function createDeductionHandler(req, res, helpers = {}) {
     const docRef = await db.collection("deductions").add({
       employee_id,
       employee_name,
+      category: cat,
       description: String(description || "Deduction").slice(0, 200),
       type: dtype,
       total_amount: total,
@@ -83,7 +89,7 @@ async function createDeductionHandler(req, res, helpers = {}) {
       event: "DEDUCTION_CREATED",
       action_by: auth.email,
       action_at: now,
-      details: { deduction_id: docRef.id, employee_id, employee_name, type: dtype, total_amount: total, installments: installmentsN, monthly_amount, start_period: period },
+      details: { deduction_id: docRef.id, employee_id, employee_name, category: cat, type: dtype, total_amount: total, installments: installmentsN, monthly_amount, start_period: period },
       ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
     });
 
