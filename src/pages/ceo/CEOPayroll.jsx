@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  collection, onSnapshot, query, orderBy, where, getDocs,
+  collection, onSnapshot, query, orderBy, where, getDocs, doc, getDoc,
 } from 'firebase/firestore'
-import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL, VERIFY_EMPLOYEE_SALARY_URL, CANCEL_PAYROLL_RUN_URL } from '../../lib/firebase'
+import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL, VERIFY_EMPLOYEE_SALARY_URL, CANCEL_PAYROLL_RUN_URL, SAVE_PAYROLL_SETTINGS_URL } from '../../lib/firebase'
 import {
   AlertTriangle, CheckCircle, Clock, ShieldCheck, Plus, Loader, FileText,
   Users, DollarSign, Download, FileSpreadsheet, AlertCircle, X,
@@ -32,6 +32,37 @@ export default function CEOPayroll() {
   const [selectedMonth, setSelectedMonth] = useState(currentYearMonth())
   const [activeRunId, setActiveRunId] = useState(null)
   const [userRole, setUserRole] = useState(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [gosi, setGosi] = useState(null)
+  const [savingSettings, setSavingSettings] = useState(false)
+
+  // Load GOSI rate settings (defaults shown if the doc doesn't exist yet).
+  useEffect(() => {
+    getDoc(doc(db, 'platform_settings', 'payroll'))
+      .then(s => setGosi({
+        gosi_saudi_employee_pct: 9.75, gosi_saudi_employer_pct: 11.75,
+        gosi_nonsaudi_employee_pct: 0, gosi_nonsaudi_employer_pct: 2,
+        ...(s.exists() ? s.data() : {}),
+      }))
+      .catch(() => {})
+  }, [])
+
+  const saveSettings = async () => {
+    setSavingSettings(true)
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(SAVE_PAYROLL_SETTINGS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify(gosi),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      setShowSettings(false)
+      window.alert('GOSI rates saved. They apply to the next payroll run you create.')
+    } catch (e) { window.alert(e.message) }
+    setSavingSettings(false)
+  }
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -149,14 +180,53 @@ export default function CEOPayroll() {
             Datalake is the system of record. Create a run, get CEO sign-off, the platform generates payslips + WPS + GOSI.
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="write-action"
-          style={{ background: '#022873', color: '#fff', padding: '10px 18px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
-        >
-          <Plus size={16} /> Create Payroll Run
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {(userRole === 'ceo' || userRole === 'finance') && (
+            <button
+              onClick={() => setShowSettings(true)}
+              style={{ background: '#fff', color: '#022873', padding: '10px 14px', borderRadius: 8, border: '1px solid #022873', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
+            >
+              <ShieldCheck size={15} /> GOSI Rates
+            </button>
+          )}
+          <button
+            onClick={() => setShowCreate(true)}
+            className="write-action"
+            style={{ background: '#022873', color: '#fff', padding: '10px 18px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
+          >
+            <Plus size={16} /> Create Payroll Run
+          </button>
+        </div>
       </div>
+
+      {showSettings && gosi && (
+        <div onClick={() => setShowSettings(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,8,23,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: 460, maxWidth: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#022873' }}>GOSI Rates (%)</h2>
+              <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={20} /></button>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '8px 12px', margin: '8px 0 14px' }}>
+              ⚠ Verify these against current GOSI regulations with your accountant before running real payroll. Applies to the next run created.
+            </div>
+            {[
+              ['gosi_saudi_employee_pct', 'Saudi — employee'],
+              ['gosi_saudi_employer_pct', 'Saudi — employer'],
+              ['gosi_nonsaudi_employee_pct', 'Non-Saudi — employee'],
+              ['gosi_nonsaudi_employer_pct', 'Non-Saudi — employer'],
+            ].map(([k, label]) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <label style={{ fontSize: '0.85rem', color: '#334155' }}>{label}</label>
+                <input type="number" step="0.01" min="0" max="100" value={gosi[k] ?? ''} onChange={e => setGosi({ ...gosi, [k]: e.target.value === '' ? '' : Number(e.target.value) })} style={{ width: 110, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right' }} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              <button onClick={() => setShowSettings(false)} style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={saveSettings} disabled={savingSettings} style={{ flex: 1, padding: '11px', borderRadius: 8, border: 'none', background: '#022873', color: '#fff', fontWeight: 700, cursor: savingSettings ? 'default' : 'pointer' }}>{savingSettings ? 'Saving…' : 'Save Rates'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Approval chain: HR prepares (DRAFT) → Finance approves → CEO approves */}
       {(pendingFinance.length > 0 || pendingCEO.length > 0) && (

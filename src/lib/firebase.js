@@ -173,6 +173,8 @@ export const VERIFY_EMPLOYEE_SALARY_URL =
   "https://verifyemployeesalary-ifzodp5svq-wx.a.run.app";
 export const CANCEL_PAYROLL_RUN_URL =
   "https://cancelpayrollrun-ifzodp5svq-wx.a.run.app";
+export const SAVE_PAYROLL_SETTINGS_URL =
+  "https://savepayrollsettings-ifzodp5svq-wx.a.run.app";
 
 // Backfill & GRC APIs
 export const BACKFILL_EMPLOYEE_URL = 

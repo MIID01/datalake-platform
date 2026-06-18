@@ -3691,6 +3691,7 @@ const {
   calculatePayrollHandler, generateWPSFileHandler, generateGOSIReportHandler,
   controllerMonthlyOpsHandler, createPayrollRunHandler, publishPayrollApprovedHandler,
   listMyPayslipsHandler, verifyEmployeeSalaryHandler, cancelPayrollRunHandler,
+  savePayrollSettingsHandler,
 } = require("./finance");
 
 exports.calculatePayroll = onSchedule(
@@ -3749,6 +3750,12 @@ exports.verifyEmployeeSalary = onRequest(
 exports.cancelPayrollRun = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
   (req, res) => cancelPayrollRunHandler(req, res, hireHelpers),
+);
+
+// Save GOSI / payroll rate settings (Finance or CEO).
+exports.savePayrollSettings = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => savePayrollSettingsHandler(req, res, hireHelpers),
 );
 
 // ── Password reset (Gmail DWD path, bypasses Firebase default sender) ──

@@ -8,6 +8,23 @@ const { renderPayslipPdf } = require("./lib/payslip-pdf");
 
 const db = admin.firestore();
 
+// GOSI contribution rates (%) — editable by Finance/CEO via the payroll settings
+// (platform_settings/payroll). Defaults below are the historical KSA rates and
+// MUST be verified against current GOSI regulations before relying on payroll.
+const DEFAULT_GOSI = {
+  gosi_saudi_employee_pct: 9.75,
+  gosi_saudi_employer_pct: 11.75,
+  gosi_nonsaudi_employee_pct: 0,   // expats: no employee deduction
+  gosi_nonsaudi_employer_pct: 2,   // expats: employer occupational-hazard only
+};
+async function getPayrollSettings() {
+  try {
+    const snap = await db.collection("platform_settings").doc("payroll").get();
+    if (snap.exists) return { ...DEFAULT_GOSI, ...snap.data() };
+  } catch (e) { console.warn("getPayrollSettings:", e.message); }
+  return { ...DEFAULT_GOSI };
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Phase 5A: Payroll Calculation Chain
 // ═══════════════════════════════════════════════════════════════════
@@ -37,6 +54,7 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
     let total_gosi_employee = 0;
     let total_gosi_employer = 0;
     let total_bonuses = 0;
+    const gosiRates = await getPayrollSettings();
     const payroll_employees = [];
     // Employees who are active but have no salary data — listed separately
     // so HR can see who's blocked on a contract, not silently zeroed out.
@@ -80,8 +98,8 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
       
       // GOSI Calculation (based on Nationality)
       const isSaudi = (emp.nationality || '').toLowerCase() === 'saudi';
-      const gosi_employee = isSaudi ? base_salary * 0.0975 : 0;
-      const gosi_employer = isSaudi ? base_salary * 0.1175 : base_salary * 0.02;
+      const gosi_employee = base_salary * (isSaudi ? gosiRates.gosi_saudi_employee_pct : gosiRates.gosi_nonsaudi_employee_pct) / 100;
+      const gosi_employer = base_salary * (isSaudi ? gosiRates.gosi_saudi_employer_pct : gosiRates.gosi_nonsaudi_employer_pct) / 100;
 
       // Fetch Deductions (installment-aware). We compute what THIS run deducts
       // but do NOT mutate the deduction docs here — consumption happens on
@@ -185,6 +203,7 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
       total_gosi_employee,
       total_gosi_employer,
       total_bonuses,
+      gosi_rates: gosiRates,
       employees: payroll_employees,
       employee_count: payroll_employees.length,
       pending_contract,
@@ -842,6 +861,50 @@ async function cancelPayrollRunHandler(req, res, { getUserAccessProfile } = {}) 
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// HTTP wrapper — save GOSI / payroll settings (Finance or CEO). Writes
+// platform_settings/payroll via Admin SDK (the broad platform_settings write
+// rule stays CEO-only; Finance updates rates through this audited function).
+// ═══════════════════════════════════════════════════════════════════
+async function savePayrollSettingsHandler(req, res, { getUserAccessProfile } = {}) {
+  if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
+  try {
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing auth token" });
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+    const profile = (getUserAccessProfile && await getUserAccessProfile(decoded.uid)) || null;
+    const role = profile?.role_id || (decoded.email === "m.alqumri@datalake.sa" ? "ceo" : null);
+    if (!role || !["ceo", "finance"].includes(role)) return res.status(403).json({ error: "Requires Finance or CEO" });
+
+    const keys = ["gosi_saudi_employee_pct", "gosi_saudi_employer_pct", "gosi_nonsaudi_employee_pct", "gosi_nonsaudi_employer_pct"];
+    const update = {};
+    for (const k of keys) {
+      if (req.body?.[k] === undefined || req.body[k] === "") continue;
+      const v = Number(req.body[k]);
+      if (!(v >= 0 && v <= 100)) return res.status(400).json({ error: `${k} must be a percentage between 0 and 100` });
+      update[k] = v;
+    }
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: "No valid rate fields supplied" });
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    update.updated_by = profile?.email || decoded.email;
+    update.updated_at = now;
+    await db.collection("platform_settings").doc("payroll").set(update, { merge: true });
+
+    await db.collection("task_audit_log").add({
+      event: "PAYROLL_SETTINGS_UPDATED", action_by: profile?.email || decoded.email, action_at: now,
+      details: { ...update, updated_at: undefined },
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "unknown",
+    });
+
+    const merged = await getPayrollSettings();
+    return res.status(200).json({ success: true, settings: merged });
+  } catch (err) {
+    console.error("savePayrollSettings error:", err);
+    return res.status(500).json({ error: err.message || "Internal error" });
+  }
+}
+
 module.exports = {
   calculatePayrollHandler,
   generateWPSFileHandler,
@@ -852,4 +915,5 @@ module.exports = {
   listMyPayslipsHandler,
   verifyEmployeeSalaryHandler,
   cancelPayrollRunHandler,
+  savePayrollSettingsHandler,
 };
