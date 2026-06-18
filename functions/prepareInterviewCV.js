@@ -28,7 +28,9 @@ try { pdfParse = require("pdf-parse"); } catch (_) { /* optional fallback */ }
 const CV_TEMPLATE_PATH = path.join(__dirname, "assets", "DTLK-FORM-HR-CV-002_v1.1.docx");
 
 const db = admin.firestore();
-const cvBucket = admin.storage().bucket("datalake-cv-uploads");
+// Careers uploads land in datalake-cv-uploads; some older/manual CVs are in the
+// main bucket. Try the upload bucket first, then fall back.
+const CV_SOURCE_BUCKETS = ["datalake-cv-uploads", "datalake-production-sa.firebasestorage.app"];
 // Interview CVs go to the main bucket (NOT WORM) so the PDPL purge cycle can
 // delete them when the candidate's retention window expires (PDPL Art.18).
 const interviewCvBucket = admin.storage().bucket("datalake-production-sa.firebasestorage.app");
@@ -69,11 +71,14 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     let cvRawText = "";
     if (!cvData && candidate.cv_path && pdfParse) {
       try {
-        const cvFile = cvBucket.file(candidate.cv_path);
-        const [exists] = await cvFile.exists();
-        if (exists) {
-          const [buf] = await cvFile.download();
-          cvRawText = ((await pdfParse(buf)).text || "").slice(0, 12000);
+        for (const b of CV_SOURCE_BUCKETS) {
+          const cvFile = admin.storage().bucket(b).file(candidate.cv_path);
+          const [exists] = await cvFile.exists();
+          if (exists) {
+            const [buf] = await cvFile.download();
+            cvRawText = ((await pdfParse(buf)).text || "").slice(0, 12000);
+            break;
+          }
         }
       } catch (e) { console.warn("CV pdf-parse fallback failed:", e.message); }
     }

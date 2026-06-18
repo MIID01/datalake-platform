@@ -1028,10 +1028,17 @@ exports.downloadCandidateCV = onRequest(
       if (candidate.state === "PURGED") return res.status(403).json({ error: "Candidate data purged per PDPL" });
       if (!candidate.cv_path) return res.status(404).json({ error: "No CV on file for this candidate" });
 
-      const bucket = admin.storage().bucket("datalake-production-sa.firebasestorage.app");
-      const file = bucket.file(candidate.cv_path);
-      const [exists] = await file.exists();
-      if (!exists) return res.status(404).json({ error: "CV file not found in storage" });
+      // Careers uploads land in datalake-cv-uploads (cvs/<id>/<uuid>-<name>);
+      // some older/manual CVs sit in the main bucket. Try the upload bucket
+      // first, then fall back, so we find the file wherever it actually is.
+      const CV_BUCKETS = ["datalake-cv-uploads", "datalake-production-sa.firebasestorage.app"];
+      let file = null;
+      for (const b of CV_BUCKETS) {
+        const f = admin.storage().bucket(b).file(candidate.cv_path);
+        const [exists] = await f.exists();
+        if (exists) { file = f; break; }
+      }
+      if (!file) return res.status(404).json({ error: "CV file not found in storage" });
 
       const [signedUrl] = await file.getSignedUrl({
         version: "v4",
