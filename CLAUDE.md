@@ -97,9 +97,15 @@ teams and ISO auditors. Never document a control as built unless it actually is.
   `m.alqumri@datalake.sa` (ceo), `hr@datalake.sa` (hr).
 - **Firestore rules** (`firestore.rules` — the real boundary) — role-based via `getUserRole()`,
   default-deny catch-all. Payroll (`payroll_runs`) is read-restricted to CEO/finance/HR with
-  segregation of duties: finance/HR prepare the DRAFT, **only the CEO** transitions DRAFT→APPROVED;
-  employees read payslips only through the `listMyPayslips` function (caller==subject). Approval-
-  evidence subcollections are CEO-only create and immutable (`update, delete: if false`). RBAC
+  segregation of duties via a **three-stage approval chain** (CAPA-PAY-002): HR/finance prepare the
+  DRAFT, **Finance** approves it (DRAFT→`FINANCE_APPROVED`, signature-only), then the **CEO** gives
+  final approval (`FINANCE_APPROVED`→APPROVED, requires the signed payroll-register document). Every
+  status transition is written **only** by the `recordApproval` Cloud Function (Admin SDK) with
+  immutable signed evidence per stage — no client SDK path can flip status, and each stage is a
+  distinct signer (`recordApproval.js` POLICIES.payroll_runs). Downstream outputs (WPS/GOSI, deduction
+  consumption) fire only on the final APPROVED transition. Employees read payslips only through the
+  `listMyPayslips` function (caller==subject). Approval-evidence subcollections are immutable
+  (`update, delete: if false`). RBAC
   collections (`roles`, `access_matrix`, `users.role_id`) are CEO-write-only; the CEO cannot change
   their own role.
 - **Storage rules** (`storage.rules`) — `approval-evidence/**` is read/write for any authenticated

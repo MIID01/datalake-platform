@@ -77,20 +77,44 @@ const POLICIES = {
       updated_at: now,
     }),
   },
-  // Payroll run approval — CEO only, segregation of duties. requiresDocument.
+  // Payroll run approval — TWO-STAGE segregation of duties:
+  //   HR prepares the DRAFT → FINANCE approves (DRAFT → FINANCE_APPROVED) →
+  //   CEO gives final approval (FINANCE_APPROVED → APPROVED). Each stage is a
+  //   distinct signer. Only final CEO approval requires the payroll-register
+  //   document; the Finance stage is signature-only.
   payroll_runs: {
-    roles: ["ceo"],
+    roles: ["ceo", "finance"],
     tokenFlow: false,
-    requiresDocument: true,
-    precondition: (d) => d.status === "DRAFT",
-    applyStatus: ({ identity, evidenceId, evidenceSha, now }) => ({
-      status: "APPROVED",
-      approved_at: now,
-      approved_by: identity.email,
-      approval_evidence_id: evidenceId,
-      approval_evidence_sha256: evidenceSha || null,
-      updated_at: now,
-    }),
+    requiresDocument: (d) => d.status === "FINANCE_APPROVED",
+    precondition: (d) => d.status === "DRAFT" || d.status === "FINANCE_APPROVED",
+    validate: ({ before, identity }) => {
+      if (before.status === "DRAFT" && identity.role !== "finance") {
+        return "Finance must approve this payroll run first (DRAFT → Finance approval).";
+      }
+      if (before.status === "FINANCE_APPROVED" && identity.role !== "ceo") {
+        return "Only the CEO can give final payroll approval.";
+      }
+      return null;
+    },
+    applyStatus: ({ before, identity, evidenceId, evidenceSha, now }) => {
+      if (before.status === "DRAFT") {
+        return {
+          status: "FINANCE_APPROVED",
+          finance_approved_at: now,
+          finance_approved_by: identity.email,
+          finance_approval_evidence_id: evidenceId,
+          updated_at: now,
+        };
+      }
+      return {
+        status: "APPROVED",
+        approved_at: now,
+        approved_by: identity.email,
+        approval_evidence_id: evidenceId,
+        approval_evidence_sha256: evidenceSha || null,
+        updated_at: now,
+      };
+    },
   },
   // SAMA materiality sign-off on an engagement.
   projects: {
@@ -149,15 +173,23 @@ async function recordApprovalHandler(req, res, { verifyAuth, getUserAccessProfil
     if (!policy) return res.status(400).json({ error: `Collection '${parentCollection}' is not approvable via recordApproval` });
     // A rejection records a decision + reason — no signature or document required.
     const isReject = action === "reject" || action === "rejected";
-    if (!isReject) {
-      if (!signature || !signature.base64 || !signature.method) return res.status(400).json({ error: "signature {base64, method} required" });
-      if (policy.requiresDocument && (!document || !document.base64)) return res.status(400).json({ error: "This approval requires a document upload" });
+    if (!isReject && (!signature || !signature.base64 || !signature.method)) {
+      return res.status(400).json({ error: "signature {base64, method} required" });
     }
 
     const parentRef = db.collection(parentCollection).doc(String(parentId));
     const snap = await parentRef.get();
     if (!snap.exists) return res.status(404).json({ error: "Parent document not found" });
     const before = snap.data();
+
+    // requiresDocument may be a boolean or a function of the current state
+    // (e.g. payroll: only the final CEO stage needs the register document).
+    const requiresDoc = typeof policy.requiresDocument === "function"
+      ? policy.requiresDocument(before)
+      : policy.requiresDocument;
+    if (!isReject && requiresDoc && (!document || !document.base64)) {
+      return res.status(400).json({ error: "This approval requires a document upload" });
+    }
 
     // ── AuthN: token flow (contracts) OR Firebase Auth (+ role) ──
     let identity, authMethod, actorUid = null;
@@ -190,6 +222,13 @@ async function recordApprovalHandler(req, res, { verifyAuth, getUserAccessProfil
     // ── State precondition ──
     if (!policy.precondition(before)) {
       return res.status(409).json({ error: `Parent ${parentCollection}/${parentId} is not in an approvable state.` });
+    }
+
+    // ── Stage gate (e.g. payroll: Finance approves DRAFT, CEO approves the
+    //    Finance-approved run). Enforces who may act at the current state. ──
+    if (policy.validate) {
+      const vErr = policy.validate({ before, identity });
+      if (vErr) return res.status(403).json({ error: vErr });
     }
 
     // ── Rejection path: no signature/WORM — flag the parent, record the reason,
@@ -232,7 +271,7 @@ async function recordApprovalHandler(req, res, { verifyAuth, getUserAccessProfil
 
     // ── Document (if any) → WORM ──
     let evidence_url = null, evidence_filename = null, evidence_size_bytes = null, evidence_mime_type = null, evidence_sha256 = null, evidence_worm_path = null;
-    if (policy.requiresDocument && document) {
+    if (requiresDoc && document) {
       const docBuf = Buffer.from(document.base64.replace(/^data:[^,]+,/, ""), "base64");
       evidence_sha256 = sha256Buf(docBuf);
       evidence_filename = document.filename || `${parentCollection}_${parentId}.pdf`;
@@ -275,14 +314,14 @@ async function recordApprovalHandler(req, res, { verifyAuth, getUserAccessProfil
       signature_url: sigDisplay.url, signature_storage_path: sigDisplay.storage_path, signature_method: signature.method, signature_size_bytes: sigBuf.length, signature_sha256: sigSha, signature_typed_name: signature.typedName || null,
       evidence_url, evidence_filename, evidence_size_bytes, evidence_mime_type, evidence_sha256, evidence_storage_path: evidence_worm_path,
       worm_manifest_path: manifest_worm_path, worm_manifest_sha256: manifest_sha256,
-      requires_document: !!policy.requiresDocument, label, action,
+      requires_document: !!requiresDoc, label, action,
       parent_collection: parentCollection, parent_id: String(parentId),
       before_sha256,
       ...(extra || {}),
     };
 
     // ── Atomic: write evidence + flip parent status ──
-    const statusUpdate = policy.applyStatus({ identity, extra, evidenceId, evidenceSha: evidence_sha256, now, nowIso });
+    const statusUpdate = policy.applyStatus({ before, identity, extra, evidenceId, evidenceSha: evidence_sha256, now, nowIso });
     const batch = db.batch();
     batch.set(evidenceRef, evidenceRow);
     batch.set(parentRef, statusUpdate, { merge: true });

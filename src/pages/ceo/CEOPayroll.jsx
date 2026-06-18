@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  collection, onSnapshot, query, orderBy,
+  collection, onSnapshot, query, orderBy, where, getDocs,
 } from 'firebase/firestore'
 import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL } from '../../lib/firebase'
 import {
@@ -31,6 +31,7 @@ export default function CEOPayroll() {
   const [createError, setCreateError] = useState('')
   const [selectedMonth, setSelectedMonth] = useState(currentYearMonth())
   const [activeRunId, setActiveRunId] = useState(null)
+  const [userRole, setUserRole] = useState(null)
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -41,8 +42,19 @@ export default function CEOPayroll() {
     return () => unsub()
   }, [])
 
+  // Resolve the caller's role so we show the right approval stage (Finance vs CEO).
+  useEffect(() => {
+    const me = auth.currentUser
+    if (!me?.email) return
+    if (me.email === 'm.alqumri@datalake.sa') { setUserRole('ceo'); return }
+    getDocs(query(collection(db, 'users'), where('email', '==', me.email)))
+      .then(s => { if (!s.empty) setUserRole(s.docs[0].data().role_id || null) })
+      .catch(() => {})
+  }, [])
+
   const activeRun = useMemo(() => runs.find(r => r.id === activeRunId) || null, [runs, activeRunId])
-  const draftRuns = useMemo(() => runs.filter(r => r.status === 'DRAFT'), [runs])
+  const pendingFinance = useMemo(() => runs.filter(r => r.status === 'DRAFT'), [runs])
+  const pendingCEO = useMemo(() => runs.filter(r => r.status === 'FINANCE_APPROVED'), [runs])
 
   const createRun = async () => {
     if (!/^\d{4}-\d{2}$/.test(selectedMonth)) { setCreateError('Pick a YYYY-MM month.'); return }
@@ -106,52 +118,70 @@ export default function CEOPayroll() {
         </button>
       </div>
 
-      {/* Draft runs awaiting CEO sign */}
-      {draftRuns.length > 0 && (
+      {/* Approval chain: HR prepares (DRAFT) → Finance approves → CEO approves */}
+      {(pendingFinance.length > 0 || pendingCEO.length > 0) && (
         <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid #F39C12' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px 4px' }}>
             <ShieldCheck size={16} color="#F39C12" />
             <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>
-              Draft runs awaiting CEO sign-off ({draftRuns.length})
+              Payroll runs awaiting approval ({pendingFinance.length + pendingCEO.length})
             </h3>
           </div>
+          <div style={{ padding: '4px 18px 6px', fontSize: '0.74rem', color: 'var(--text-tertiary)' }}>
+            HR prepares → <strong>Finance approves</strong> → <strong>CEO final approval</strong>.
+          </div>
           <div style={{ padding: '8px 18px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {draftRuns.map(run => (
-              <div key={run.id} style={{ padding: 14, border: '1px solid var(--border-primary)', borderRadius: 10, background: 'var(--bg-surface)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>{run.period || run.id}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 3 }}>
-                      {run.employee_count || run.employees?.length || 0} paid · {fmtMoney(run.total_gross)} gross · {fmtMoney(run.total_net)} net
-                      {run.pending_contract_count ? ` · ${run.pending_contract_count} pending contract` : ''}
+            {[
+              ...pendingFinance.map(r => ({ run: r, stage: 'finance' })),
+              ...pendingCEO.map(r => ({ run: r, stage: 'ceo' })),
+            ].map(({ run, stage }) => {
+              const canAct = (stage === 'finance' && userRole === 'finance') || (stage === 'ceo' && userRole === 'ceo')
+              return (
+                <div key={run.id} style={{ padding: 14, border: '1px solid var(--border-primary)', borderRadius: 10, background: 'var(--bg-surface)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>{run.period || run.id}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 3 }}>
+                        {run.employee_count || run.employees?.length || 0} paid · {fmtMoney(run.total_gross)} gross · {fmtMoney(run.total_net)} net
+                        {run.pending_contract_count ? ` · ${run.pending_contract_count} pending contract` : ''}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button onClick={() => setActiveRunId(run.id)} style={{ background: 'transparent', color: '#022873', border: '1px solid #022873', borderRadius: 6, padding: '6px 12px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        Preview
+                      </button>
+                      <span className={stage === 'finance' ? 'badge badge-info' : 'badge badge-warning'}>
+                        {stage === 'finance' ? 'DRAFT · awaiting Finance' : 'FINANCE-APPROVED · awaiting CEO'}
+                      </span>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <button onClick={() => setActiveRunId(run.id)} style={{ background: 'transparent', color: '#022873', border: '1px solid #022873', borderRadius: 6, padding: '6px 12px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                      Preview
-                    </button>
-                    <span className="badge badge-info">DRAFT</span>
+                  {canAct ? (
+                    <ApprovalButton
+                      parentCollection="payroll_runs"
+                      parentId={run.id}
+                      requiresDocument={stage === 'ceo'}
+                      label={stage === 'finance' ? 'Finance Approve' : 'CEO Final Approval'}
+                      variant="ceo"
+                      extra={{
+                        stage,
+                        period: run.period || null,
+                        employee_count: run.employee_count || run.employees?.length || null,
+                        total_gross: run.total_gross || null,
+                        total_net: run.total_net || null,
+                      }}
+                      onApproved={() => { /* status flipped server-side; snapshot refreshes the row */ }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                      {stage === 'finance' ? 'Awaiting Finance approval.' : 'Awaiting CEO final approval.'}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 8 }}>
+                    <SignedBadgeList parentCollection="payroll_runs" parentId={run.id} compact />
                   </div>
                 </div>
-                <ApprovalButton
-                  parentCollection="payroll_runs"
-                  parentId={run.id}
-                  requiresDocument={true}
-                  label="Approve Payroll Run"
-                  variant="ceo"
-                  extra={{
-                    period: run.period || null,
-                    employee_count: run.employee_count || run.employees?.length || null,
-                    total_gross: run.total_gross || null,
-                    total_net: run.total_net || null,
-                  }}
-                  onApproved={() => { /* status flipped server-side by recordApproval; the payroll_runs snapshot refreshes the row */ }}
-                />
-                <div style={{ marginTop: 8 }}>
-                  <SignedBadgeList parentCollection="payroll_runs" parentId={run.id} compact />
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
