@@ -1276,6 +1276,23 @@ async function findActiveEngineerAssignments(email, projectId) {
   return list;
 }
 
+// Operational settings the AI crons / hot paths read at runtime (config-driven,
+// not hardcoded). Editable by Finance/CEO at platform_settings/operations.
+// Defaults preserve the previous hardcoded behaviour.
+async function getOperationsSettings() {
+  const defaults = {
+    timesheet_window_open_day: 1,
+    timesheet_window_close_day: 28,
+    timesheet_escalation_hours: 48,
+    payroll_auto_run_day: 25,
+  };
+  try {
+    const s = await db.collection("platform_settings").doc("operations").get();
+    if (s.exists) return { ...defaults, ...s.data() };
+  } catch (e) { console.warn("getOperationsSettings:", e.message); }
+  return defaults;
+}
+
 // HTTP endpoint: getEngineerProjectView
 // Returns projects assigned to the calling engineer with
 // financial and commercial fields STRIPPED
@@ -1528,12 +1545,15 @@ exports.submitTimesheet = onRequest(
         return;
       }
 
-      // Enforce 1st-28th window (widened for testing — original: 18th-25th)
+      // Enforce the configurable submission window (platform_settings/operations).
+      const ops = await getOperationsSettings();
+      const openDay = Number(ops.timesheet_window_open_day) || 1;
+      const closeDay = Number(ops.timesheet_window_close_day) || 28;
       const now = new Date();
       const riyadhTime = new Date(now.getTime() + (3 * 60 + now.getTimezoneOffset()) * 60000);
       const currentDay = riyadhTime.getDate();
-      if (currentDay < 1 || currentDay > 28) {
-        res.status(403).json({ error: "Submission window closed", detail: "Timesheets can only be submitted between the 1st and 28th of each month (Riyadh time).", current_day: currentDay });
+      if (currentDay < openDay || currentDay > closeDay) {
+        res.status(403).json({ error: "Submission window closed", detail: `Timesheets can only be submitted between day ${openDay} and ${closeDay} of each month (Riyadh time).`, current_day: currentDay });
         return;
       }
 
@@ -2328,7 +2348,9 @@ exports.signTimesheetByToken = onRequest(
 exports.escalateStaleTimesheets = onSchedule(
   { schedule: "every 60 minutes", region: "me-central2", memory: "256MiB", timeoutSeconds: 60, timeZone: "Asia/Riyadh" },
   async () => {
-    const cutoff = new Date(Date.now() - 48 * 3600000);
+    const ops = await getOperationsSettings();
+    const slaHours = Number(ops.timesheet_escalation_hours) || 48;
+    const cutoff = new Date(Date.now() - slaHours * 3600000);
     const stale = await db.collection("timesheets")
       .where("state", "==", "SUBMITTED")
       .where("submitted_at", "<", admin.firestore.Timestamp.fromDate(cutoff))
@@ -3696,13 +3718,20 @@ const {
 
 exports.calculatePayroll = onSchedule(
   {
-    schedule: "0 0 25 * *", // 25th of each month at midnight
+    schedule: "0 0 * * *", // daily — gated to the configured auto-run day below
     timeZone: "Asia/Riyadh",
     region: "me-central2",
     memory: "512MiB",
     timeoutSeconds: 300,
   },
-  async () => { await calculatePayrollHandler(); }
+  async () => {
+    // Auto-create the monthly DRAFT only on the configured day (default 25th).
+    const ops = await getOperationsSettings();
+    const runDay = Number(ops.payroll_auto_run_day) || 25;
+    const today = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Riyadh", day: "numeric" }).format(new Date()));
+    if (today !== runDay) { console.log(`[Payroll] auto-run gated: today ${today} ≠ run day ${runDay}`); return; }
+    await calculatePayrollHandler();
+  }
 );
 
 // CEO / Finance "Create Payroll Run" — UI-driven, parameterized by month.
@@ -3756,6 +3785,47 @@ exports.cancelPayrollRun = onRequest(
 exports.savePayrollSettings = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => savePayrollSettingsHandler(req, res, hireHelpers),
+);
+
+// Save operational settings (timesheet window, escalation SLA, payroll auto-run
+// day) — Finance or CEO. The crons/hot-paths read these via getOperationsSettings.
+exports.saveOperationsSettings = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  async (req, res) => {
+    if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
+    try {
+      const authHeader = req.headers.authorization || "";
+      if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing auth token" });
+      const decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+      const profile = await getUserAccessProfile(decoded.uid).catch(() => null);
+      const role = profile?.role_id || (decoded.email === "m.alqumri@datalake.sa" ? "ceo" : null);
+      if (!role || !["ceo", "finance"].includes(role)) return res.status(403).json({ error: "Requires Finance or CEO" });
+
+      const update = {};
+      for (const k of ["timesheet_window_open_day", "timesheet_window_close_day", "payroll_auto_run_day"]) {
+        if (req.body?.[k] === undefined || req.body[k] === "") continue;
+        const v = Number(req.body[k]);
+        if (!Number.isInteger(v) || v < 1 || v > 28) return res.status(400).json({ error: `${k} must be a day between 1 and 28` });
+        update[k] = v;
+      }
+      if (req.body?.timesheet_escalation_hours !== undefined && req.body.timesheet_escalation_hours !== "") {
+        const h = Number(req.body.timesheet_escalation_hours);
+        if (!(h >= 1 && h <= 720)) return res.status(400).json({ error: "timesheet_escalation_hours must be between 1 and 720" });
+        update.timesheet_escalation_hours = h;
+      }
+      if (Object.keys(update).length === 0) return res.status(400).json({ error: "No valid settings supplied" });
+
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      update.updated_by = profile?.email || decoded.email;
+      update.updated_at = now;
+      await db.collection("platform_settings").doc("operations").set(update, { merge: true });
+      await db.collection("task_audit_log").add({ event: "OPERATIONS_SETTINGS_UPDATED", action_by: update.updated_by, action_at: now, details: { ...update, updated_at: undefined } });
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("saveOperationsSettings error:", err);
+      return res.status(500).json({ error: err.message || "Internal error" });
+    }
+  }
 );
 
 // ── Password reset (Gmail DWD path, bypasses Firebase default sender) ──

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   collection, onSnapshot, query, orderBy, where, getDocs, doc, getDoc,
 } from 'firebase/firestore'
-import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL, VERIFY_EMPLOYEE_SALARY_URL, CANCEL_PAYROLL_RUN_URL, SAVE_PAYROLL_SETTINGS_URL } from '../../lib/firebase'
+import { auth, db, CREATE_PAYROLL_RUN_URL, GENERATE_PDF_URL, VERIFY_EMPLOYEE_SALARY_URL, CANCEL_PAYROLL_RUN_URL, SAVE_PAYROLL_SETTINGS_URL, SAVE_OPERATIONS_SETTINGS_URL } from '../../lib/firebase'
 import {
   AlertTriangle, CheckCircle, Clock, ShieldCheck, Plus, Loader, FileText,
   Users, DollarSign, Download, FileSpreadsheet, AlertCircle, X,
@@ -33,33 +33,39 @@ export default function CEOPayroll() {
   const [activeRunId, setActiveRunId] = useState(null)
   const [userRole, setUserRole] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [gosi, setGosi] = useState(null)
+  const [gosi, setGosi] = useState(null)   // platform_settings/payroll (GOSI rates + MOL)
+  const [ops, setOps] = useState(null)     // platform_settings/operations
   const [savingSettings, setSavingSettings] = useState(false)
 
-  // Load GOSI rate settings (defaults shown if the doc doesn't exist yet).
+  // Load payroll + operations settings (defaults shown if a doc is missing).
   useEffect(() => {
     getDoc(doc(db, 'platform_settings', 'payroll'))
       .then(s => setGosi({
         gosi_saudi_employee_pct: 9.75, gosi_saudi_employer_pct: 11.75,
-        gosi_nonsaudi_employee_pct: 0, gosi_nonsaudi_employer_pct: 2,
+        gosi_nonsaudi_employee_pct: 0, gosi_nonsaudi_employer_pct: 2, mol_number: '',
         ...(s.exists() ? s.data() : {}),
-      }))
-      .catch(() => {})
+      })).catch(() => {})
+    getDoc(doc(db, 'platform_settings', 'operations'))
+      .then(s => setOps({
+        timesheet_window_open_day: 1, timesheet_window_close_day: 28,
+        timesheet_escalation_hours: 48, payroll_auto_run_day: 25,
+        ...(s.exists() ? s.data() : {}),
+      })).catch(() => {})
   }, [])
 
   const saveSettings = async () => {
     setSavingSettings(true)
     try {
       const idToken = await auth.currentUser.getIdToken()
-      const res = await fetch(SAVE_PAYROLL_SETTINGS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
-        body: JSON.stringify(gosi),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      const post = async (url, body) => {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken }, body: JSON.stringify(body) })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      }
+      await post(SAVE_PAYROLL_SETTINGS_URL, gosi)
+      await post(SAVE_OPERATIONS_SETTINGS_URL, ops)
       setShowSettings(false)
-      window.alert('GOSI rates saved. They apply to the next payroll run you create.')
+      window.alert('Settings saved. They apply to the next payroll run / timesheet cycle.')
     } catch (e) { window.alert(e.message) }
     setSavingSettings(false)
   }
@@ -199,15 +205,17 @@ export default function CEOPayroll() {
         </div>
       </div>
 
-      {showSettings && gosi && (
+      {showSettings && gosi && ops && (
         <div onClick={() => setShowSettings(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,8,23,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: 460, maxWidth: '100%' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#022873' }}>GOSI Rates (%)</h2>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#022873' }}>Payroll &amp; Operations Settings</h2>
               <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={20} /></button>
             </div>
-            <div style={{ fontSize: '0.78rem', color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '8px 12px', margin: '8px 0 14px' }}>
-              ⚠ Verify these against current GOSI regulations with your accountant before running real payroll. Applies to the next run created.
+
+            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', margin: '14px 0 6px' }}>GOSI Rates (%)</h3>
+            <div style={{ fontSize: '0.76rem', color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+              ⚠ Verify against current GOSI regulations with your accountant before real payroll.
             </div>
             {[
               ['gosi_saudi_employee_pct', 'Saudi — employee'],
@@ -220,6 +228,25 @@ export default function CEOPayroll() {
                 <input type="number" step="0.01" min="0" max="100" value={gosi[k] ?? ''} onChange={e => setGosi({ ...gosi, [k]: e.target.value === '' ? '' : Number(e.target.value) })} style={{ width: 110, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right' }} />
               </div>
             ))}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 6 }}>
+              <label style={{ fontSize: '0.85rem', color: '#334155' }}>WPS MOL number</label>
+              <input value={gosi.mol_number ?? ''} placeholder="establishment no." onChange={e => setGosi({ ...gosi, mol_number: e.target.value })} style={{ width: 150, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right' }} />
+            </div>
+
+            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', margin: '16px 0 8px' }}>Operations</h3>
+            {[
+              ['timesheet_window_open_day', 'Timesheet window — open day', 1, 28],
+              ['timesheet_window_close_day', 'Timesheet window — close day', 1, 28],
+              ['timesheet_escalation_hours', 'Stale-timesheet escalation (hours)', 1, 720],
+              ['payroll_auto_run_day', 'Payroll auto-run day of month', 1, 28],
+            ].map(([k, label, min, max]) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <label style={{ fontSize: '0.85rem', color: '#334155' }}>{label}</label>
+                <input type="number" step="1" min={min} max={max} value={ops[k] ?? ''} onChange={e => setOps({ ...ops, [k]: e.target.value === '' ? '' : Number(e.target.value) })} style={{ width: 110, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right' }} />
+              </div>
+            ))}
+
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
               <button onClick={() => setShowSettings(false)} style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
               <button onClick={saveSettings} disabled={savingSettings} style={{ flex: 1, padding: '11px', borderRadius: 8, border: 'none', background: '#022873', color: '#fff', fontWeight: 700, cursor: savingSettings ? 'default' : 'pointer' }}>{savingSettings ? 'Saving…' : 'Save Rates'}</button>

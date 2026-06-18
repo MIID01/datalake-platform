@@ -266,7 +266,8 @@ async function generateWPSFileHandler(event) {
     // Employer MOL (Ministry of Labour establishment number) is mandatory for a
     // valid WPS/SIF file. We NEVER emit a placeholder — the bank would reject it
     // and it would misrepresent a real payment file. Block honestly if unset.
-    const employerMOLNumber = String(COMPANY.mol_number || "").trim();
+    const payrollSettings = await getPayrollSettings();
+    const employerMOLNumber = String(payrollSettings.mol_number || COMPANY.mol_number || "").trim();
     if (!employerMOLNumber) {
       console.error("[WPS] MOL not configured — not emitting a WPS file.");
       await payrollDoc.ref.update({
@@ -884,7 +885,9 @@ async function savePayrollSettingsHandler(req, res, { getUserAccessProfile } = {
       if (!(v >= 0 && v <= 100)) return res.status(400).json({ error: `${k} must be a percentage between 0 and 100` });
       update[k] = v;
     }
-    if (Object.keys(update).length === 0) return res.status(400).json({ error: "No valid rate fields supplied" });
+    // MOL is a string establishment number (not a rate).
+    if (req.body?.mol_number !== undefined) update.mol_number = String(req.body.mol_number).trim();
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: "No valid settings supplied" });
 
     const now = admin.firestore.FieldValue.serverTimestamp();
     update.updated_by = profile?.email || decoded.email;
