@@ -76,6 +76,7 @@ import EmployeeOnboarding from './pages/employee/Onboarding'
 import HRTalentPool from './pages/hr/HRTalentPool'
 import HRScoring from './pages/hr/HRScoring'
 import InterviewCVPrep from './pages/hr/InterviewCVPrep'
+import HRDeductions from './pages/hr/HRDeductions'
 import HRJobListings from './pages/hr/HRJobListings'
 import HREmployees from './pages/hr/HREmployees'
 import HRContracts from './pages/hr/HRContracts'
@@ -211,6 +212,7 @@ export default function App() {
           <Route path="documents" element={<HRDocuments />} />
           <Route path="iqama" element={<HRIqama />} />
           <Route path="scoring" element={<HRScoring />} />
+          <Route path="deductions" element={<HRDeductions />} />
           <Route path="interview-cv" element={<InterviewCVPrep />} />
           {/* Alias: people naturally type /hr/interview-prep — keep it working */}
           <Route path="interview-prep" element={<Navigate to="/hr/interview-cv" replace />} />

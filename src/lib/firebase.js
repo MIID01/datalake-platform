@@ -162,6 +162,14 @@ export const DOWNLOAD_CANDIDATE_CV_URL =
 export const UPDATE_CANDIDATE_STAGE_URL =
   "https://updatecandidatestage-ifzodp5svq-wx.a.run.app";
 
+// Payroll deductions (one-off / installment)
+export const CREATE_DEDUCTION_URL =
+  "https://creatededuction-ifzodp5svq-wx.a.run.app";
+export const LIST_DEDUCTIONS_URL =
+  "https://listdeductions-ifzodp5svq-wx.a.run.app";
+export const CANCEL_DEDUCTION_URL =
+  "https://canceldeduction-ifzodp5svq-wx.a.run.app";
+
 // Backfill & GRC APIs
 export const BACKFILL_EMPLOYEE_URL = 
   "https://backfillemployee-ifzodp5svq-wx.a.run.app";

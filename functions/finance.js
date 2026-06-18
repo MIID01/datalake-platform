@@ -79,15 +79,36 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
       const gosi_employee = isSaudi ? base_salary * 0.0975 : 0;
       const gosi_employer = isSaudi ? base_salary * 0.1175 : base_salary * 0.02;
 
-      // Fetch Deductions
+      // Fetch Deductions (installment-aware). We compute what THIS run deducts
+      // but do NOT mutate the deduction docs here — consumption happens on
+      // approval (consumePayrollDeductions) so re-creating a DRAFT is idempotent.
       let total_deductions = 0;
+      const deduction_lines = [];
       const deductionsSnapshot = await db.collection("deductions")
         .where("employee_id", "==", empId)
         .where("status", "==", "ACTIVE")
         .get();
-      
+
       deductionsSnapshot.docs.forEach(d => {
-        total_deductions += Number(d.data().amount || 0);
+        const dd = d.data();
+        if (dd.start_period && dd.start_period > yearMonth) return; // not started yet
+        const remaining = Number(dd.remaining_balance != null ? dd.remaining_balance
+          : (dd.total_amount != null ? dd.total_amount : dd.amount || 0));
+        if (remaining <= 0) return;
+        // monthly installment amount; one-off deductions take the whole balance.
+        const monthly = Number(dd.monthly_amount || dd.amount || dd.total_amount || 0);
+        const thisAmount = Math.min(monthly > 0 ? monthly : remaining, remaining);
+        if (thisAmount <= 0) return;
+        total_deductions += thisAmount;
+        deduction_lines.push({
+          deduction_id: d.id,
+          description: dd.description || dd.reason || "Deduction",
+          type: dd.type || "one_off",
+          amount: thisAmount,
+          installment_no: Number(dd.installments_paid || 0) + 1,
+          installments: Number(dd.installments || 1),
+          remaining_after: Math.max(0, remaining - thisAmount),
+        });
       });
 
       // Fetch Expenses/Reimbursements
@@ -125,6 +146,7 @@ async function calculatePayrollHandler({ year_month, actor } = {}) {
         transport,
         gosi_employee,
         deductions: total_deductions,
+        deduction_lines,
         reimbursements: total_reimbursements,
         net_pay,
         salary_verified,
@@ -473,8 +495,47 @@ async function publishPayrollApprovedHandler(event) {
     const payrollRunId = event.params.payrollRunId;
     await pubsub.topic("datalake.payroll.approved").publishMessage({ json: { payroll_run_id: payrollRunId, period: after.period } });
     console.log(`[Payroll] APPROVED → published datalake.payroll.approved for ${payrollRunId}`);
+
+    // Consume installment deductions now that the run is final.
+    await consumePayrollDeductions(after);
   } catch (err) {
     console.error("publishPayrollApproved error:", err);
+  }
+}
+
+// Decrement each deduction's balance by what this APPROVED run actually took.
+// Idempotent per (deduction, period): re-running won't double-consume, and a
+// deduction is marked COMPLETED once its balance reaches zero.
+async function consumePayrollDeductions(after) {
+  const period = after.period;
+  for (const emp of (after.employees || [])) {
+    for (const line of (emp.deduction_lines || [])) {
+      if (!line.deduction_id || !(Number(line.amount) > 0)) continue;
+      const ref = db.collection("deductions").doc(line.deduction_id);
+      try {
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) return;
+          const dd = snap.data();
+          const applied = Array.isArray(dd.applied_periods) ? dd.applied_periods : [];
+          if (applied.some(a => a.period === period)) return; // already consumed
+          const remaining = Number(dd.remaining_balance != null ? dd.remaining_balance
+            : (dd.total_amount != null ? dd.total_amount : dd.amount || 0));
+          const take = Math.min(Number(line.amount), remaining);
+          const newRemaining = Math.max(0, remaining - take);
+          tx.update(ref, {
+            remaining_balance: newRemaining,
+            amount_deducted_to_date: Number(dd.amount_deducted_to_date || 0) + take,
+            installments_paid: Number(dd.installments_paid || 0) + 1,
+            applied_periods: [...applied, { period, amount: take }],
+            status: newRemaining <= 0 ? "COMPLETED" : (dd.status || "ACTIVE"),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+      } catch (e) {
+        console.error(`[Payroll] deduction consume failed for ${line.deduction_id}:`, e.message);
+      }
+    }
   }
 }
 

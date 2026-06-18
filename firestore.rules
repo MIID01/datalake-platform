@@ -468,6 +468,14 @@ service cloud.firestore {
       }
     }
 
+    // Payroll deductions (one-off / installment). Read for CEO/finance/HR; all
+    // writes go through the createDeduction/cancelDeduction Cloud Functions
+    // (validation + audit + balance integrity) — never directly from a client.
+    match /deductions/{deductionId} {
+      allow read: if isCeo() || isFinance() || isHR();
+      allow write: if false;
+    }
+
     // ── CEO Dashboards ──
     match /ai_agents/{docId} { allow read, write: if isCeo(); }
     // Notifications — owner-scoped. A user only reads/writes their own

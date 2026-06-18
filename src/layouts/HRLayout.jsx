@@ -5,7 +5,7 @@ import { signIn, signOut, onAuthChange } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
 
-import { Users, Briefcase } from 'lucide-react'
+import { Users, Briefcase, MinusCircle } from 'lucide-react'
 
 const navItems = [
   { icon: Users, label: 'Talent Pool', path: '/hr', end: true },
@@ -16,6 +16,7 @@ const navItems = [
   { icon: Shield, label: 'Iqama Lifecycle', path: '/hr/iqama' },
   { icon: ClipboardCheck, label: 'Interview Scoring', path: '/hr/scoring' },
   { icon: FileText, label: 'Interview CV Prep', path: '/hr/interview-cv' },
+  { icon: MinusCircle, label: 'Deductions', path: '/hr/deductions' },
   { icon: Briefcase, label: 'Job Listings', path: '/hr/jobs' },
 ]
 

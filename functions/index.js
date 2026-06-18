@@ -3711,6 +3711,21 @@ exports.listMyPayslips = onRequest(
   (req, res) => listMyPayslipsHandler(req, res),
 );
 
+// Payroll deductions (one-off / installment) — HR/Finance/CEO manage.
+const { createDeductionHandler, listDeductionsHandler, cancelDeductionHandler } = require("./deductions");
+exports.createDeduction = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => createDeductionHandler(req, res, hireHelpers),
+);
+exports.listDeductions = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => listDeductionsHandler(req, res, hireHelpers),
+);
+exports.cancelDeduction = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  (req, res) => cancelDeductionHandler(req, res, hireHelpers),
+);
+
 // ── Password reset (Gmail DWD path, bypasses Firebase default sender) ──
 const { generateAndSendPasswordResetHandler } = require("./passwordReset");
 exports.generateAndSendPasswordReset = onRequest(
