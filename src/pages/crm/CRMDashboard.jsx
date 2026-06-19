@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
-import { DEAL_STAGES, STAGE_IDS, OPEN_STAGE_IDS, STAGE_PROBABILITY, dealWeightedValue, stageMeta, fmtSar } from '../../lib/deals'
-import { TrendingUp, Trophy, Percent, Layers, DollarSign, Clock, AlertTriangle, Loader, Target } from 'lucide-react'
+import { DEAL_STAGES, STAGE_IDS, OPEN_STAGE_IDS, dealWeightedValue, stageMeta, fmtSar } from '../../lib/deals'
+import { TrendingUp, Trophy, Percent, Layers, DollarSign, Clock, AlertTriangle, Loader, Target, Download } from 'lucide-react'
 
 // CRM Phase-2 analytics. Pure reads off the canonical `deals` collection — no new
 // data model, no drift. Pipeline value by stage, win/loss, conversion, owners, aging.
@@ -77,12 +77,33 @@ export default function CRMDashboard() {
 
   const card = { background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, padding: 18 }
 
+  const exportCsv = () => {
+    const rows = [['Title', 'Company', 'Contact', 'Email', 'Stage', 'Value SAR', 'Weighted SAR', 'Owner']]
+    m.live.forEach(d => rows.push([
+      d.title || '', d.company_name || '', d.contact_name || '', d.contact_email || '',
+      d.stage || '', Number(d.value_sar || 0), Math.round(dealWeightedValue(d)), d.owner_email || '',
+    ]))
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a'); a.href = url; a.download = 'crm-pipeline-export.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div style={{ padding: '28px 24px', maxWidth: 1200, margin: '0 auto', fontFamily: "'DM Sans', sans-serif" }}>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: NAVY, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
-        <TrendingUp size={22} color="#1598CC" /> Pipeline Dashboard
-      </h1>
-      <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '4px 0 22px' }}>{m.live.length} active deals · live from the pipeline</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: NAVY, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
+            <TrendingUp size={22} color="#1598CC" /> Pipeline Dashboard
+          </h1>
+          <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '4px 0 22px' }}>{m.live.length} active deals · live from the pipeline</p>
+        </div>
+        {m.live.length > 0 && (
+          <button onClick={exportCsv} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 14px', background: '#fff', color: NAVY, border: `1px solid ${NAVY}`, borderRadius: 8, fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>
+            <Download size={15} /> Export CSV
+          </button>
+        )}
+      </div>
 
       {m.live.length === 0 ? (
         <div style={{ ...card, textAlign: 'center', color: '#94a3b8', padding: 48 }}>No deals yet. Add deals or import leads in the Pipeline.</div>

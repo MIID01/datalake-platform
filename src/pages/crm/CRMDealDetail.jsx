@@ -9,6 +9,23 @@ import { SignedBadgeList } from '../../components/SignedBadge'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { ArrowLeft, Building2, Mail, Send, Loader, Trophy, FileText, Plus, Trash2 } from 'lucide-react'
 
+// Reusable email templates for the deal composer. Each builds {subject, body} from
+// the deal — no fabricated facts, just a starting draft the rep edits before sending.
+const EMAIL_TEMPLATES = [
+  { id: 'intro', label: 'Intro / first outreach', build: (d) => ({
+    subject: `Datalake Saudi Arabia — ${d?.company_name || 'introduction'}`,
+    body: `Dear ${d?.contact_name || 'there'},\n\nThank you for your interest in Datalake Saudi Arabia. I'd welcome the chance to understand your data and technology needs and how we can support ${d?.company_name || 'your team'}.\n\nWould a short call this week work for you?\n\nBest regards,` }) },
+  { id: 'followup', label: 'Follow-up', build: (d) => ({
+    subject: `Following up — ${d?.title || d?.company_name || 'our conversation'}`,
+    body: `Dear ${d?.contact_name || 'there'},\n\nI wanted to follow up on our recent conversation regarding ${d?.title || 'your requirements'}. Please let me know if you have any questions or if there's anything further I can provide.\n\nBest regards,` }) },
+  { id: 'proposal', label: 'Proposal sent', build: (d) => ({
+    subject: `Proposal — ${d?.title || d?.company_name || 'Datalake'}`,
+    body: `Dear ${d?.contact_name || 'there'},\n\nPlease find our proposal for ${d?.title || 'the engagement'} attached. We've tailored it to the requirements we discussed. I'm happy to walk through any part of it at your convenience.\n\nBest regards,` }) },
+  { id: 'checkin', label: 'Check-in', build: (d) => ({
+    subject: `Checking in — ${d?.company_name || 'Datalake'}`,
+    body: `Dear ${d?.contact_name || 'there'},\n\nJust checking in to see where things stand and whether there's anything you need from us to move forward.\n\nBest regards,` }) },
+]
+
 export default function CRMDealDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -275,6 +292,10 @@ export default function CRMDealDetail() {
         <div className="card">
           <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={15} /> Send email</div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginBottom: 8 }}>Sends from hr@datalake.sa (Workspace) and logs to the timeline.</div>
+          <select defaultValue="" onChange={e => { const t = EMAIL_TEMPLATES.find(x => x.id === e.target.value); if (t) { const { subject, body } = t.build(deal); setEmSubj(subject); setEmBody(body) } e.target.value = '' }} style={{ ...inp, marginBottom: 8 }}>
+            <option value="">Insert template…</option>
+            {EMAIL_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
           <input value={emTo} onChange={e => setEmTo(e.target.value)} placeholder="To" style={{ ...inp, marginBottom: 8 }} />
           <input value={emSubj} onChange={e => setEmSubj(e.target.value)} placeholder="Subject" style={{ ...inp, marginBottom: 8 }} />
           <textarea value={emBody} onChange={e => setEmBody(e.target.value)} placeholder="Message" rows={5} style={{ ...inp, marginBottom: 8, resize: 'vertical' }} />
