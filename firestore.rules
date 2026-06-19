@@ -167,10 +167,18 @@ service cloud.firestore {
     // Rows=roles, cols=days. Compiled by CRM/HR, reviewed by CTO/CEO (where labeled
     // additional-billable items are added), then client-signed. CEO-only delete.
     match /project_timesheets/{tsId} {
-      allow read:   if isCeo() || isBusinessOrSales() || isHR();
+      // Owning client can READ their own (to review/sign in the portal); not write.
+      allow read:   if isCeo() || isBusinessOrSales() || isHR() || isAssignedClient(resource.data.client_id);
       allow create: if isCeo() || isBusinessOrSales() || isHR();
       allow update: if isCeo() || isBusinessOrSales() || isHR();
       allow delete: if isCeo();
+
+      // Signature/approval evidence — written ONLY by the signProjectTimesheet
+      // Cloud Function (Admin SDK, bypasses rules). Immutable + read-restricted.
+      match /approval_evidence/{evId} {
+        allow read:  if isCeo() || isBusinessOrSales() || isHR();
+        allow write: if false;
+      }
     }
 
     // ── CRM config (editable lists: public holidays, etc.) ──

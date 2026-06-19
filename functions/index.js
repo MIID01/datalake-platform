@@ -3212,6 +3212,17 @@ exports.sendInterviewInvite = onRequest(
   (req, res) => sendInterviewInviteHandler(req, res, interviewCVHelpers)
 );
 
+// Project-timesheet client sign-off — portal (authed) + emailed token link (public).
+const { sendTimesheetToClientHandler, signProjectTimesheetHandler } = require("./projectTimesheetSign");
+exports.sendTimesheetToClient = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => sendTimesheetToClientHandler(req, res, { verifyAuth, getUserAccessProfile })
+);
+exports.signProjectTimesheet = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => signProjectTimesheetHandler(req, res, { verifyAuth, getUserAccessProfile })
+);
+
 // ═══════════════════════════════════════════════════════════════════
 // Interview Scorecard System
 // getClientScorecardForm     — public, token-gated: returns scorecard form

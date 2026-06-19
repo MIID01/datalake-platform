@@ -157,6 +157,10 @@ export const SEND_INTERVIEW_CV_URL =
   "https://sendinterviewcv-ifzodp5svq-wx.a.run.app";
 export const SEND_INTERVIEW_INVITE_URL =
   "https://sendinterviewinvite-ifzodp5svq-wx.a.run.app";
+export const SEND_TIMESHEET_TO_CLIENT_URL =
+  "https://sendtimesheettoclient-ifzodp5svq-wx.a.run.app";
+export const SIGN_PROJECT_TIMESHEET_URL =
+  "https://signprojecttimesheet-ifzodp5svq-wx.a.run.app";
 export const DOWNLOAD_CANDIDATE_CV_URL =
   "https://downloadcandidatecv-ifzodp5svq-wx.a.run.app";
 export const UPDATE_CANDIDATE_STAGE_URL =

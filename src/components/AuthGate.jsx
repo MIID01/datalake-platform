@@ -19,7 +19,7 @@ import ForcePasswordChange from './ForcePasswordChange'
 
 const PUBLIC_PATHS = [
   '/', '/careers', '/reset-password', '/consent/', '/client/scorecard/', '/contract/', '/legal/review/',
-  '/client/timesheet/', '/client/sign-timesheet/', '/client/approve-hire/',
+  '/client/timesheet/', '/client/sign-timesheet/', '/client/approve-hire/', '/sign-timesheet/',
 ]
 
 function isPublicPath(path) {

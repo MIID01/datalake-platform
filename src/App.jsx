@@ -93,6 +93,8 @@ import CRMDashboard from './pages/crm/CRMDashboard'
 import CRMContacts from './pages/crm/CRMContacts'
 import CRMTasks from './pages/crm/CRMTasks'
 import CRMProjectTimesheets from './pages/crm/CRMProjectTimesheets'
+import SignTimesheet from './pages/SignTimesheet'
+import ClientSignTimesheets from './pages/client/ClientSignTimesheets'
 import CRMDealDetail from './pages/crm/CRMDealDetail'
 
 // Legal (external — token-gated public flow)
@@ -234,6 +236,7 @@ export default function App() {
         <Route path="/client" element={<ClientLayout />}>
           <Route index element={<ClientTimesheetApproval />} />
           <Route path="leave-approvals" element={<ClientLeaveApprovals />} />
+          <Route path="timesheets" element={<ClientSignTimesheets />} />
         </Route>
         {/* Token-based client flows (public / unauthenticated) — sit outside ClientLayout */}
         <Route path="/client/timesheet/:token" element={<ClientTimesheetApproval />} />
@@ -245,6 +248,7 @@ export default function App() {
         {/* Public Pages */}
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/careers" element={<Careers />} />
+        <Route path="/sign-timesheet/:docId" element={<SignTimesheet />} />
         {/* Common singular variant — people type /career. Redirect to the canonical
             plural route so the public marketing URL never renders a blank SPA page. */}
         <Route path="/career" element={<Navigate to="/careers" replace />} />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { collection, onSnapshot, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
-import { auth, db, GENERATE_PDF_URL } from '../../lib/firebase'
+import { auth, db, GENERATE_PDF_URL, SEND_TIMESHEET_TO_CLIENT_URL } from '../../lib/firebase'
 import { useAccessProfile } from '../../hooks/useAccessProfile'
 import { Calendar, Plus, Trash2, Save, Loader, Check, CalendarDays, FileDown } from 'lucide-react'
 
@@ -18,7 +18,7 @@ const STATUS = {
 const CYCLE = ['', 'INHOUSE', 'REMOTE', 'LEAVE']
 const GREY = '#D9D9D9'
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const STATE_LABEL = { DRAFT: 'Draft', SUBMITTED: 'Submitted', CTO_APPROVED: 'Internally approved', CLIENT_SIGNED: 'Client signed', INVOICED: 'Invoiced' }
+const STATE_LABEL = { DRAFT: 'Draft', SUBMITTED: 'Submitted', CTO_APPROVED: 'Internally approved', SENT_TO_CLIENT: 'Sent to client', CLIENT_SIGNED: 'Client signed', INVOICED: 'Invoiced' }
 const daysInMonth = (y, m) => new Date(y, m, 0).getDate() // m = 1-based
 const pad2 = (n) => String(n).padStart(2, '0')
 const isWeekend = (y, m, d) => { const wd = new Date(y, m - 1, d).getDay(); return wd === 5 || wd === 6 } // Fri/Sat
@@ -131,6 +131,22 @@ export default function CRMProjectTimesheets() {
   }
   const submit = () => save({ state: 'SUBMITTED', submitted_by: me, submitted_at: serverTimestamp() })
   const approve = () => save({ state: 'CTO_APPROVED', cto_approved_by: me, cto_approved_at: serverTimestamp() })
+
+  const sendToClient = async () => {
+    if (!window.confirm('Send this approved timesheet to the client for signature? They get a secure link by email.')) return
+    setBusy(true); setMsg('')
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const res = await fetch(SEND_TIMESHEET_TO_CLIENT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ docId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      setTs(t => ({ ...t, state: 'SENT_TO_CLIENT' }))
+      setMsg('Sent to ' + data.sent_to + ' for signature.')
+    } catch (e) { setMsg('Send failed: ' + e.message) } finally { setBusy(false) }
+  }
 
   const downloadPdf = async () => {
     setBusy(true); setMsg('')
@@ -271,7 +287,9 @@ export default function CRMProjectTimesheets() {
             {ts.state === 'DRAFT' && canEdit && <button onClick={submit} disabled={busy} style={primaryBtn(busy)}>Submit for review</button>}
             {ts.state === 'SUBMITTED' && canReview && <button onClick={approve} disabled={busy} style={{ ...primaryBtn(busy), background: '#34BF3A' }}><Check size={14} /> Approve (CTO/CEO)</button>}
             {ts.state === 'SUBMITTED' && !canReview && <span style={{ fontSize: '0.78rem', color: '#64748b' }}>Awaiting CTO/CEO review.</span>}
-            {ts.state === 'CTO_APPROVED' && <span style={{ fontSize: '0.78rem', color: '#15803d', fontWeight: 600 }}>✓ Internally approved — client sign-off + PDF next.</span>}
+            {ts.state === 'CTO_APPROVED' && <button onClick={sendToClient} disabled={busy} style={primaryBtn(busy)}>Send to client for signature</button>}
+            {ts.state === 'SENT_TO_CLIENT' && <><span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 600 }}>Awaiting client signature{ts.sign_sent_to ? ` (${ts.sign_sent_to})` : ''}.</span><button onClick={sendToClient} disabled={busy} style={ghostBtn}>Resend link</button></>}
+            {ts.state === 'CLIENT_SIGNED' && <span style={{ fontSize: '0.78rem', color: '#15803d', fontWeight: 700 }}>✓ Signed by {ts.client_signer_name || ts.client_signed_by} — ready to invoice.</span>}
             {msg && <span style={{ fontSize: '0.78rem', color: msg.includes('failed') ? '#C0392B' : '#15803d' }}>{msg}</span>}
           </div>
         </>
