@@ -30,6 +30,12 @@ _Last updated: 2026-06-19. Ground truth is always `git log` + the code; this is 
 - Rule intact: an engineer not on a project **can't** submit (UI + server 403).
 - ⚠️ **GAP:** invoice close-out — signed timesheets never reach `INVOICED` / no `invoice_id`
   backlink → double-invoice risk. **Not built.**
+- **Client project-timesheet (new, DTLK-HR-TS-002)** — replaces the Emkan Excel. `/crm/timesheets`:
+  monthly grid (roles × days, In-house/Remote/Leave, weekends auto + editable holiday list),
+  **CEO/CTO review before client** with a **labeled "additional-billable"** section (travel/
+  client-requested — never disguised as attendance), client-logo upload on the client page, and a
+  **landscape PDF** matching the layout with the **corrected** legal footer. **Live (increments 1–3).**
+  *Remaining:* client sign-off (`CLIENT_SIGNED`) + invoice hand-off.
 
 ### Payroll (Zoho-like suite)
 - **Deductions & Bonuses** (`/hr/deductions`): per-employee, categories (loan/advance/fine/
