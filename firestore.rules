@@ -163,6 +163,22 @@ service cloud.firestore {
       allow delete: if isCeo() || isBusinessOrSales();
     }
 
+    // ── Client project timesheets (monthly grid; DTLK-HR-TS-002) ──
+    // Rows=roles, cols=days. Compiled by CRM/HR, reviewed by CTO/CEO (where labeled
+    // additional-billable items are added), then client-signed. CEO-only delete.
+    match /project_timesheets/{tsId} {
+      allow read:   if isCeo() || isBusinessOrSales() || isHR();
+      allow create: if isCeo() || isBusinessOrSales() || isHR();
+      allow update: if isCeo() || isBusinessOrSales() || isHR();
+      allow delete: if isCeo();
+    }
+
+    // ── CRM config (editable lists: public holidays, etc.) ──
+    match /crm_config/{docId} {
+      allow read:  if request.auth != null;
+      allow write: if isCeo() || isBusinessOrSales() || isHR();
+    }
+
     // ── CRM quotes (deal_quotes) — quote/discount approval ──
     // State machine: DRAFT → PENDING_FINANCE → PENDING_CEO → APPROVED (+ REJECTED).
     // Sales (business/sales) + CEO may CREATE a DRAFT and edit it WHILE DRAFT, and
@@ -427,6 +443,17 @@ service cloud.firestore {
     // through the sendHrEmail Cloud Function, never the client — direct
     // creates are blocked so the log can't be forged or amended.
     match /email_log/{logId} {
+      allow read: if isCeo() || isFinance() || isHR();
+      allow write: if false;
+    }
+
+    // ── Outbound Communications Standard log (DTLK-STD-COMMS-001) ──
+    // Append-only audit of every platform-sent message. Written ONLY by the
+    // comms gateway (lib/comms-gateway.js) via the Admin SDK, which bypasses
+    // these rules. No client may create, modify, or delete a row — so the
+    // "no send without an immutable log entry" guarantee holds at the boundary.
+    // Read for governance roles (CEO / Finance / HR-Compliance).
+    match /outbound_comms_log/{messageRef} {
       allow read: if isCeo() || isFinance() || isHR();
       allow write: if false;
     }

@@ -36,6 +36,16 @@ service firebase.storage {
         (request.auth != null && fileName.split('.')[0] == userData().employee_id);
     }
 
+    match /client-logos/{fileName} {
+      // Client logos shown on timesheets / invoices. Stored as "{clientId}.{ext}".
+      // Any signed-in user may view; CRM team (business/sales) + HR + CEO may upload.
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && (
+        isCeo() || isHr() ||
+        userData().role_id == "business" || userData().role_id == "sales"
+      );
+    }
+
     match /datalake-worm-hr/employee_documents/{fileName} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;

@@ -92,6 +92,7 @@ import CRMPipeline from './pages/crm/CRMPipeline'
 import CRMDashboard from './pages/crm/CRMDashboard'
 import CRMContacts from './pages/crm/CRMContacts'
 import CRMTasks from './pages/crm/CRMTasks'
+import CRMProjectTimesheets from './pages/crm/CRMProjectTimesheets'
 import CRMDealDetail from './pages/crm/CRMDealDetail'
 
 // Legal (external — token-gated public flow)
@@ -201,6 +202,7 @@ export default function App() {
           <Route path="pipeline" element={<CRMPipeline />} />
           <Route path="contacts" element={<CRMContacts />} />
           <Route path="tasks" element={<CRMTasks />} />
+          <Route path="timesheets" element={<CRMProjectTimesheets />} />
           <Route path="deals/:id" element={<CRMDealDetail />} />
           <Route path="*" element={<Navigate to="/crm/clients" replace />} />
         </Route>

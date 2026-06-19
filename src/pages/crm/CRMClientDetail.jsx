@@ -3,11 +3,12 @@ import { useParams, Link } from 'react-router-dom'
 import {
   doc, getDoc, collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, updateDoc,
 } from 'firebase/firestore'
-import { auth, db } from '../../lib/firebase'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { auth, db, storage } from '../../lib/firebase'
 import { matchesClient } from '../../lib/client-linkage'
 import {
   ArrowLeft, Mail, Phone, MapPin, FileText, Briefcase, DollarSign, Calendar,
-  MessageSquare, Plus, Loader, AlertCircle, Building2,
+  MessageSquare, Plus, Loader, AlertCircle, Building2, Upload,
 } from 'lucide-react'
 
 // Client detail — single source of truth = clients/{id}. Right panel shows
@@ -33,6 +34,28 @@ export default function CRMClientDetail() {
   const [noteBody, setNoteBody] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
   const [stageUpdating, setStageUpdating] = useState(false)
+  const [logoBusy, setLogoBusy] = useState(false)
+
+  const uploadLogo = async (file) => {
+    if (!file || !client) return
+    if (!file.type.startsWith('image/')) { alert('Please choose an image file (PNG/JPG/SVG).'); return }
+    if (file.size > 2 * 1024 * 1024) { alert('Logo must be under 2 MB.'); return }
+    setLogoBusy(true)
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+      const sref = storageRef(storage, `client-logos/${client.id}.${ext}`)
+      await uploadBytes(sref, file)
+      const url = await getDownloadURL(sref)
+      await updateDoc(doc(db, 'clients', client.id), {
+        logo_url: url, logo_updated_at: serverTimestamp(), logo_updated_by: auth.currentUser?.email || 'unknown',
+      })
+      setClient(c => ({ ...c, logo_url: url }))
+    } catch (err) {
+      alert('Logo upload failed: ' + err.message)
+    } finally {
+      setLogoBusy(false)
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -152,10 +175,17 @@ export default function CRMClientDetail() {
       <div style={{ background: 'var(--bg-surface, #fff)', border: '1px solid var(--border-primary, #E5E7EB)', borderRadius: 12, padding: 22, marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Building2 size={22} color="#022873" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {client.logo_url
+                ? <img src={client.logo_url} alt={client.client_name} style={{ height: 40, maxWidth: 130, objectFit: 'contain' }} />
+                : <Building2 size={22} color="#022873" />}
               <h1 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>{client.client_name}</h1>
               <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, background: sm.bg, color: sm.color }}>{sm.label}</span>
+              <label className="write-action" title="Used on timesheets & invoices" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border-primary, #E5E7EB)', background: 'var(--bg-surface, #fff)', fontSize: '0.74rem', fontWeight: 600, color: '#022873', cursor: logoBusy ? 'wait' : 'pointer' }}>
+                {logoBusy ? <Loader size={12} className="spin" /> : <Upload size={12} />}
+                {client.logo_url ? 'Change logo' : 'Upload logo'}
+                <input type="file" accept="image/*" hidden disabled={logoBusy} onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; uploadLogo(f) }} />
+              </label>
             </div>
             {client.client_name_ar && (
               <div dir="rtl" style={{ marginTop: 4, fontSize: '0.84rem', color: 'var(--text-secondary)' }}>{client.client_name_ar}</div>
