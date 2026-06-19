@@ -89,6 +89,7 @@ import CRMLayout from './layouts/CRMLayout'
 import CRMClients from './pages/crm/CRMClients'
 import CRMClientDetail from './pages/crm/CRMClientDetail'
 import CRMPipeline from './pages/crm/CRMPipeline'
+import CRMDashboard from './pages/crm/CRMDashboard'
 import CRMDealDetail from './pages/crm/CRMDealDetail'
 
 // Legal (external — token-gated public flow)
@@ -191,7 +192,8 @@ export default function App() {
 
         {/* CRM Portal (ceo + business + sales) */}
         <Route path="/crm" element={<CRMLayout />}>
-          <Route index element={<Navigate to="/crm/clients" replace />} />
+          <Route index element={<Navigate to="/crm/dashboard" replace />} />
+          <Route path="dashboard" element={<CRMDashboard />} />
           <Route path="clients" element={<CRMClients />} />
           <Route path="clients/:id" element={<CRMClientDetail />} />
           <Route path="pipeline" element={<CRMPipeline />} />

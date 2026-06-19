@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { auth } from '../lib/firebase'
-import { Briefcase, Building2, TrendingUp, ChevronLeft, ChevronRight, LogOut } from 'lucide-react'
+import { Briefcase, Building2, TrendingUp, ChevronLeft, ChevronRight, LogOut, LayoutDashboard } from 'lucide-react'
 import { signOut } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
@@ -12,6 +12,7 @@ import '../styles/ceo.css'
 // interaction notes.
 
 const navItems = [
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/crm/dashboard' },
   { icon: Building2,   label: 'Clients',  path: '/crm/clients' },
   { icon: TrendingUp,  label: 'Pipeline', path: '/crm/pipeline' },
 ]
