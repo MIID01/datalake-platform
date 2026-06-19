@@ -3756,41 +3756,41 @@ exports.listMyPayslips = onRequest(
 // Payroll deductions (one-off / installment) — HR/Finance/CEO manage.
 const { createDeductionHandler, listDeductionsHandler, cancelDeductionHandler } = require("./deductions");
 exports.createDeduction = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => createDeductionHandler(req, res, hireHelpers),
 );
 exports.listDeductions = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => listDeductionsHandler(req, res, hireHelpers),
 );
 exports.cancelDeduction = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => cancelDeductionHandler(req, res, hireHelpers),
 );
 
 // Verify / set an employee's SAR salary (HR/Finance/CEO) — clears the unverified
 // flag and lets Finance enter the SAR figure for a foreign-currency contract.
 exports.verifyEmployeeSalary = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => verifyEmployeeSalaryHandler(req, res, hireHelpers),
 );
 
 // Cancel a payroll run (CEO only) — voids it + reverses consumed deductions.
 exports.cancelPayrollRun = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => cancelPayrollRunHandler(req, res, hireHelpers),
 );
 
 // Save GOSI / payroll rate settings (Finance or CEO).
 exports.savePayrollSettings = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => savePayrollSettingsHandler(req, res, hireHelpers),
 );
 
 // Save operational settings (timesheet window, escalation SLA, payroll auto-run
 // day) — Finance or CEO. The crons/hot-paths read these via getOperationsSettings.
 exports.saveOperationsSettings = onRequest(
-  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
   async (req, res) => {
     if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
     try {
