@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { collection, onSnapshot, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
-import { auth, db } from '../../lib/firebase'
+import { auth, db, GENERATE_PDF_URL } from '../../lib/firebase'
 import { useAccessProfile } from '../../hooks/useAccessProfile'
-import { Calendar, Plus, Trash2, Save, Loader, AlertTriangle, Check, CalendarDays } from 'lucide-react'
+import { Calendar, Plus, Trash2, Save, Loader, Check, CalendarDays, FileDown } from 'lucide-react'
 
 // Client project timesheet — the in-platform replacement for the Emkan Excel grid
 // (DTLK-HR-TS-002). Rows = roles, cols = days. Canonical store: project_timesheets.
@@ -132,6 +132,20 @@ export default function CRMProjectTimesheets() {
   const submit = () => save({ state: 'SUBMITTED', submitted_by: me, submitted_at: serverTimestamp() })
   const approve = () => save({ state: 'CTO_APPROVED', cto_approved_by: me, cto_approved_at: serverTimestamp() })
 
+  const downloadPdf = async () => {
+    setBusy(true); setMsg('')
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const res = await fetch(GENERATE_PDF_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ template: 'project_timesheet', docId }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `Failed (${res.status})`) }
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a'); a.href = url; a.download = `timesheet-${docId}.pdf`; a.click(); URL.revokeObjectURL(url)
+    } catch (e) { setMsg('PDF failed: ' + e.message) } finally { setBusy(false) }
+  }
+
   const addHoliday = async (date) => {
     if (!date) return
     const next = [...new Set([...holidays, date])].sort()
@@ -253,6 +267,7 @@ export default function CRMProjectTimesheets() {
           {/* Actions */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
             {canEdit && <button onClick={() => save()} disabled={busy} style={ghostBtn}><Save size={14} /> Save</button>}
+            <button onClick={downloadPdf} disabled={busy} style={ghostBtn}><FileDown size={14} /> Download PDF</button>
             {ts.state === 'DRAFT' && canEdit && <button onClick={submit} disabled={busy} style={primaryBtn(busy)}>Submit for review</button>}
             {ts.state === 'SUBMITTED' && canReview && <button onClick={approve} disabled={busy} style={{ ...primaryBtn(busy), background: '#34BF3A' }}><Check size={14} /> Approve (CTO/CEO)</button>}
             {ts.state === 'SUBMITTED' && !canReview && <span style={{ fontSize: '0.78rem', color: '#64748b' }}>Awaiting CTO/CEO review.</span>}

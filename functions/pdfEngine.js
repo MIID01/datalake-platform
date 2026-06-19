@@ -76,6 +76,11 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       if (!["ceo", "business", "sales", "finance"].includes(profile.role_id)) {
         return res.status(403).json({ error: "Insufficient permissions" });
       }
+    } else if (template === "project_timesheet") {
+      // Client project timesheet — CRM team + HR + finance + CEO.
+      if (!["ceo", "business", "sales", "hr", "finance"].includes(profile.role_id)) {
+        return res.status(403).json({ error: "Insufficient permissions" });
+      }
     } else if (!isPrivilegedPdfRole) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
@@ -102,7 +107,8 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
 
     // Build the PDF
     const buffers = [];
-    const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
+    // The day-grid timesheet needs the wide axis → landscape; everything else portrait.
+    const doc = new PDFDocument({ margin: 50, size: 'A4', layout: template === "project_timesheet" ? 'landscape' : 'portrait', bufferPages: true });
     
     doc.on('data', buffers.push.bind(buffers));
     
@@ -392,6 +398,88 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
         "If this employee has not acknowledged the current version of all onboarding policies, the status above will not be GRANTED.",
         { align: 'justify' }
       );
+    } else if (template === "project_timesheet") {
+      const snap = await db.collection("project_timesheets").doc(docId).get();
+      if (!snap.exists) throw new Error("Project timesheet not found");
+      const t = snap.data();
+      const yY = t.year, mM = t.month;
+      const nDays = new Date(yY, mM, 0).getDate();
+      const holDoc = await db.collection("crm_config").doc("holidays").get();
+      const holidays = new Set(holDoc.exists ? (holDoc.data().dates || []) : []);
+      const p2 = (n) => String(n).padStart(2, "0");
+      const isBlocked = (d) => { const wd = new Date(yY, mM - 1, d).getDay(); return wd === 5 || wd === 6 || holidays.has(`${yY}-${p2(mM)}-${p2(d)}`); };
+      const COLORS = { INHOUSE: "#C6EFCE", REMOTE: "#FFCCCC", LEAVE: "#BDD7EE" };
+
+      // Client logo beside the Datalake letterhead — best-effort fetch (never blocks).
+      let client = null, clientLogo = null;
+      if (t.client_id) { try { const c = await db.collection("clients").doc(t.client_id).get(); if (c.exists) client = c.data(); } catch (e) { /* optional */ } }
+      if (client && client.logo_url) {
+        try { const r = await fetch(client.logo_url); if (r.ok) clientLogo = Buffer.from(await r.arrayBuffer()); } catch (e) { /* optional */ }
+      }
+      if (clientLogo) { try { doc.image(clientLogo, 215, 50, { fit: [110, 46] }); } catch (e) { /* bad image */ } }
+
+      doc.fillColor(primaryColor).fontSize(16).text(`Timesheet — ${t.project_name || ""}`, 50, doc.y, { align: "center", width: doc.page.width - 100 });
+      doc.fontSize(10).fillColor("#555").text(`${t.period_label || ""}   ·   PO: ${t.po_number || "—"}   ·   ${t.client_name || ""}`, 50, doc.y, { align: "center", width: doc.page.width - 100 });
+      doc.moveDown(0.5);
+
+      // Legend
+      const legend = [["Remote", COLORS.REMOTE], ["In house", COLORS.INHOUSE], ["Leave", COLORS.LEAVE], ["Weekend/Holiday", "#D9D9D9"]];
+      let lx = 50; const ly = doc.y;
+      legend.forEach(([lab, col]) => { doc.rect(lx, ly, 9, 9).fill(col); doc.fillColor("black").fontSize(8).text(lab, lx + 12, ly, { lineBreak: false }); lx += 12 + doc.widthOfString(lab) + 18; });
+      doc.moveDown(1.2);
+
+      // Grid
+      const gx = 50, gy = doc.y;
+      const usable = doc.page.width - 100;
+      const roleW = 130, totalW = 46;
+      const dayW = (usable - roleW - totalW) / nDays;
+      const rowH = 16;
+      doc.rect(gx, gy, roleW, rowH).fill(primaryColor);
+      doc.fillColor("#fff").fontSize(8).text(t.period_label || "", gx + 4, gy + 4, { width: roleW - 6, lineBreak: false });
+      for (let d = 1; d <= nDays; d++) {
+        const cx = gx + roleW + (d - 1) * dayW;
+        doc.rect(cx, gy, dayW, rowH).fillAndStroke(isBlocked(d) ? "#5b6b8c" : primaryColor, primaryColor);
+        doc.fillColor("#fff").fontSize(6).text(String(d), cx, gy + 5, { width: dayW, align: "center", lineBreak: false });
+      }
+      const tot0x = gx + roleW + nDays * dayW;
+      doc.rect(tot0x, gy, totalW, rowH).fill(primaryColor);
+      doc.fillColor("#fff").fontSize(7).text("Total", tot0x, gy + 5, { width: totalW, align: "center", lineBreak: false });
+
+      let ry = gy + rowH;
+      (t.rows || []).forEach((row) => {
+        doc.rect(gx, ry, roleW, rowH).stroke("#cccccc");
+        doc.fillColor("black").fontSize(7).text(row.role || "", gx + 3, ry + 4, { width: roleW - 5, lineBreak: false });
+        let worked = 0;
+        for (let d = 1; d <= nDays; d++) {
+          const cx = gx + roleW + (d - 1) * dayW;
+          const v = row.days ? row.days[d] : null;
+          const blk = isBlocked(d);
+          doc.rect(cx, ry, dayW, rowH).fillAndStroke(blk ? "#D9D9D9" : (v ? COLORS[v] : "#ffffff"), "#cccccc");
+          if (!blk && (v === "INHOUSE" || v === "REMOTE")) worked++;
+        }
+        doc.rect(tot0x, ry, totalW, rowH).stroke("#cccccc");
+        doc.fillColor("black").fontSize(8).text(worked.toFixed(2), tot0x, ry + 4, { width: totalW, align: "center", lineBreak: false });
+        ry += rowH;
+      });
+      doc.y = ry + 12;
+
+      if ((t.additional_billable || []).length) {
+        doc.fontSize(10).fillColor(primaryColor).text("Additional billable items (client-requested):", 50, doc.y);
+        doc.fontSize(9).fillColor("black");
+        t.additional_billable.forEach((e) => doc.text(`   • [${String(e.category || "").replace(/_/g, " ")}] ${e.description || ""} — ${e.qty || 0} ${e.unit || ""}`, { width: usable }));
+        doc.moveDown(0.5);
+      }
+
+      // Dual sign-off
+      const sy = doc.y + 16;
+      doc.fontSize(9).fillColor("black").text(COMPANY.legal_name_en, 60, sy, { width: 220 });
+      doc.text("Approved by", 60, sy + 14, { width: 220 });
+      doc.fontSize(10).text(t.cto_approved_by || "—", 60, sy + 30, { width: 220 });
+      const rx = doc.page.width - 280;
+      doc.fontSize(9).text(t.client_name || "Client", rx, sy, { width: 220 });
+      doc.text("Approved by", rx, sy + 14, { width: 220 });
+      doc.fontSize(10).text((client && (client.contact_person || client.client_approver)) || "—", rx, sy + 30, { width: 220 });
+
     } else {
       throw new Error(`Unknown template: ${template}`);
     }
