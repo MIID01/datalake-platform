@@ -43,7 +43,7 @@ async function getZohoAccessToken(config) {
     client_secret: config.client_secret,
     grant_type: "refresh_token",
   });
-  const res = await fetch("https://accounts.zoho.com/oauth/v2/token", {
+  const res = await fetch("https://accounts.zoho.sa/oauth/v2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),
@@ -255,7 +255,7 @@ async function syncToZohoBooksHandler(event) {
     };
 
     const createRes = await fetch(
-      `https://www.zohoapis.com/books/v3/invoices?organization_id=${zohoConfig.organization_id}`,
+      `https://www.zohoapis.sa/books/v3/invoices?organization_id=${zohoConfig.organization_id}`,
       {
         method: "POST",
         headers: {
@@ -294,14 +294,14 @@ async function syncToZohoBooksHandler(event) {
 
 async function findOrCreateZohoCustomer(accessToken, orgId, invoice) {
   const searchRes = await fetch(
-    `https://www.zohoapis.com/books/v3/contacts?organization_id=${orgId}&contact_name=${encodeURIComponent(invoice.client_name)}`,
+    `https://www.zohoapis.sa/books/v3/contacts?organization_id=${orgId}&contact_name=${encodeURIComponent(invoice.client_name)}`,
     { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } }
   );
   const searchData = await searchRes.json();
   if (searchData.contacts?.length > 0) return searchData.contacts[0].contact_id;
 
   const createRes = await fetch(
-    `https://www.zohoapis.com/books/v3/contacts?organization_id=${orgId}`,
+    `https://www.zohoapis.sa/books/v3/contacts?organization_id=${orgId}`,
     {
       method: "POST",
       headers: { Authorization: `Zoho-oauthtoken ${accessToken}`, "Content-Type": "application/json" },

@@ -446,7 +446,9 @@ async function dispatchContractHandler(event) {
 // ═══════════════════════════════════════════════════════════════════
 async function recordSignatureHandler(req, res, { ALLOWED_ORIGINS }) {
   const origin = req.headers.origin || "";
-  res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(origin) ? origin : "*");
+  // No wildcard fallback — only echo a known origin (the accept page is served
+  // from our own hosting, which is in ALLOWED_ORIGINS).
+  res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(origin) ? origin : "");
   res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).send("");
