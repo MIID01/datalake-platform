@@ -73,6 +73,7 @@ export default function Timesheets() {
   const [periodStart, setPeriodStart] = useState(new Date(2026, 4, 1))   // May 1, 2026
   const [periodEnd, setPeriodEnd] = useState(new Date(2026, 4, 31))      // May 31, 2026
   const [dayHours, setDayHours] = useState({})
+  const [dayLoc, setDayLoc] = useState({}) // dateKey -> 'remote' (absent = in_house default)
   const [notes, setNotes] = useState('')
   const [myTimesheets, setMyTimesheets] = useState([])
   const [submitLoading, setSubmitLoading] = useState(false)
@@ -124,7 +125,7 @@ export default function Timesheets() {
             calendarDays.map(d => [
               String(d.date),
               {
-                type: d.isWeekend ? 'weekend' : d.isHoliday ? 'holiday' : (dayHours[d.dateKey] ? 'in_house' : 'none'),
+                type: d.isWeekend ? 'weekend' : d.isHoliday ? 'holiday' : (dayHours[d.dateKey] ? (dayLoc[d.dateKey] === 'remote' ? 'remote' : 'in_house') : 'none'),
                 hours: parseFloat(dayHours[d.dateKey]) || 0
               }
             ])
@@ -226,7 +227,16 @@ export default function Timesheets() {
     setDayHours(filled)
   }
 
-  const clearAll = () => setDayHours({})
+  const clearAll = () => { setDayHours({}); setDayLoc({}) }
+
+  // Work location for billing (In-house vs Remote). Default = in-house; engineers
+  // flip days that were remote. Leave is derived separately from leave_requests.
+  const setAllLoc = (loc) => {
+    const m = {}
+    if (loc === 'remote') calendarDays.forEach(d => { if (!d.isNonWorking) m[d.dateKey] = 'remote' })
+    setDayLoc(m)
+  }
+  const toggleLoc = (dateKey) => setDayLoc(prev => ({ ...prev, [dateKey]: prev[dateKey] === 'remote' ? 'in_house' : 'remote' }))
 
   // Period navigation (month-by-month)
   const shiftPeriod = (direction) => {
@@ -437,6 +447,8 @@ export default function Timesheets() {
                   <h4 style={{ fontSize: '0.9rem', fontWeight: 600 }}>Daily Hours</h4>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <button className="btn btn-ghost btn-sm" onClick={fillAllWorkingDays}>Fill 8h All</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setAllLoc('in_house')} title="Mark every day In-house">All In-house</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setAllLoc('remote')} title="Mark every worked day Remote">All Remote</button>
                     <button className="btn btn-ghost btn-sm" onClick={clearAll} style={{ color: 'var(--red)' }}>Clear</button>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: totalEnteredHours >= expectedHours ? 'var(--green)' : 'var(--amber)', fontWeight: 700, marginLeft: 8 }}>
                       Total: {totalEnteredHours}h / {expectedHours}h
@@ -572,6 +584,22 @@ export default function Timesheets() {
                             onFocus={e => { e.target.style.borderColor = 'var(--steel-blue, var(--sky-blue))' }}
                             onBlur={e => { e.target.style.borderColor = 'var(--border-primary)' }}
                           />
+                        )}
+                        {/* Location toggle — only on worked days */}
+                        {!d.isNonWorking && hasEntry && (
+                          <button
+                            type="button"
+                            onClick={() => toggleLoc(d.dateKey)}
+                            title="Click to switch In-house / Remote"
+                            style={{
+                              marginTop: 2, fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
+                              border: 'none', borderRadius: 4, padding: '2px 5px', cursor: 'pointer',
+                              background: dayLoc[d.dateKey] === 'remote' ? '#FFE0E0' : '#DCF5DE',
+                              color: dayLoc[d.dateKey] === 'remote' ? '#b91c1c' : '#15803d',
+                            }}
+                          >
+                            {dayLoc[d.dateKey] === 'remote' ? 'Remote' : 'In-house'}
+                          </button>
                         )}
                       </div>
                     )
