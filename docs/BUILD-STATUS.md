@@ -34,8 +34,10 @@ _Last updated: 2026-06-19. Ground truth is always `git log` + the code; this is 
   monthly grid (roles × days, In-house/Remote/Leave, weekends auto + editable holiday list),
   **CEO/CTO review before client** with a **labeled "additional-billable"** section (travel/
   client-requested — never disguised as attendance), client-logo upload on the client page, and a
-  **landscape PDF** matching the layout with the **corrected** legal footer. **Live (increments 1–3).**
-  *Remaining:* client sign-off (`CLIENT_SIGNED`) + invoice hand-off.
+  **landscape PDF** matching the layout with the **corrected** legal footer. **Client sign-off live both
+  ways** — emailed secure token link (`/sign-timesheet/:id`) **and** client portal (`/client/timesheets`),
+  typed-name+affirmation e-signature → immutable evidence → `CLIENT_SIGNED`. **All increments live.**
+  *Remaining:* generate the invoice from a `CLIENT_SIGNED` timesheet (ties into the invoice close-out gap).
 
 ### Payroll (Zoho-like suite)
 - **Deductions & Bonuses** (`/hr/deductions`): per-employee, categories (loan/advance/fine/
