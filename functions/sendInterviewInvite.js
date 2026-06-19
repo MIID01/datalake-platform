@@ -14,7 +14,7 @@
 
 const admin = require("firebase-admin");
 const { getGmailClient } = require("./lib/gmail");
-const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
+const { COMPANY, LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 const { writeBigQueryAudit } = require("./prepareInterviewCV");
 const { isGraphConfigured, createTeamsCalendarEvent } = require("./lib/msgraph");
 
@@ -59,22 +59,21 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
     if (!projectDoc.exists) return res.status(404).json({ error: "Project not found" });
     const project = projectDoc.data();
     const clientEmail = project.client_approver_email || null;
-    const clientName = project.client_approver_name || project.client_name || "Client";
 
     // ── 4. Recipients: candidate + client approver + CC ──
     const ccRaw = Array.isArray(cc) ? cc : String(cc || "").split(/[,;]/);
     const ccList = [...new Set(ccRaw.map((e) => String(e).trim()).filter(isEmail))];
     const toList = [...new Set([candidate.email, clientEmail].filter(Boolean))];
 
-    const locStr = location || (mode === "online" ? "Online — meeting link to follow" : "Datalake Saudi Arabia LLC, Riyadh");
-    const summary = `Interview: ${candidate.full_name} — ${project.project_name || project.client_name || ""}`.trim();
+    const locStr = location || (mode === "online" ? "Online — meeting link to follow" : `${COMPANY.legal_name_en}, Riyadh`);
+    const summary = `Interview Invitation — ${COMPANY.legal_name_en}`;
 
     // ── 5. Create the meeting + send the invite ──
     // Full-Outlook path: when M365/Graph is configured, create the event on the
     // organizer's mailbox — Outlook auto-sends the invite to attendees and Teams
     // mints the join link. Otherwise fall back to the Google .ics path so the
     // feature still works before M365 is wired up.
-    const bodyText = buildInviteBody({ candidate, project, start, durMin, locStr, clientName, notes });
+    const bodyText = buildInviteBody({ start, durMin, locStr, notes, isTeams: isGraphConfigured() });
     let meetingProvider, joinUrl = null, graphEventId = null, gmailMessageId = null;
 
     if (isGraphConfigured()) {
@@ -85,7 +84,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
         organizer: process.env.MS_INTERVIEW_ORGANIZER,
         subject: summary,
         bodyHtml: bodyText.replace(/\n/g, "<br>"),
-        startLocal, endLocal, timeZone: "Arabia Standard Time",
+        startLocal, endLocal, timeZone: "Asia/Riyadh",
         location: locStr,
         attendees: [
           ...toList.map((e) => ({ email: e, optional: false })),
@@ -242,25 +241,30 @@ function buildIcs({ uid, start, end, summary, description, location, organizerNa
   return lines.join("\r\n");
 }
 
-function buildInviteBody({ candidate, project, start, durMin, locStr, clientName, notes }) {
+function buildInviteBody({ start, durMin, locStr, notes, isTeams }) {
   // Human-readable Riyadh local time for the body.
   const when = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Riyadh", weekday: "long", day: "numeric", month: "long", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: true,
   }).format(start);
 
+  // Teams path: the meeting itself carries the join link, so don't claim an
+  // attachment. .ics path: a calendar file is attached.
+  const confirmLine = isTeams
+    ? "Please accept this invitation to confirm your attendance. The meeting join details are included above."
+    : "A calendar invitation is attached — please Accept to confirm your attendance.";
+
   return [
-    `Dear ${candidate.full_name} and ${clientName},`,
+    "Hello,",
     "",
-    `This is to confirm an interview for the ${project.project_name || project.client_name || "engagement"}.`,
+    `You are invited to an interview with ${COMPANY.legal_name_en}.`,
     "",
-    `Candidate: ${candidate.full_name}${candidate.role_interest ? " — " + candidate.role_interest : ""}`,
     `Date & time: ${when} (Riyadh time)`,
     `Duration: ${durMin} minutes`,
     `Location: ${locStr}`,
     notes ? `\nNotes: ${notes}` : "",
     "",
-    "A calendar invitation is attached — please Accept to confirm.",
+    confirmLine,
     "",
     "Best regards,",
     "Datalake HR Team",
