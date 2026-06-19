@@ -466,7 +466,7 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       if ((t.additional_billable || []).length) {
         doc.fontSize(10).fillColor(primaryColor).text("Additional billable items (client-requested):", 50, doc.y);
         doc.fontSize(9).fillColor("black");
-        t.additional_billable.forEach((e) => doc.text(`   • [${String(e.category || "").replace(/_/g, " ")}] ${e.description || ""} — ${e.qty || 0} ${e.unit || ""}`, { width: usable }));
+        t.additional_billable.forEach((e) => doc.text(`   • ${e.position ? e.position + " — " : ""}[${String(e.category || "").replace(/_/g, " ")}] ${e.description || ""} — ${e.qty || 0} ${e.unit || ""}`, { width: usable }));
         doc.moveDown(0.5);
       }
 

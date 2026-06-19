@@ -161,6 +161,8 @@ export const SEND_TIMESHEET_TO_CLIENT_URL =
   "https://sendtimesheettoclient-ifzodp5svq-wx.a.run.app";
 export const SIGN_PROJECT_TIMESHEET_URL =
   "https://signprojecttimesheet-ifzodp5svq-wx.a.run.app";
+export const ASSEMBLE_PROJECT_TIMESHEET_URL =
+  "https://assembleprojecttimesheet-ifzodp5svq-wx.a.run.app";
 export const DOWNLOAD_CANDIDATE_CV_URL =
   "https://downloadcandidatecv-ifzodp5svq-wx.a.run.app";
 export const UPDATE_CANDIDATE_STAGE_URL =

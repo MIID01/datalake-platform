@@ -5,7 +5,7 @@ import { signIn, signOut, onAuthChange } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
 
-import { Users, Briefcase, MinusCircle } from 'lucide-react'
+import { Users, Briefcase, MinusCircle, Calendar } from 'lucide-react'
 
 const navItems = [
   { icon: Users, label: 'Talent Pool', path: '/hr', end: true },
@@ -17,6 +17,7 @@ const navItems = [
   { icon: ClipboardCheck, label: 'Interview Scoring', path: '/hr/scoring' },
   { icon: FileText, label: 'Interview CV Prep', path: '/hr/interview-cv' },
   { icon: MinusCircle, label: 'Deductions & Bonuses', path: '/hr/deductions' },
+  { icon: Calendar, label: 'Project Timesheets', path: '/hr/timesheets' },
   { icon: Briefcase, label: 'Job Listings', path: '/hr/jobs' },
 ]
 

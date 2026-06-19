@@ -425,7 +425,7 @@ async function buildDatalakePortfolioDocx(data) {
     new Paragraph({
       children: [
         new TextRun({
-          text: `Prepared by Datalake Information Technology  ·  ${new Date().toISOString().split("T")[0]}  ·  DTLK-FORM-HR-CV-002-v2`,
+          text: `Prepared by Datalake Saudi Arabia LLC  ·  ${new Date().toISOString().split("T")[0]}  ·  DTLK-FORM-HR-CV-002-v2`,
           font: "Calibri", size: 14, color: BRAND.medGray,
         }),
       ],

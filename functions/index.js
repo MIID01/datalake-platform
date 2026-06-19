@@ -3213,10 +3213,14 @@ exports.sendInterviewInvite = onRequest(
 );
 
 // Project-timesheet client sign-off — portal (authed) + emailed token link (public).
-const { sendTimesheetToClientHandler, signProjectTimesheetHandler } = require("./projectTimesheetSign");
+const { sendTimesheetToClientHandler, signProjectTimesheetHandler, assembleProjectTimesheetHandler } = require("./projectTimesheetSign");
 exports.sendTimesheetToClient = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => sendTimesheetToClientHandler(req, res, { verifyAuth, getUserAccessProfile })
+);
+exports.assembleProjectTimesheet = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => assembleProjectTimesheetHandler(req, res, { verifyAuth, getUserAccessProfile })
 );
 exports.signProjectTimesheet = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS, invoker: "public" },

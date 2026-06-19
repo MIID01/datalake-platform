@@ -33,7 +33,8 @@ loadEnv();
 const TEST_RECIPIENT = "m.alqumri@datalake.sa";
 
 const { isGraphConfigured, createTeamsCalendarEvent } = require("../lib/msgraph");
-const { COMPANY, LEGAL_EMAIL_FOOTER } = require("../lib/company-legal");
+const { COMPANY, STANDARD_EMAIL_FOOTER } = require("../lib/company-legal");
+const { renderBrandedEmail } = require("../lib/email-template");
 
 function localStr(d) {
   const p = (n) => String(n).padStart(2, "0");
@@ -64,23 +65,22 @@ function localStr(d) {
     timeZone: "Asia/Riyadh", weekday: "long", day: "numeric", month: "long", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: true,
   }).format(start);
-  const bodyHtml = [
+  const bodyText = [
     "Hello,",
     "",
     `You are invited to an interview with ${COMPANY.legal_name_en}.`,
     "",
-    `Date &amp; time: ${when} (Riyadh time)`,
+    `Date & time: ${when} (Riyadh time)`,
     "Duration: 30 minutes",
     "Location: Microsoft Teams",
     "",
     "Please accept this invitation to confirm your attendance. The meeting join details are included above.",
     "",
     "Best regards,",
-    "Datalake HR Team",
-    "hr@datalake.sa",
-    "",
-    LEGAL_EMAIL_FOOTER,
-  ].join("<br>");
+    "Datalake HR",
+  ].join("\n");
+  const footerText = STANDARD_EMAIL_FOOTER({ messageRef: "DLK-INV-TEST-preview", teamLabel: "HR" });
+  const bodyHtml = renderBrandedEmail({ heading: "Interview Invitation", bodyText, footerText });
 
   try {
     const result = await createTeamsCalendarEvent({

@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test:emulator": "firebase emulators:exec --only firestore --project datalake-production-sa \"node test/quote-flow.test.cjs\""
+    "test:emulator": "firebase emulators:exec --only firestore --project datalake-production-sa \"node test/quote-flow.test.cjs\"",
+    "check:comms": "node scripts/check-comms-standard.js"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +30,7 @@
     "form-data": "^4.0.5",
     "google-auth-library": "^9.15.1",
     "googleapis": "^144.0.0",
+    "mupdf": "^1.27.0",
     "node-fetch": "^2.7.0",
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.18.0",

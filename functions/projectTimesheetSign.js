@@ -19,6 +19,80 @@ const { COMPANY } = require("./lib/company-legal");
 const db = admin.firestore();
 const APP_URL = "https://datalake-production-sa.web.app";
 const SIGNABLE = ["CTO_APPROVED", "SENT_TO_CLIENT"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+// ── Auto-assemble the monthly client timesheet from the canonical `timesheets`
+// (engineers' own submissions). Rows are keyed by POSITION (role_on_project) — the
+// client never sees employee names. Cells come from each engineer's days[d].type
+// (in_house→INHOUSE, remote→REMOTE, leave_*→LEAVE). No manual entry. ──
+async function assembleProjectTimesheetHandler(req, res, { verifyAuth, getUserAccessProfile }) {
+  cors(res);
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  try {
+    const decoded = await verifyAuth(req);
+    const profile = await getUserAccessProfile(decoded.uid);
+    if (!["ceo", "hr", "business", "sales"].includes(profile.role_id)) return res.status(403).json({ error: "Forbidden" });
+
+    const project_id = req.body?.project_id;
+    const year = Number(req.body?.year), month = Number(req.body?.month);
+    if (!project_id || !year || !month) return res.status(400).json({ error: "project_id, year, month required" });
+
+    const projSnap = await db.collection("projects").doc(project_id).get();
+    if (!projSnap.exists) return res.status(404).json({ error: "Project not found" });
+    const p = projSnap.data();
+
+    // engineer → position map (canonical source of role labels)
+    const asn = await db.collection("engineer_project_assignments").where("project_id", "==", project_id).get();
+    const roleByEmail = {}, roleById = {};
+    asn.forEach((d) => { const a = d.data(); const role = a.role_on_project || a.role || ""; if (a.engineer_email) roleByEmail[String(a.engineer_email).toLowerCase()] = role; if (a.engineer_id) roleById[a.engineer_id] = role; });
+
+    // approved engineer timesheets for this project + period
+    const tsSnap = await db.collection("timesheets").where("project_id", "==", project_id).get();
+    const rows = [];
+    tsSnap.forEach((d) => {
+      const t = d.data();
+      if (Number(t.period_month) !== month || Number(t.period_year) !== year) return;
+      if (!["CTO_APPROVED", "CLIENT_SIGNED"].includes(t.state)) return;
+      const role = roleByEmail[String(t.engineer_email || "").toLowerCase()] || roleById[t.engineer_id] || t.role_on_project || "Role";
+      const days = {};
+      Object.entries(t.days || {}).forEach(([dk, e]) => {
+        const ty = (e && e.type) || "";
+        if (ty === "in_house") days[dk] = "INHOUSE";
+        else if (ty === "remote") days[dk] = "REMOTE";
+        else if (ty.startsWith("leave")) days[dk] = "LEAVE";
+      });
+      // position-only on the client output; engineer_* kept for internal traceability
+      rows.push({ role, engineer_id: t.engineer_id || "", engineer_name: t.engineer_name || "", days, source_timesheet_id: d.id });
+    });
+    rows.sort((a, b) => String(a.role).localeCompare(String(b.role)));
+
+    const p2 = (n) => String(n).padStart(2, "0");
+    const docId = `${project_id}_${year}-${p2(month)}`;
+    const ref = db.collection("project_timesheets").doc(docId);
+    const ex = await ref.get();
+    const existing = ex.exists ? ex.data() : {};
+    if (["CLIENT_SIGNED", "INVOICED"].includes(existing.state)) return res.status(400).json({ error: `Already ${existing.state} — cannot re-assemble.` });
+
+    await ref.set({
+      project_id, client_id: p.client_id || p.clientId || "",
+      project_name: p.project_name || "", client_name: p.client_name || "", po_number: p.po_number || "",
+      year, month, period_label: `${MONTHS[month - 1]} ${year}`,
+      rows,
+      additional_billable: existing.additional_billable || [],
+      state: existing.state && existing.state !== "DRAFT" ? existing.state : "DRAFT",
+      assembled_at: admin.firestore.FieldValue.serverTimestamp(), assembled_by: profile.email,
+      created_by: existing.created_by || profile.email,
+      created_at: existing.created_at || admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return res.json({ ok: true, rows: rows.length, period_label: `${MONTHS[month - 1]} ${year}` });
+  } catch (e) {
+    console.error("assembleProjectTimesheet:", e);
+    return res.status(500).json({ error: e.message });
+  }
+}
 
 function summaryOf(t) {
   const rows = (t.rows || []).map((r) => ({
@@ -165,4 +239,4 @@ async function signProjectTimesheetHandler(req, res, { verifyAuth, getUserAccess
   }
 }
 
-module.exports = { sendTimesheetToClientHandler, signProjectTimesheetHandler };
+module.exports = { sendTimesheetToClientHandler, signProjectTimesheetHandler, assembleProjectTimesheetHandler };
