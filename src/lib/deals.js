@@ -15,6 +15,10 @@ export const DEAL_STAGES = [
 ]
 export const STAGE_IDS = DEAL_STAGES.map(s => s.id)
 export const OPEN_STAGE_IDS = ['NEW', 'CONTACTED', 'PROPOSAL'] // movable; WON/LOST are terminal
+// Weighted-pipeline probabilities per stage (single source for forecasting).
+// CEO-tunable later via CRM settings; conservative defaults for now.
+export const STAGE_PROBABILITY = { NEW: 0.1, CONTACTED: 0.3, PROPOSAL: 0.6, WON: 1, LOST: 0 }
+export const dealWeightedValue = (d) => Number(d?.value_sar || 0) * (STAGE_PROBABILITY[d?.stage] ?? 0)
 export const DEAL_SOURCES = ['MANUAL', 'CSV_IMPORT', 'WEB_FORM', 'REFERRAL']
 export const LAWFUL_BASES = ['legitimate_interest', 'consent']
 export const ACTIVITY_TYPES = ['NOTE', 'CALL', 'MEETING', 'EMAIL', 'TASK']

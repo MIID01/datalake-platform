@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { doc, onSnapshot, collection, query, orderBy, where, addDoc, serverTimestamp, updateDoc, getDocs } from 'firebase/firestore'
-import { auth, db, SEND_DEAL_EMAIL_URL } from '../../lib/firebase'
+import { auth, db, SEND_DEAL_EMAIL_URL, GENERATE_PDF_URL } from '../../lib/firebase'
 import { DEAL_STAGES, stageMeta, fmtSar, ACTIVITY_TYPES, computeQuoteTotals, quoteStateMeta, canDeleteDeals } from '../../lib/deals'
 import { setDealsArchived } from '../../lib/crm-actions'
 import { useAccessProfile } from '../../hooks/useAccessProfile'
@@ -148,6 +148,22 @@ export default function CRMDealDetail() {
         setQMsg('Draft quote created.')
       }
     } catch (e) { setQMsg('Save failed: ' + e.message) } finally { setQBusy(false) }
+  }
+
+  const downloadQuotePdf = async (quoteId) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(GENERATE_PDF_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify({ template: 'quote', docId: quoteId }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `Failed (${res.status})`) }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `quote-${quoteId}.pdf`; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) { window.alert(e.message) }
   }
 
   const submitForFinance = async (quoteId) => {
@@ -330,7 +346,12 @@ export default function CRMDealDetail() {
                 {q.finance_reviewed_by ? ` · finance: ${q.finance_reviewed_by}` : ''}{q.ceo_approved_by ? ` · CEO: ${q.ceo_approved_by}` : ''}
                 {q.status === 'REJECTED' && (q.ceo_notes || q.finance_notes) ? ` · reason: ${q.ceo_notes || q.finance_notes}` : ''}
               </div>
-              <div style={{ marginTop: 6 }}><SignedBadgeList parentCollection="deal_quotes" parentId={q.id} compact /></div>
+              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <SignedBadgeList parentCollection="deal_quotes" parentId={q.id} compact />
+                <button onClick={() => downloadQuotePdf(q.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'transparent', color: '#022873', border: '1px solid #022873', borderRadius: 6, padding: '4px 10px', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <FileText size={11} /> PDF
+                </button>
+              </div>
             </div>
           )
         })}

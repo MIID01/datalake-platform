@@ -71,6 +71,11 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
           return res.status(403).json({ error: "Forbidden — payslip belongs to a different employee" });
         }
       }
+    } else if (template === "quote") {
+      // CRM quote PDF — CRM team (business/sales) + finance + CEO.
+      if (!["ceo", "business", "sales", "finance"].includes(profile.role_id)) {
+        return res.status(403).json({ error: "Insufficient permissions" });
+      }
     } else if (!isPrivilegedPdfRole) {
       return res.status(403).json({ error: "Insufficient permissions" });
     }
@@ -234,6 +239,33 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
          .text(`Employee ID: ${data.employee_id || 'N/A'}`)
          .text(`Period: ${data.period || 'N/A'}`)
          .text(`Total Hours: ${data.total_hours || 0}`);
+
+    } else if (template === "quote") {
+      const docSnap = await db.collection("deal_quotes").doc(docId).get();
+      if (!docSnap.exists) throw new Error("Quote not found");
+      const q = docSnap.data();
+      const money = (n) => 'SAR ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      doc.fontSize(16).fillColor(primaryColor).text("QUOTATION", { align: 'center' });
+      doc.fontSize(9).fillColor('#555').text(`Status: ${q.status || 'DRAFT'}`, { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(11).fillColor('black')
+        .text(`Quote:  ${q.title || docId}`)
+        .text(`Client: ${q.client_name || '—'}`)
+        .text(`Deal:   ${q.deal_title || '—'}`);
+      doc.moveDown(0.6);
+      doc.fontSize(11).fillColor(primaryColor).text("Line items");
+      doc.fillColor('black').fontSize(10);
+      (q.line_items || []).forEach(li => {
+        const qty = Number(li.qty || 0), unit = Number(li.unit_price_sar || 0);
+        const lt = li.line_total_sar != null ? li.line_total_sar : qty * unit;
+        doc.text(`  ${li.description || '—'}    ${qty} × ${money(unit)}  =  ${money(lt)}`);
+      });
+      doc.moveDown(0.5);
+      doc.fontSize(11).fillColor('black')
+        .text(`Subtotal:  ${money(q.subtotal_sar)}`)
+        .text(`Discount (${Number(q.discount_pct || 0)}%):  -${money(q.discount_sar)}`);
+      doc.moveDown(0.2).fontSize(13).fillColor(primaryColor).text(`Total:  ${money(q.total_sar)}`);
+      if (q.approved_at) doc.moveDown(0.5).fontSize(9).fillColor('#555').text(`Approved by ${q.ceo_approved_by || '—'}`);
 
     } else if (template === "monthly_report") {
       const docSnap = await db.collection("monthly_reports").doc(docId).get();

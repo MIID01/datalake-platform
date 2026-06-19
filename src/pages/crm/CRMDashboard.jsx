@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
-import { DEAL_STAGES, STAGE_IDS, OPEN_STAGE_IDS, stageMeta, fmtSar } from '../../lib/deals'
-import { TrendingUp, Trophy, Percent, Layers, DollarSign, Clock, AlertTriangle, Loader } from 'lucide-react'
+import { DEAL_STAGES, STAGE_IDS, OPEN_STAGE_IDS, STAGE_PROBABILITY, dealWeightedValue, stageMeta, fmtSar } from '../../lib/deals'
+import { TrendingUp, Trophy, Percent, Layers, DollarSign, Clock, AlertTriangle, Loader, Target } from 'lucide-react'
 
 // CRM Phase-2 analytics. Pure reads off the canonical `deals` collection — no new
 // data model, no drift. Pipeline value by stage, win/loss, conversion, owners, aging.
@@ -37,6 +37,8 @@ export default function CRMDashboard() {
     const closed = wonCount + lostCount
     const winRate = closed ? Math.round((wonCount / closed) * 100) : 0
     const avgOpen = openCount ? openValue / openCount : 0
+    // Weighted forecast: each open deal × its stage probability (lib/deals).
+    const forecast = live.filter(d => OPEN_STAGE_IDS.includes(d.stage)).reduce((s, d) => s + dealWeightedValue(d), 0)
 
     // Deals by owner
     const owners = {}
@@ -62,7 +64,7 @@ export default function CRMDashboard() {
       .slice(0, 12)
 
     const maxStageVal = Math.max(1, ...STAGE_IDS.map(id => byStage[id].value))
-    return { live, byStage, openValue, openCount, wonValue, wonCount, lostCount, winRate, avgOpen, ownerRows, aging, maxStageVal }
+    return { live, byStage, openValue, openCount, wonValue, wonCount, lostCount, winRate, avgOpen, forecast, ownerRows, aging, maxStageVal }
   }, [deals])
 
   if (loading) return (
@@ -92,6 +94,7 @@ export default function CRMDashboard() {
             <Stat Icon={Trophy} color="#34BF3A" label="Won value" value={fmtSar(m.wonValue)} sub={`${m.wonCount} won`} />
             <Stat Icon={Percent} color="#F39C12" label="Win rate" value={`${m.winRate}%`} sub={`${m.wonCount}W / ${m.lostCount}L closed`} />
             <Stat Icon={Layers} color={NAVY} label="Avg open deal" value={fmtSar(m.avgOpen)} sub="value per open deal" />
+            <Stat Icon={Target} color="#7C3AED" label="Weighted forecast" value={fmtSar(m.forecast)} sub="open value × stage probability" />
           </div>
 
           {/* Stage breakdown */}
