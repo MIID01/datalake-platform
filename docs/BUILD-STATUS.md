@@ -51,8 +51,9 @@ _Last updated: 2026-06-19. Ground truth is always `git log` + the code; this is 
 
 ### CRM
 - **Phase 1** (pre-existing): pipeline/Kanban, CSV import, quote→Finance→CEO approval, soft-delete.
-- **Phase 2.1 (new):** `/crm/dashboard` — pipeline value by stage, win rate, avg deal, deals by
-  owner, stuck-deals (>30d). Reads canonical `deals`.
+- **Phase 2 (new, live):** `/crm/dashboard` (pipeline value by stage, win rate, avg deal, deals by
+  owner, stuck-deals >30d) · `/crm/contacts` (people derived from `deals`, dedup by email) ·
+  `/crm/tasks` (new `crm_tasks` store — add/assign/due, open/mine/overdue/done, mark done).
 
 ### Security / compliance
 - **Data-leak sweep: clean** — AI 100% self-hosted in me-central2 (no external LLM), audit logs
