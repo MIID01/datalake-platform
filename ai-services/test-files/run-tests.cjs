@@ -58,12 +58,12 @@ async function testTimesheetValidation(testFile, expectedOutcome) {
 }
 
 async function testContractReview() {
-  const testName = "TEST_CONTRACT_001_MSA";
+  const testName = "TEST_CONTRACT_001_Emkan_MSA";
   console.log(`\n── Testing ${testName} ──`);
   try {
     const contractText = `
 MASTER SERVICES AGREEMENT
-Between: [PROVIDER COMPANY] ("Provider") and [CLIENT COMPANY] ("Client")
+Between: Emkan Technologies Co. ("Provider") and Datalake Information Technology Co. ("Client")
 Date: 1 January 2026
 
 Article 1 - Scope of Services

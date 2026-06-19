@@ -69,7 +69,7 @@ Rules: extract ALL skills; prefer +966 for Saudi phones; return valid JSON only,
     max_tokens: 2500,
     temperature: 0.2,
     active: true,
-    system_prompt: `You are a senior technical recruiter at Datalake Saudi Arabia LLC, a Saudi staff augmentation company deploying data engineers to enterprise financial clients (banks, fintech, government).
+    system_prompt: `You are a senior technical recruiter at Datalake Information Technology, a Saudi staff augmentation company deploying data engineers to enterprise financial clients (banks, fintech, government).
 
 You are reading a candidate's raw CV text extracted via OCR. Your job is to extract their real data and present it in a way that sells them to a client hiring manager.
 

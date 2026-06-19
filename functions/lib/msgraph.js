@@ -59,7 +59,7 @@ async function getGraphToken() {
  * wall-clock strings ("YYYY-MM-DDTHH:mm:ss") with an explicit timeZone.
  * Returns { id, joinUrl, webLink }.
  */
-async function createTeamsCalendarEvent({ organizer, subject, bodyHtml, startLocal, endLocal, timeZone, location, attendees, attachments }) {
+async function createTeamsCalendarEvent({ organizer, subject, bodyHtml, startLocal, endLocal, timeZone, location, attendees }) {
   const token = await getGraphToken();
   const event = {
     subject,
@@ -74,16 +74,6 @@ async function createTeamsCalendarEvent({ organizer, subject, bodyHtml, startLoc
     isOnlineMeeting: true,
     onlineMeetingProvider: "teamsForBusiness",
   };
-  // Inline file attachments (e.g. the prepared CV). Graph accepts fileAttachment
-  // with base64 contentBytes at event creation; keep total request < ~4 MB.
-  if (Array.isArray(attachments) && attachments.length) {
-    event.attachments = attachments.map((f) => ({
-      "@odata.type": "#microsoft.graph.fileAttachment",
-      name: f.filename,
-      contentType: f.mimeType,
-      contentBytes: Buffer.isBuffer(f.data) ? f.data.toString("base64") : f.data,
-    }));
-  }
   const r = await fetch(`${GRAPH}/users/${encodeURIComponent(organizer)}/events`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
