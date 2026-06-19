@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { auth } from '../lib/firebase'
-import { Briefcase, Building2, TrendingUp, ChevronLeft, ChevronRight, LogOut, LayoutDashboard } from 'lucide-react'
+import { Briefcase, Building2, TrendingUp, ChevronLeft, ChevronRight, LogOut, LayoutDashboard, Users, CheckSquare } from 'lucide-react'
 import { signOut } from '../lib/auth'
 import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
@@ -15,6 +15,8 @@ const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/crm/dashboard' },
   { icon: Building2,   label: 'Clients',  path: '/crm/clients' },
   { icon: TrendingUp,  label: 'Pipeline', path: '/crm/pipeline' },
+  { icon: Users,       label: 'Contacts', path: '/crm/contacts' },
+  { icon: CheckSquare, label: 'Tasks',    path: '/crm/tasks' },
 ]
 
 export default function CRMLayout() {

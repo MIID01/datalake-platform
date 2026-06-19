@@ -154,6 +154,15 @@ service cloud.firestore {
       }
     }
 
+    // ── CRM tasks (crm_tasks) — actionable follow-ups for the sales team ──
+    // Canonical task store (deal_activities only logged TASKs). CRM team + CEO.
+    match /crm_tasks/{taskId} {
+      allow read:   if isCeo() || isBusinessOrSales();
+      allow create: if isCeo() || isBusinessOrSales();
+      allow update: if isCeo() || isBusinessOrSales();
+      allow delete: if isCeo() || isBusinessOrSales();
+    }
+
     // ── CRM quotes (deal_quotes) — quote/discount approval ──
     // State machine: DRAFT → PENDING_FINANCE → PENDING_CEO → APPROVED (+ REJECTED).
     // Sales (business/sales) + CEO may CREATE a DRAFT and edit it WHILE DRAFT, and
