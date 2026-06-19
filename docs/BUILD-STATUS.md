@@ -54,6 +54,10 @@ _Last updated: 2026-06-19. Ground truth is always `git log` + the code; this is 
 - **Phase 2 (new, live):** `/crm/dashboard` (pipeline value by stage, win rate, avg deal, deals by
   owner, stuck-deals >30d) · `/crm/contacts` (people derived from `deals`, dedup by email) ·
   `/crm/tasks` (new `crm_tasks` store — add/assign/due, open/mine/overdue/done, mark done).
+- **Phase 3 (new, live):** weighted forecast on the dashboard (`STAGE_PROBABILITY` in lib/deals) +
+  pipeline **CSV export** · **quote PDFs** (pdfEngine `quote` template, download per quote on the
+  deal page) · 4 reusable **email templates** in the deal composer.
+- **E2E:** `cypress/e2e/crm-phase2-3.cy.js` + `hr-payroll-flows.cy.js` (run needs `cypress.env.json`).
 
 ### Security / compliance
 - **Data-leak sweep: clean** — AI 100% self-hosted in me-central2 (no external LLM), audit logs
@@ -78,9 +82,7 @@ _Last updated: 2026-06-19. Ground truth is always `git log` + the code; this is 
   (A) move server-side, (B) drop IP, (C) leave. *(Recommended A.)*
 
 ## 🔵 Open — build queue (tasks)
-- **CRM Phase 2**: contacts database + activities/tasks queue.
-- **CRM Phase 3**: quote PDFs, reporting/exports, email templates, forecasting.
-- **Cypress E2E specs** for the new flows (need `cypress.env.json` test creds to run).
+- **Run the Cypress specs** — written + committed; need `cypress.env.json` test creds (or CI) to execute.
 - **Timesheet invoice close-out** (double-invoice protection).
 - **White-label config** (5 tasks): make company-specific values configurable for another company.
 - _Parked:_ **Twenty CRM adoption** — superseded by building CRM natively (residency + AGPL +
