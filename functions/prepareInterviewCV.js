@@ -66,22 +66,26 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
     if (!projectDoc.exists) return res.status(404).json({ error: "Project not found" });
     const project = projectDoc.data();
 
-    // ── 4. CV source: prefer the already-extracted structured data; else
-    //      pdf-parse the raw CV. (No cv-agent — runs on our GPU model.) ──
-    let cvData = candidate.ai_extracted_data || candidate.extracted_data || null;
+    // ── 4. CV source. The GROUNDED reformat needs the FULL CV (work-history +
+    //      achievements), so ALWAYS read the raw CV text when we can. The structured
+    //      extraction (ai_extracted_data) only holds role/employer/skills/education/
+    //      certs — NO experience[] or achievements[] — so it's a HINT, not the source.
+    //      Feeding it alone (the prior rewire) starved experience_content /
+    //      key_achievements → they rendered empty. (No cv-agent — our GPU model.) ──
+    const cvData = candidate.ai_extracted_data || candidate.extracted_data || null;
     let cvRawText = "";
-    if (!cvData && candidate.cv_path && pdfParse) {
+    if (candidate.cv_path && pdfParse) {
       try {
         for (const b of CV_SOURCE_BUCKETS) {
           const cvFile = admin.storage().bucket(b).file(candidate.cv_path);
           const [exists] = await cvFile.exists();
           if (exists) {
             const [buf] = await cvFile.download();
-            cvRawText = ((await pdfParse(buf)).text || "").slice(0, 12000);
+            cvRawText = ((await pdfParse(buf)).text || "").slice(0, 14000);
             break;
           }
         }
-      } catch (e) { console.warn("CV pdf-parse fallback failed:", e.message); }
+      } catch (e) { console.warn("CV pdf-parse failed:", e.message); }
     }
     if (!cvData && !cvRawText) {
       return res.status(400).json({ error: "No CV data available (no extracted data and no readable CV file)." });
@@ -100,12 +104,12 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORI
 
 GROUNDING (critical): Use ONLY facts present in the candidate CV data. NEVER invent experience, skills, employers, job titles, dates, numbers, certifications or education. If a field is not supported by the CV, return an empty string "" — do NOT guess and do NOT fill a category just to look complete.
 
-Categorise the candidate's REAL skills into the fixed buckets below (leave a bucket "" if the CV shows nothing for it). Write experience/education/certifications as readable multi-line text using \\n between lines and a blank line between entries.
+Categorise the candidate's REAL skills into the fixed buckets below (leave a bucket "" if the CV shows nothing for it). Put each skill in its MOST appropriate bucket; ONLY true regulatory/compliance/privacy/domain items (e.g. PDPL, GDPR, SAMA, ISO, banking) belong in skills_regulatory — never dump unmatched skills there. From the FULL CV TEXT, populate experience_content with EVERY role (format each as 'Title — Company (period)' then '• ' duty/impact bullet lines, a blank line between roles) and key_achievements with the candidate's quantified, notable wins as '• ' bullets. Write experience/education/certifications as readable multi-line text using \\n between lines and a blank line between entries.
 
 Return ONLY this JSON object (all values strings unless noted):
 {
   "professional_summary": "3-4 sentence summary tailored to the role, only from the CV",
-  "best_fit_role": "the role title this candidate best fits for this client",
+  "best_fit_role": "the candidate's CURRENT or MOST RECENT job title, copied VERBATIM from the CV — never invent, append, or change a word (e.g. do NOT add or assume 'Engineer')",
   "seniority": "Junior / Mid / Senior / Lead — only if evident, else \\"\\"",
   "years_experience": "integer years of professional experience, or \\"\\" if unclear",
   "skills_cloud": "comma-separated cloud platforms present in the CV (AWS, Azure, GCP...)",
@@ -120,7 +124,7 @@ Return ONLY this JSON object (all values strings unless noted):
   "education_content": "'Degree, Institution (year)' per line",
   "key_achievements": "notable, quantified achievements from the CV as '• ' bullet lines, or \\"\\""
 }`,
-      userPrompt: `JOB DESCRIPTION:\n${jdContent}\n\nCANDIDATE CV DATA:\n${cvData ? JSON.stringify(cvData) : cvRawText}`,
+      userPrompt: `JOB DESCRIPTION:\n${jdContent}\n\nCANDIDATE CV — FULL TEXT (primary source for experience & achievements):\n${cvRawText || "(raw CV unavailable)"}\n\nSTRUCTURED HINTS (role/skills/education/certs only — may be incomplete):\n${cvData ? JSON.stringify(cvData) : "(none)"}`,
     });
     if (!llm.success) return res.status(503).json({ error: "CV preparation unavailable (model)", detail: llm.error });
     const parsed = parseJsonOutput(llm.output);
@@ -128,7 +132,7 @@ Return ONLY this JSON object (all values strings unless noted):
 
     // ── 6. Fill the agreed Skills Portfolio form (DOCX) ──
     const preparedDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-    const outputBuffer = fillInterviewCvDocx({ portfolio, candidate, preparedDate });
+    const outputBuffer = fillInterviewCvDocx({ portfolio, candidate, cvData, preparedDate });
     // Tamper-evident fingerprint of the exact artifact — recomputed at dispatch
     // time so we can prove what was prepared and that it was unchanged when sent.
     const cvSha256 = crypto.createHash("sha256").update(outputBuffer).digest("hex");
@@ -208,23 +212,57 @@ Return ONLY this JSON object (all values strings unless noted):
 // layout, so the client receives exactly the signed-off form. Word inserts
 // <w:proofErr/> spell/grammar markers mid-text that split tags (e.g.
 // {prepared_date}); we strip them from the document part before rendering.
-function fillInterviewCvDocx({ portfolio, candidate, preparedDate }) {
+function fillInterviewCvDocx({ portfolio, candidate, cvData, preparedDate }) {
   const templateBinary = fs.readFileSync(CV_TEMPLATE_PATH, "binary");
   const zip = new PizZip(templateBinary);
 
   const DOC_XML = "word/document.xml";
-  const cleanedXml = zip.file(DOC_XML).asText().replace(/<w:proofErr[^>]*\/>/g, "");
+  let cleanedXml = zip.file(DOC_XML).asText().replace(/<w:proofErr[^>]*\/>/g, "");
+  // Empty-state-is-correct: make each fixed skill row conditional so a category with
+  // no content drops out entirely (no empty rows). The section opens at the row's
+  // label cell and closes at its value cell, spanning the table row — with
+  // paragraphLoop, docxtemplater removes the whole row when the value is falsy.
+  const SKILL_ROWS = [
+    ["Cloud Platforms", "skills_cloud"], ["Data Engineering", "skills_data_eng"],
+    ["Programming", "skills_programming"], ["Databases", "skills_databases"],
+    ["BI &amp; Visualization", "skills_bi"], ["DevOps", "skills_devops"],
+    ["Regulatory/Domain", "skills_regulatory"],
+  ];
+  for (const [label, key] of SKILL_ROWS) {
+    cleanedXml = cleanedXml.replace(`>${label}<`, `>{#${key}}${label}<`).replace(`{${key}}`, `{${key}}{/${key}}`);
+  }
+  // Suppress "  |  Level: <blank>" (including its leading separator) when seniority is
+  // empty. Wrap the separator+label in a section opening; only add the matching close
+  // if the open matched, so the tags stay balanced (an orphan tag would crash render).
+  const beforeLvl = cleanedXml;
+  cleanedXml = cleanedXml.replace(/(\s*\|\s*)Level: /, "{#seniority}$1Level: ");
+  if (cleanedXml !== beforeLvl) cleanedXml = cleanedXml.replace("{seniority}", "{seniority}{/seniority}");
   zip.file(DOC_XML, cleanedXml);
 
   const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
   const str = (v) => (v == null ? "" : String(v));
+  // The template renders "Experience: {years_experience} years" — strip any
+  // "years" already in the value so we don't get "10+ years years".
+  const cleanYears = (v) => str(v).replace(/\s*years?\b/gi, "").trim();
+  // Role: the candidate's ACTUAL title verbatim — prefer the grounded extraction;
+  // never append/assume "Engineer".
+  const title = str((cvData && cvData.current_role) || portfolio.best_fit_role || candidate.role_interest);
+  // Certifications VERBATIM from the grounded extraction (fixes case-mangling like
+  // "CIssP"); fall back to the LLM text only if the extraction has none.
+  const certs = (cvData && Array.isArray(cvData.certifications) && cvData.certifications.filter(Boolean).length)
+    ? cvData.certifications.filter(Boolean).join("\n")
+    : str(portfolio.certifications_content);
+  // Education from the LLM, else build it from the structured extraction.
+  const education = str(portfolio.education_content) || ((cvData && Array.isArray(cvData.education))
+    ? cvData.education.map((e) => [e.degree, e.institution, e.year].filter(Boolean).join(" — ")).filter(Boolean).join("\n")
+    : "");
   doc.render({
     prepared_date: preparedDate,
     candidate_name: str(candidate.full_name),
     professional_summary: str(portfolio.professional_summary),
-    best_fit_role: str(portfolio.best_fit_role || candidate.role_interest),
+    best_fit_role: title,
     seniority: str(portfolio.seniority),
-    years_experience: str(portfolio.years_experience),
+    years_experience: cleanYears(portfolio.years_experience || (cvData && cvData.years_experience)),
     skills_cloud: str(portfolio.skills_cloud),
     skills_data_eng: str(portfolio.skills_data_eng),
     skills_programming: str(portfolio.skills_programming),
@@ -233,8 +271,8 @@ function fillInterviewCvDocx({ portfolio, candidate, preparedDate }) {
     skills_devops: str(portfolio.skills_devops),
     skills_regulatory: str(portfolio.skills_regulatory),
     experience_content: str(portfolio.experience_content),
-    certifications_content: str(portfolio.certifications_content),
-    education_content: str(portfolio.education_content),
+    certifications_content: certs,
+    education_content: education,
     key_achievements: str(portfolio.key_achievements),
   });
 
