@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, onSnapshot, query, orderBy, where, addDoc, updateDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../../lib/firebase'
-import { Megaphone, Plus, Copy, Check, Linkedin, Loader, Settings, Pause, Play } from 'lucide-react'
+import { Megaphone, Plus, Copy, Check, Share2, Loader, Settings, Pause, Play } from 'lucide-react'
 
 // Recruiting campaigns — channel-agnostic. Create a campaign → get a TRACKED careers
 // link → use it as the destination URL in LinkedIn / Google Ads / any channel. Every
@@ -144,7 +144,7 @@ export default function HRCampaigns() {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
                     <code style={{ flex: 1, minWidth: 240, fontSize: '0.72rem', background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 6, padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{link}</code>
                     <button onClick={() => copy(link, c.id)} style={ghostBtn}>{copied === c.id ? <Check size={13} color="#15803d" /> : <Copy size={13} />} {copied === c.id ? 'Copied' : 'Copy link'}</button>
-                    <button onClick={() => shareLinkedIn(link)} style={{ ...ghostBtn, color: '#0A66C2', borderColor: '#0A66C2' }}><Linkedin size={13} /> Share</button>
+                    <button onClick={() => shareLinkedIn(link)} style={{ ...ghostBtn, color: '#0A66C2', borderColor: '#0A66C2' }}><Share2 size={13} /> Share</button>
                     <button onClick={() => toggle(c)} style={ghostBtn}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? 'Resume' : 'Pause'}</button>
                   </div>
                 </div>
