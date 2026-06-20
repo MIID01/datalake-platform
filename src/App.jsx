@@ -93,6 +93,7 @@ import CRMDashboard from './pages/crm/CRMDashboard'
 import CRMContacts from './pages/crm/CRMContacts'
 import CRMTasks from './pages/crm/CRMTasks'
 import HRProjectTimesheets from './pages/hr/HRProjectTimesheets'
+import HRCampaigns from './pages/hr/HRCampaigns'
 import SignTimesheet from './pages/SignTimesheet'
 import ClientSignTimesheets from './pages/client/ClientSignTimesheets'
 import CRMDealDetail from './pages/crm/CRMDealDetail'
@@ -223,6 +224,7 @@ export default function App() {
           <Route path="scoring" element={<HRScoring />} />
           <Route path="deductions" element={<HRDeductions />} />
           <Route path="timesheets" element={<HRProjectTimesheets />} />
+          <Route path="campaigns" element={<HRCampaigns />} />
           <Route path="interview-cv" element={<InterviewCVPrep />} />
           {/* Alias: people naturally type /hr/interview-prep — keep it working */}
           <Route path="interview-prep" element={<Navigate to="/hr/interview-cv" replace />} />

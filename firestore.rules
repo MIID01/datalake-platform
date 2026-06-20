@@ -187,6 +187,12 @@ service cloud.firestore {
       allow write: if isCeo() || isBusinessOrSales() || isHR();
     }
 
+    // ── Recruiting campaigns (multi-channel: LinkedIn, Google Ads, …) ──
+    // HR/CEO manage; applicants attribute via campaign_id carried on the careers link.
+    match /recruiting_campaigns/{campId} {
+      allow read, write: if isCeo() || isHR();
+    }
+
     // ── CRM quotes (deal_quotes) — quote/discount approval ──
     // State machine: DRAFT → PENDING_FINANCE → PENDING_CEO → APPROVED (+ REJECTED).
     // Sales (business/sales) + CEO may CREATE a DRAFT and edit it WHILE DRAFT, and

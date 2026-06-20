@@ -48,6 +48,12 @@ export default function Careers() {
           return tb - ta
         })
         setOpenRoles(rows)
+        // Deep-link from a campaign ad (?job=<id>) pre-selects that role.
+        const jobParam = new URLSearchParams(window.location.search).get('job')
+        if (jobParam) {
+          const r = rows.find(x => x.id === jobParam)
+          if (r) { setSelectedJobId(jobParam); setForm(p => ({ ...p, roleInterest: p.roleInterest || r.title })) }
+        }
         setJobsLoading(false)
         setJobsError('')
       },
@@ -204,6 +210,10 @@ export default function Careers() {
       fd.append('consent_granted', 'true')
       fd.append('ai_extraction_consent', 'true')
       if (selectedJobId) fd.append('job_listing_id', selectedJobId)
+      // Recruiting-campaign attribution — carry UTM params from the ad/link through
+      // to the application (LinkedIn, Google Ads, referral, …).
+      const sp = new URLSearchParams(window.location.search)
+      ;['utm_source', 'utm_medium', 'utm_campaign', 'campaign_id'].forEach(k => { const v = sp.get(k); if (v) fd.append(k, v) })
       // Re-attach original CV blob
       fd.append('cv', cvFile)
 
