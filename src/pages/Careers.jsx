@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db, EXTRACT_CV_URL, CLOUD_FUNCTION_URL } from '../lib/firebase'
 import { MapPin, Briefcase, DollarSign, Upload, X, CheckCircle, ArrowLeft, ChevronDown, Loader, Sparkles, FileText, Shield } from 'lucide-react'
 import '../styles/careers.css'
@@ -38,15 +38,15 @@ export default function Careers() {
   const [jobsLoading, setJobsLoading] = useState(true)
   const [jobsError, setJobsError] = useState('')
   useEffect(() => {
-    const q = query(collection(db, 'job_listings'), where('status', '==', 'open'))
-    const unsub = onSnapshot(q,
-      snap => {
+    // One-time read (not a live listener) — a public, ad-traffic page shouldn't open a
+    // realtime Firestore connection per visitor; job listings don't change mid-visit.
+    let alive = true
+    ;(async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'job_listings'), where('status', '==', 'open')))
+        if (!alive) return
         const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        rows.sort((a, b) => {
-          const ta = a.created_at?.toMillis?.() ?? 0
-          const tb = b.created_at?.toMillis?.() ?? 0
-          return tb - ta
-        })
+        rows.sort((a, b) => (b.created_at?.toMillis?.() ?? 0) - (a.created_at?.toMillis?.() ?? 0))
         setOpenRoles(rows)
         // Deep-link from a campaign ad (?job=<id>) pre-selects that role.
         const jobParam = new URLSearchParams(window.location.search).get('job')
@@ -54,16 +54,14 @@ export default function Careers() {
           const r = rows.find(x => x.id === jobParam)
           if (r) { setSelectedJobId(jobParam); setForm(p => ({ ...p, roleInterest: p.roleInterest || r.title })) }
         }
-        setJobsLoading(false)
-        setJobsError('')
-      },
-      err => {
+        setJobsLoading(false); setJobsError('')
+      } catch (err) {
+        if (!alive) return
         console.error('careers job_listings query failed:', err)
-        setJobsError(err.message || 'Could not load open roles')
-        setJobsLoading(false)
-      },
-    )
-    return () => unsub()
+        setJobsError(err.message || 'Could not load open roles'); setJobsLoading(false)
+      }
+    })()
+    return () => { alive = false }
   }, [])
 
   // Stage — CV upload → AI extraction → review form

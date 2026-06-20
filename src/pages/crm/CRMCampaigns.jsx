@@ -20,7 +20,7 @@ const DEFAULT_BASE = 'https://datalake-production-sa.web.app'
 const slugify = (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 const HIRED_STATES = ['ACTIVE_EMPLOYEE', 'HIRED', 'OFFER_ACCEPTED']
 
-export default function HRCampaigns() {
+export default function CRMCampaigns() {
   const me = auth.currentUser?.email || ''
   const [campaigns, setCampaigns] = useState([])
   const [applicants, setApplicants] = useState([])
