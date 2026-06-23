@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, limit, doc } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { useCountUp } from '../../hooks/useUtils'
 import { Shield, AlertTriangle, CheckCircle, XCircle, Clock, Eye, FileText, Download } from 'lucide-react'
@@ -31,6 +31,12 @@ function ComplianceGauge({ score }) {
 export default function Compliance() {
   const [complianceData, setComplianceData] = useState(null)
   const [activeRegister, setActiveRegister] = useState('capa')
+  // Real audit trail (task_audit_log) — replaces the previously hardcoded sample
+  // rows. Per the No-Fabricated-Data rule, this shows actual logged events only.
+  const [auditLog, setAuditLog] = useState(null) // null=loading, []=none
+  // GRC document-review readiness snapshot (written by the GRC agent / sweep). Real
+  // counts only — never a green default. null until the first check has been run.
+  const [grcReadiness, setGrcReadiness] = useState(null)
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'compliance'), snap => {
@@ -46,6 +52,34 @@ export default function Compliance() {
     return () => unsub()
   }, [])
 
+  useEffect(() => {
+    const q = query(collection(db, 'task_audit_log'), orderBy('action_at', 'desc'), limit(25))
+    const unsub = onSnapshot(q,
+      snap => setAuditLog(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      err => { console.warn('audit log listener error:', err.message); setAuditLog([]) },
+    )
+    return () => unsub()
+  }, [])
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'grc_readiness', 'current'),
+      snap => setGrcReadiness(snap.exists() ? snap.data() : null),
+      err => { console.warn('grc readiness listener error:', err.message); setGrcReadiness(null) },
+    )
+    return () => unsub()
+  }, [])
+
+  const fmtAuditTs = (t) => {
+    const d = t?.toDate ? t.toDate() : (t?._seconds ? new Date(t._seconds * 1000) : null)
+    return d ? d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
+  }
+  const fmtAuditDetails = (det) => {
+    if (!det) return '—'
+    if (typeof det === 'string') return det
+    const s = Object.entries(det).filter(([, v]) => v != null && typeof v !== 'object').map(([k, v]) => `${k}: ${v}`).join(' · ')
+    return s.length > 140 ? s.slice(0, 140) + '…' : (s || '—')
+  }
+
   if (!complianceData) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>
@@ -59,6 +93,32 @@ export default function Compliance() {
   return (
     <div>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 24 }}>Compliance Center</h1>
+
+      {grcReadiness && (
+        <div className="card" style={{ marginBottom: 28 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield size={16} style={{ color: 'var(--sky)' }} /> GRC Document Review Readiness
+            </h3>
+            <a href="/ceo/grc-agent" style={{ fontSize: '0.78rem', color: 'var(--sky)' }}>Open GRC Assistant →</a>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            {[
+              { label: 'Active documents', value: grcReadiness.total_active, tone: 'var(--text-primary)' },
+              { label: 'Overdue review', value: grcReadiness.overdue, tone: grcReadiness.overdue > 0 ? 'var(--red)' : 'var(--green)' },
+              { label: 'No review date', value: grcReadiness.missing_review_date, tone: grcReadiness.missing_review_date > 0 ? 'var(--amber)' : 'var(--green)' },
+              { label: 'Due ≤30d', value: grcReadiness.due_soon, tone: grcReadiness.due_soon > 0 ? 'var(--amber)' : 'var(--text-primary)' },
+              { label: 'With owner', value: `${grcReadiness.pct_with_owner ?? 0}%`, tone: 'var(--text-primary)' },
+              { label: 'With approver', value: `${grcReadiness.pct_with_approver ?? 0}%`, tone: 'var(--text-primary)' },
+            ].map((m) => (
+              <div key={m.label} style={{ flex: 1, minWidth: 110, padding: '10px 14px', background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-primary)', borderRadius: 8 }}>
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: m.tone }}>{m.value}</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>{m.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Dashboard — 4 Quadrants */}
       <div className="grid-2" style={{ marginBottom: 28 }}>
@@ -170,28 +230,25 @@ export default function Compliance() {
         </table>
       </div>
 
-      {/* Audit Log Viewer (simplified) */}
+      {/* Audit Log Viewer — REAL events from task_audit_log (no sample data) */}
       <div className="card animate-fade-in-up" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>📋 Audit Log Viewer</h3>
-          <button className="btn btn-ghost btn-sm"><Download size={14} /> Export CSV</button>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>📋 Audit Log Viewer <span style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--text-tertiary)' }}>· latest 25 events</span></h3>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>Full immutable trail via Audit Export</span>
         </div>
         <table className="data-table">
-          <thead><tr><th>Timestamp</th><th>AI Agent</th><th>Action</th><th>Details</th><th>Compliance Rule</th></tr></thead>
+          <thead><tr><th>Timestamp</th><th>Actor</th><th>Event</th><th>Details</th></tr></thead>
           <tbody>
-            {[
-              { time: '2026-04-20 09:22', agent: 'Auditor', action: 'BLOCKED', details: 'Proposal PROP-2026-018 missing SAMA clause', rule: 'SAMA CSF 4.2.1' },
-              { time: '2026-04-20 09:14', agent: 'Gatekeeper', action: 'PARSED', details: 'Resume processed: 87% match for Java Engineer', rule: 'PDPL Art. 5' },
-              { time: '2026-04-20 03:00', agent: 'Gatekeeper', action: 'PURGED', details: '3 candidate records deleted (30-day expiry)', rule: 'PDPL Art. 18' },
-              { time: '2026-04-19 10:00', agent: 'Controller', action: 'CREATED', details: 'Invoice INV-2026-047 draft — SAR 48,000', rule: 'SAMA Segregation' },
-              { time: '2026-04-19 09:00', agent: 'Auditor', action: 'CHECKED', details: 'NDA signatures verified — all current', rule: 'NCA ECC-1:2018' },
-            ].map((log, i) => (
-              <tr key={i}>
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>{log.time}</td>
-                <td><span className="feed-agent">{log.agent}</span></td>
-                <td style={{ fontWeight: 600 }}>{log.action}</td>
-                <td style={{ fontSize: '0.82rem' }}>{log.details}</td>
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>{log.rule}</td>
+            {auditLog === null ? (
+              <tr><td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--text-tertiary)' }}>Loading…</td></tr>
+            ) : auditLog.length === 0 ? (
+              <tr><td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--text-tertiary)' }}>No audit events recorded yet.</td></tr>
+            ) : auditLog.map(log => (
+              <tr key={log.id}>
+                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>{fmtAuditTs(log.action_at)}</td>
+                <td style={{ fontSize: '0.82rem' }}>{log.action_by || '—'}</td>
+                <td style={{ fontWeight: 600 }}>{log.event || '—'}</td>
+                <td style={{ fontSize: '0.82rem' }}>{fmtAuditDetails(log.details)}</td>
               </tr>
             ))}
           </tbody>

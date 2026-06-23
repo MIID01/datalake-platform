@@ -5,6 +5,7 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 
 import { db, auth, storage } from '../../lib/firebase'
 import { Shield, Download, Trash2, Edit2, Loader, Camera, Check, X, AlertCircle, KeyRound, Eye, EyeOff } from 'lucide-react'
 import PasswordChecklist from '../../components/PasswordChecklist'
+import MfaEnrollment from '../../components/MfaEnrollment'
 import { evaluatePassword } from '../../lib/password-policy'
 
 export default function Profile() {
@@ -596,6 +597,9 @@ export default function Profile() {
           </button>
         </form>
       </div>
+
+      {/* Two-Factor Authentication (dormant until VITE_MFA_ENABLED + Identity Platform) */}
+      <MfaEnrollment />
 
       {/* PDPL Actions */}
       <div className="profile-section animate-fade-in-up" style={{ background: 'var(--bg-surface)' }}>

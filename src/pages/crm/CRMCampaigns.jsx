@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, onSnapshot, query, orderBy, where, addDoc, updateDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../../lib/firebase'
-import { Megaphone, Plus, Copy, Check, Share2, Loader, Settings, Pause, Play } from 'lucide-react'
+import { Megaphone, Plus, Copy, Check, Share2, Loader, Settings, Pause, Play, Info } from 'lucide-react'
 
 // Recruiting campaigns — channel-agnostic. Create a campaign → get a TRACKED careers
 // link → use it as the destination URL in LinkedIn / Google Ads / any channel. Every
@@ -55,8 +55,12 @@ export default function CRMCampaigns() {
     return m
   }, [applicants])
 
+  // Public tracked link. utm_campaign uses the OPAQUE campaign id — never the
+  // human name/slug — so a client-identifying name (e.g. "Emkan second year") is
+  // never exposed in a link posted publicly on LinkedIn/Google. Attribution still
+  // resolves via campaign_id; the readable name stays internal to this page.
   const linkFor = (c) => {
-    const params = new URLSearchParams({ utm_source: c.utm_source || c.channel, utm_medium: c.utm_medium || 'recruiting', utm_campaign: c.slug || slugify(c.name), campaign_id: c.id })
+    const params = new URLSearchParams({ utm_source: c.utm_source || c.channel, utm_medium: c.utm_medium || 'recruiting', utm_campaign: c.id, campaign_id: c.id })
     if (c.job_id) params.set('job', c.job_id)
     return `${base.replace(/\/$/, '')}/careers?${params.toString()}`
   }
@@ -91,9 +95,17 @@ export default function CRMCampaigns() {
           <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: NAVY, display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 4px' }}>
             <Megaphone size={20} color="#1598CC" /> Recruiting Campaigns
           </h1>
-          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>Tracked links for LinkedIn, Google Ads & any channel — applicants are attributed automatically.</p>
+          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>Create a tracked link, run your own ad on LinkedIn / Google / any channel, and use it as the destination URL. Applications that arrive through it are attributed automatically.</p>
         </div>
         <button onClick={() => setShowSettings(s => !s)} style={ghostBtn}><Settings size={14} /> Careers domain</button>
+      </div>
+
+      {/* Honesty banner — this tool does NOT run or connect to any ad platform (No-Fabricated-Data). */}
+      <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'flex-start', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '12px 14px' }}>
+        <Info size={16} color="#0284c7" style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: '0.78rem', color: '#0c4a6e', lineHeight: 1.5 }}>
+          <b>Datalake does not run ads.</b> This tool has no connection to LinkedIn or Google Ads and cannot start, stop, or measure an ad campaign. You run the ad yourself on the channel and paste the tracked link below as its destination. The only real numbers here are <b>applications that came through the link</b> (the applicants / hired counts). “Active / Stopped” is just your own label — it does not control any live ad.
+        </div>
       </div>
 
       {showSettings && (
@@ -134,7 +146,7 @@ export default function CRMCampaigns() {
                     <div style={{ fontWeight: 700, color: '#0F172A' }}>{c.name}
                       <span style={{ marginLeft: 8, fontSize: '0.7rem', fontWeight: 700, color: '#1598CC', textTransform: 'uppercase' }}>{(CHANNELS.find(x => x.id === c.channel)?.label) || c.channel}</span>
                       <span style={{ marginLeft: 6, fontSize: '0.68rem', color: '#94a3b8' }}>{c.utm_medium === 'cpc' ? 'Paid' : 'Organic'}{c.job_title ? ` · ${c.job_title}` : ' · All roles'}</span>
-                      {paused && <span style={{ marginLeft: 6, fontSize: '0.66rem', fontWeight: 700, color: '#b45309' }}>PAUSED</span>}
+                      {paused && <span style={{ marginLeft: 6, fontSize: '0.66rem', fontWeight: 700, color: '#b45309' }}>STOPPED (your label)</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 14, fontSize: '0.8rem' }}>
                       <span><b style={{ color: NAVY }}>{st.apps}</b> <span style={{ color: '#94a3b8' }}>applicants</span></span>
@@ -145,7 +157,7 @@ export default function CRMCampaigns() {
                     <code style={{ flex: 1, minWidth: 240, fontSize: '0.72rem', background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 6, padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{link}</code>
                     <button onClick={() => copy(link, c.id)} style={ghostBtn}>{copied === c.id ? <Check size={13} color="#15803d" /> : <Copy size={13} />} {copied === c.id ? 'Copied' : 'Copy link'}</button>
                     <button onClick={() => shareLinkedIn(link)} style={{ ...ghostBtn, color: '#0A66C2', borderColor: '#0A66C2' }}><Share2 size={13} /> Share</button>
-                    <button onClick={() => toggle(c)} style={ghostBtn}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? 'Resume' : 'Pause'}</button>
+                    <button onClick={() => toggle(c)} style={ghostBtn} title="A label for your own tracking — it does not start or stop any live ad">{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? 'Mark active' : 'Mark stopped'}</button>
                   </div>
                 </div>
               )

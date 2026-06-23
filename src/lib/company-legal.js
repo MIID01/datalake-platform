@@ -18,8 +18,8 @@ export const COMPANY = {
   entity_type_ar: 'شركة ذات مسؤولية محدودة (LLC)',
   cr_number: '1009194773',
   nun: '7048904952',                 // National Unified Number — shown as "Unified Number"
-  mol_number: null,                  // Ministry of Labour establishment number for WPS/SIF.
-  // MUST be the real value before WPS files generate — never a placeholder.
+  mol_number: '1-4400108',           // MOL establishment number (رقم مكتب العمل) for WPS/SIF/GOSI.
+  // CEO-provided 2026-06-23 — real value, enables WPS/GOSI payroll file generation.
   street: 'Rajiyah Street',
   district: 'Al Yarmuk District',
   city: 'Riyadh',

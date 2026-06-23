@@ -67,6 +67,52 @@ _Last updated: 2026-06-19. Ground truth is always `git log` + the code; this is 
   deal page) · 4 reusable **email templates** in the deal composer.
 - **E2E:** `cypress/e2e/crm-phase2-3.cy.js` + `hr-payroll-flows.cy.js` (run needs `cypress.env.json`).
 
+### CRM · First real agent (DTLK-AI-AGENT-001) — **built local, not deployed**
+- **Stuck-Deal Follow-up assistant** — the platform's first agent. Scans deals open >30d
+  and **proposes** a grounded follow-up task each; nothing is created until a human
+  **Approves** (then it writes a `crm_task`). Manual "Run follow-up assistant" button on
+  `/crm/dashboard`; **CEO/business only**; proposals expire in **14 days**.
+- Agent drives a fixed server-side tool catalog via structured-JSON tool-selection
+  (`callLLM` has no native tool-calling). WRITE tools are never in the model's catalog —
+  only a human click invokes them. Acts as principal `agent:crm-followup` (no token
+  impersonation); every step → immutable `agent_action_log`. New CF-write-only stores:
+  `agent_runs` / `agent_proposals` / `agent_action_log`.
+- Files: `functions/crmAgent.js`, `runFollowupAgent`/`approveAgentProposal` in
+  `functions/index.js`, rules block, `src/pages/crm/CRMAgentPanel.jsx`.
+- ✅ **DEPLOYED 2026-06-21** (functions `runFollowupAgent`/`approveAgentProposal` +
+  rules + hosting; build-green; **25/25 local logic tests**; Cloud Run URLs verified).
+- ⚠️ **NOT yet run against the live model** — loop reliability (Qwen emitting valid
+  tool-selection JSON) is the one unverified gate; first live run is the test. Spec +
+  build log: `docs/DTLK-AI-AGENT-001.md`.
+
+### CRM · Enterprise program (DTLK-CRM-ENT-001) — **P1 built local, not deployed**
+- **Honest framing:** not claiming to beat Salesforce on breadth; building the real
+  enterprise capabilities that matter, on real data, in-region. One phase at a time.
+- **P1 — Activity timeline + logging (BUILT):** enterprise activity logger
+  (Note/Call/Meeting/Task, back-datable `occurred_at`, outcome, "schedule follow-up" →
+  linked `crm_tasks`), unified timeline + Next-steps on the **deal** page, and a new
+  **contact detail** (`/crm/contacts/:email`) aggregating activity across a contact's
+  deals. Reuses `deal_activities` + `crm_tasks` (no new store/rules/functions).
+  Components: `src/lib/activity.js`, `src/components/crm/{ActivityTimeline,LogActivity,NextSteps}.jsx`.
+- ✅ **DEPLOYED 2026-06-22** (hosting); build-green + lint-clean; review gate before P2.
+- ✅ **Pipeline search bar** also deployed (search deals by title/company/contact/email/owner).
+- **P2 — Lead/deal scoring ✅ DEPLOYED 2026-06-22:** explainable deterministic score
+  (stage 40 + value 25 + recency 35), "low signal" when never contacted; score card +
+  factor breakdown on the deal page, chip + hottest-first sort on the pipeline.
+  `src/lib/scoring.js`. No AI/no fabrication (in-KSA Gemma rationale = later P2.5).
+- Next phases: P3 workflow automation/SLAs · P4 saved views/filters/bulk · P5 reporting
+  + dedupe. Spec: `docs/DTLK-CRM-ENT-001.md`.
+- ✅ **Campaigner honesty fix deployed 2026-06-22** — blunt "Datalake does not run ads"
+  banner; "Active/Stopped" relabeled as a user tracking label (not a live-ad control);
+  only the link-attributed applicant/hired counts are presented as real. (Was the
+  "running with zero connection" fabrication.)
+- ✅ **Agent stuck-window selector deployed** — `runFollowupAgent` accepts `min_days`;
+  panel selector 3/7/14/30/60 (default 14). NOTE: deals are ~5 days old, so use the
+  3-day window to surface/test them today; longer windows populate as deals age.
+- ✅ **Campaign-link privacy fix deployed** — public tracked link now uses the opaque
+  `campaign_id` in `utm_campaign`, never the human name/slug (was exposing client
+  "Emkan" in a public LinkedIn URL). Attribution unchanged; readable name stays internal.
+
 ### Security / compliance
 - **Data-leak sweep: clean** — AI 100% self-hosted in me-central2 (no external LLM), audit logs
   = SHA-256 hashes only, no hardcoded secrets, CORS whitelisted.

@@ -15,6 +15,8 @@ const PORTAL_VIEWS = [
   { label: 'CEO View',      path: '/ceo' },
   { label: 'Finance View',  path: '/finance' },
   { label: 'HR View',       path: '/hr' },
+  // CTO View — the CEO overrides timesheet sign-off here (CTO role is vacant).
+  { label: 'CTO View',      path: '/cto' },
   { label: 'Admin View',    path: '/admin' },
   { label: 'CRM View',      path: '/crm/clients' },
   { label: 'Employee View', path: '/employee/dashboard' },
@@ -23,6 +25,7 @@ const PORTAL_VIEWS = [
 function pickCurrentView(pathname) {
   if (pathname.startsWith('/finance'))  return '/finance'
   if (pathname.startsWith('/hr'))       return '/hr'
+  if (pathname.startsWith('/cto'))      return '/cto'
   if (pathname.startsWith('/admin'))    return '/admin'
   if (pathname.startsWith('/crm'))      return '/crm/clients'
   if (pathname.startsWith('/employee')) return '/employee/dashboard'

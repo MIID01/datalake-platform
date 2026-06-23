@@ -4,6 +4,10 @@ import { collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import { DEAL_STAGES, STAGE_IDS, OPEN_STAGE_IDS, dealWeightedValue, stageMeta, fmtSar } from '../../lib/deals'
 import { TrendingUp, Trophy, Percent, Layers, DollarSign, Clock, AlertTriangle, Loader, Target, Download } from 'lucide-react'
+import { useAccessProfile } from '../../hooks/useAccessProfile'
+import CRMAgentPanel from './CRMAgentPanel'
+
+const AGENT_ROLES = ['ceo', 'business']
 
 // CRM Phase-2 analytics. Pure reads off the canonical `deals` collection — no new
 // data model, no drift. Pipeline value by stage, win/loss, conversion, owners, aging.
@@ -15,6 +19,8 @@ export default function CRMDashboard() {
   const [deals, setDeals] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const { profile } = useAccessProfile()
+  const canUseAgent = AGENT_ROLES.includes(profile?.role_id)
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'deals'),
@@ -109,6 +115,9 @@ export default function CRMDashboard() {
         <div style={{ ...card, textAlign: 'center', color: '#94a3b8', padding: 48 }}>No deals yet. Add deals or import leads in the Pipeline.</div>
       ) : (
         <>
+          {/* CRM agent — DTLK-AI-AGENT-001 (CEO/business only) */}
+          {canUseAgent && <CRMAgentPanel />}
+
           {/* Stat cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 22 }}>
             <Stat Icon={DollarSign} color="#1598CC" label="Open pipeline value" value={fmtSar(m.openValue)} sub={`${m.openCount} open deals`} />

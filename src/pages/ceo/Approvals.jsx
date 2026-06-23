@@ -374,7 +374,7 @@ export default function Approvals() {
                           <strong>Employee:</strong> {f.employee_name || empId}<br />
                           <strong>Job Title:</strong> {f.job_title || '—'}<br />
                           <strong>Project:</strong> {f.client_name || '—'}{f.po_number ? ' · ' + f.po_number : ''}<br />
-                          <strong>Salary:</strong> {f.salary_monthly_sar ? `${f.salary_monthly_sar} ${f.currency || 'SAR'}` : '—'}<br />
+                          <strong>Salary:</strong> {f.salary_monthly_sar ? `SAR ${Number(f.salary_monthly_sar).toLocaleString()}` : '—'}<br />
                           <strong>Term:</strong> {f.contract_start_date || '—'} → {f.contract_end_date || '—'}<br />
                           <strong>Bank / IBAN:</strong> {f.bank_name || '—'}{f.iban ? ' · ' + f.iban : ''}<br />
                           <strong>Status:</strong> {c.status || c.contract_extraction_status || '—'}<br />

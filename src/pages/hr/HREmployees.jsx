@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc, query, orderBy, updateDoc, where } from 'firebase/firestore'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 import { auth, db, RESET_ONBOARDING_URL, ASSIGN_ENGINEER_URL } from '../../lib/firebase'
 import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, CheckCircle, Trash2, Edit2, Send, Archive, UserMinus, Eye, RefreshCcw } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -64,7 +65,7 @@ export default function HREmployees() {
   useEffect(() => {
     const q = query(collection(db, 'employees'), orderBy('employee_id'))
     const unsub = onSnapshot(q, snap => {
-      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notDeleted))
       setLoading(false)
     }, err => { console.warn(err); setLoading(false) })
     const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
@@ -128,9 +129,9 @@ export default function HREmployees() {
   const salaryGapCount = activeEmps.filter(e => salaryState(e) !== 'ok').length
 
   const handleDelete = async (id) => {
-    if(window.confirm('Remove this pending employee completely?')) {
+    if(window.confirm('Remove this pending employee?\n\nIt is moved to the Recycle Bin and can be restored by an admin — not permanently deleted.')) {
       try {
-        await deleteDoc(doc(db, 'employees', id))
+        await softDelete('employees', id)
       } catch(err) {
         console.error(err)
         alert('Could not remove employee: ' + err.message)

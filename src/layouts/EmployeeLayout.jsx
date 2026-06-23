@@ -7,7 +7,7 @@ import { doc, onSnapshot, collection, query, where, getDocs } from 'firebase/fir
 import {
   LayoutDashboard, Clock, Palmtree, CreditCard, FileText,
   Plane, GraduationCap, LifeBuoy, User, Settings, IdCard,
-  Search, Bell, ChevronLeft, ChevronRight, Sun, Moon, Lock
+  Search, Bell, ChevronLeft, ChevronRight, Sun, Moon, Lock, BookOpen
 } from 'lucide-react'
 import '../styles/engineer.css'
 import PortalSwitcher from '../components/PortalSwitcher'
@@ -21,6 +21,7 @@ const navItems = [
   { icon: Plane,           label: 'Travel & Logistics', path: '/employee/travel',     locked: true },
   { icon: GraduationCap,   label: 'Training',           path: '/employee/training' },
   { icon: LifeBuoy,        label: 'Support Tickets',    path: '/employee/support' },
+  { icon: BookOpen,        label: 'Company Policies',   path: '/employee/policies' },
   { icon: User,            label: 'My Profile',         path: '/employee/profile' },
   { icon: IdCard,          label: 'My Digital Card',    path: '/employee/card' },
 ]

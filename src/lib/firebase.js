@@ -77,6 +77,13 @@ export const CRM_IMPORT_LEADS_URL =
 export const CRM_ARCHIVE_DEALS_URL =
   "https://crmarchivedeals-ifzodp5svq-wx.a.run.app";
 
+// CRM — DTLK-AI-AGENT-001 — Stuck-Deal Follow-up agent (proposes only) + the
+// human-in-the-loop approval boundary (approve → creates the crm_task). CEO/business.
+export const RUN_FOLLOWUP_AGENT_URL =
+  "https://runfollowupagent-ifzodp5svq-wx.a.run.app";
+export const APPROVE_AGENT_PROPOSAL_URL =
+  "https://approveagentproposal-ifzodp5svq-wx.a.run.app";
+
 // Universal server-side approval/sign recorder (functions/recordApproval.js).
 // Every ApprovalButton signs through this — WORM + immutable evidence + audit.
 export const RECORD_APPROVAL_URL =
@@ -103,6 +110,19 @@ export const CEO_APPROVE_INVOICE_URL =
 
 export const CLIENT_SIGN_TIMESHEET_URL =
   "https://clientsigntimesheet-ifzodp5svq-wx.a.run.app";
+
+// Internal-approver decision on a leave request (PENDING_APPROVAL → APPROVED).
+// Verifies the caller is the current_approver or CEO, writes immutable
+// approval_history, and publishes datalake.leave.approved (payroll + notify).
+export const APPROVE_LEAVE_URL =
+  "https://approveleave-ifzodp5svq-wx.a.run.app";
+
+// Contract recovery from the WORM archive — list PDFs no live contract
+// references, and rebuild a contract record from a chosen one. CEO-only.
+export const LIST_ORPHANED_CONTRACT_PDFS_URL =
+  "https://listorphanedcontractpdfs-ifzodp5svq-wx.a.run.app";
+export const RELINK_CONTRACT_PDF_URL =
+  "https://relinkcontractpdf-ifzodp5svq-wx.a.run.app";
 
 // Public endpoint — pinged when a client opens the sign link, for auditable
 // proof of receipt (the page is unauthenticated; token is the auth).
@@ -161,6 +181,9 @@ export const SEND_TIMESHEET_TO_CLIENT_URL =
   "https://sendtimesheettoclient-ifzodp5svq-wx.a.run.app";
 export const SIGN_PROJECT_TIMESHEET_URL =
   "https://signprojecttimesheet-ifzodp5svq-wx.a.run.app";
+// CTO/CEO signs the consolidated monthly sheet + auto-sends it to the client (one action).
+export const CTO_SIGN_PROJECT_TIMESHEET_URL =
+  "https://ctosignprojecttimesheet-ifzodp5svq-wx.a.run.app";
 export const ASSEMBLE_PROJECT_TIMESHEET_URL =
   "https://assembleprojecttimesheet-ifzodp5svq-wx.a.run.app";
 export const DOWNLOAD_CANDIDATE_CV_URL =
@@ -205,6 +228,17 @@ export const GET_GRC_CHANGELOG_URL =
   "https://getgrcchangelog-ifzodp5svq-wx.a.run.app";
 export const DOWNLOAD_GRC_DOCUMENT_URL =
   "https://downloadgrcdocument-ifzodp5svq-wx.a.run.app";
+
+// DTLK-GRC-AI-001 — AI auto-mapping on upload + GRC Compliance Agent (chat,
+// audit-readiness) + human approval boundary for agent proposals.
+export const EXTRACT_GRC_METADATA_URL =
+  "https://extractgrcmetadata-ifzodp5svq-wx.a.run.app";
+export const GRC_ASSISTANT_CHAT_URL =
+  "https://grcassistantchat-ifzodp5svq-wx.a.run.app";
+export const GRC_AUDIT_READINESS_URL =
+  "https://grcauditreadiness-ifzodp5svq-wx.a.run.app";
+export const APPROVE_GRC_PROPOSAL_URL =
+  "https://approvegrcproposal-ifzodp5svq-wx.a.run.app";
 
 // Invoicing APIs
 export const GENERATE_INVOICE_URL =

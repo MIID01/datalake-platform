@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileText, Download, Upload, Shield, Filter, History, Search, CheckCircle, X, AlertTriangle } from 'lucide-react'
+import { FileText, Download, Upload, Shield, Filter, History, Search, CheckCircle, X, AlertTriangle, Sparkles, FileBadge } from 'lucide-react'
 import {
   auth,
   UPLOAD_GRC_DOC_URL,
   LIST_GRC_DOCUMENTS_URL,
   GET_GRC_CHANGELOG_URL,
   DOWNLOAD_GRC_DOCUMENT_URL,
+  EXTRACT_GRC_METADATA_URL,
 } from '../../lib/firebase'
+import PolicyLibrary from '../../components/PolicyLibrary'
 
 export default function GrcLibrary() {
   const [activeTab, setActiveTab] = useState('library') // 'library', 'upload', 'changelog'
@@ -65,136 +67,10 @@ export default function GrcLibrary() {
   )
 }
 
+// The browse/download experience now lives in the reusable, access-matrix-aware
+// PolicyLibrary component (also used by the company-wide /employee/policies page).
 function LibraryTab() {
-  const [docs, setDocs] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState('all')
-  const [domainFilter, setDomainFilter] = useState('all')
-  const [downloadingId, setDownloadingId] = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      setError('')
-      try {
-        const user = auth.currentUser
-        if (!user) throw new Error('Not authenticated')
-        const idToken = await user.getIdToken()
-        const res = await fetch(LIST_GRC_DOCUMENTS_URL, {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${idToken}` },
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Failed to load the document library')
-        if (!cancelled) setDocs(Array.isArray(data.documents) ? data.documents : [])
-      } catch (err) {
-        if (!cancelled) setError(err.message || 'Failed to load the document library')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [])
-
-  const handleDownload = async (doc) => {
-    setDownloadingId(doc.id)
-    setError('')
-    try {
-      const idToken = await auth.currentUser.getIdToken()
-      const res = await fetch(DOWNLOAD_GRC_DOCUMENT_URL, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ doc_id: doc.doc_id, version: doc.version }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Download failed')
-      if (data.signed_url) window.open(data.signed_url, '_blank', 'noopener')
-    } catch (err) {
-      setError(err.message || 'Download failed')
-    } finally {
-      setDownloadingId(null)
-    }
-  }
-
-  const filtered = docs.filter((d) => {
-    const q = search.trim().toLowerCase()
-    const matchesSearch = !q || (d.doc_id || '').toLowerCase().includes(q) || (d.doc_title || '').toLowerCase().includes(q)
-    const matchesType = typeFilter === 'all' || (d.doc_id || '').toUpperCase().includes(typeFilter)
-    const matchesDomain = domainFilter === 'all' || (d.domain || '').toUpperCase() === domainFilter
-    return matchesSearch && matchesType && matchesDomain
-  })
-
-  return (
-    <div>
-      <div className="card" style={{ marginBottom: 24, padding: '16px 20px', display: 'flex', gap: 16, alignItems: 'center', background: 'rgba(21, 152, 204, 0.05)' }}>
-        <div style={{ flex: 1, position: 'relative' }}>
-          <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
-          <input
-            type="text" placeholder="Search by Document ID or Title..."
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            style={{ width: '100%', padding: '10px 14px 10px 40px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}
-          />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}>
-            <option value="all">All Types</option><option value="POL">Policies (POL)</option><option value="PROC">Procedures (PROC)</option><option value="FORM">Forms (FORM)</option>
-          </select>
-          <select value={domainFilter} onChange={(e) => setDomainFilter(e.target.value)} style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-primary)', borderRadius: 8, color: 'var(--text-primary)', outline: 'none' }}>
-            <option value="all">All Domains</option><option value="SEC">SEC</option><option value="HRM">HRM</option><option value="GRC">GRC</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="card" style={{ padding: 0, minHeight: 300, display: 'flex', flexDirection: 'column' }}>
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading library…</div>
-        ) : error ? (
-          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
-            <AlertTriangle size={48} style={{ margin: '0 auto 16px', opacity: 0.4, color: '#EF5829' }} />
-            <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Could not load the library</h3>
-            <p style={{ fontSize: '0.85rem', maxWidth: 360, margin: '0 auto 16px', color: '#ff6b6b' }}>{error}</p>
-            <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>Retry</button>
-          </div>
-        ) : docs.length === 0 ? (
-          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
-            <FileText size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-            <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Library Empty</h3>
-            <p style={{ fontSize: '0.85rem', maxWidth: 300, margin: '0 auto' }}>No documents have been uploaded to the GRC Library yet. Use the Upload tab to populate the repository.</p>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>
-            <Search size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
-            <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>No matches</h3>
-            <p style={{ fontSize: '0.85rem', maxWidth: 300, margin: '0 auto' }}>No documents match your current search or filters.</p>
-          </div>
-        ) : (
-          <table className="data-table">
-            <thead><tr><th>Document ID</th><th>Title</th><th>Domain</th><th>Version</th><th>Classification</th><th>Actions</th></tr></thead>
-            <tbody>
-              {filtered.map((d) => (
-                <tr key={d.id}>
-                  <td style={{ fontFamily: 'monospace' }}>{d.doc_id}</td>
-                  <td>{d.doc_title}</td>
-                  <td>{d.domain || '—'}</td>
-                  <td>v{d.version}</td>
-                  <td>{d.classification || '—'}</td>
-                  <td>
-                    <button className="btn btn-ghost btn-sm" disabled={downloadingId === d.id} onClick={() => handleDownload(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <Download size={14} /> {downloadingId === d.id ? 'Preparing…' : 'Download'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  )
+  return <PolicyLibrary />
 }
 
 // Category + domain dropdowns compose the canonical doc_id format the backend
@@ -237,10 +113,67 @@ function UploadTab() {
   const [uploadResults, setUploadResults] = useState([])
   const [uploadError, setUploadError] = useState('')
   const fileRef = useRef(null)
+  const idCounter = useRef(0)
+
+  const fileToBase64 = (f) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onerror = reject
+    reader.readAsDataURL(f)
+  })
+
+  // AI auto-mapping: read the file's OWN text and pre-fill the metadata form so the
+  // operator reviews instead of typing. Strictly grounded server-side — fields the
+  // document doesn't state come back empty and are flagged, never invented.
+  const autoMapFile = async (uid, file) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const base64 = await fileToBase64(file)
+      const res = await fetch(EXTRACT_GRC_METADATA_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_base64: base64, file_format: file.name.split('.').pop().toLowerCase(), filename: file.name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setFilesData(prev => prev.map(fd => {
+        if (fd._id !== uid) return fd
+        if (!res.ok || !data.success || !data.extracted) {
+          return { ...fd, extracting: false, aiSuggested: false, aiNote: data?.reason || data?.error || 'AI could not read this file — please enter the details manually.' }
+        }
+        const s = data.suggestions || {}
+        const cat = s.suggested_category || fd.category
+        const dom = s.suggested_domain || fd.domain
+        const composedId = (cat && dom) ? `DTLK-${cat}-${dom}-${String(fd.sequence || '001').padStart(3, '0')}` : fd.doc_id
+        const tags = (s.framework_tags && s.framework_tags.length) ? s.framework_tags.join(', ') : fd.framework_tags
+        return {
+          ...fd,
+          extracting: false,
+          aiSuggested: true,
+          aiMissing: data.missing || [],
+          aiNote: '',
+          doc_title: s.doc_title || fd.doc_title,
+          category: cat,
+          domain: dom,
+          doc_id: (fd.doc_id && !DOC_ID_RE.test(fd.doc_id)) ? fd.doc_id : composedId,
+          classification: s.classification || fd.classification,
+          effective_date: s.effective_date || fd.effective_date,
+          next_review_date: s.next_review_date || fd.next_review_date,
+          owner: s.owner || fd.owner,
+          approver: s.approver || fd.approver,
+          regulatory_basis: s.regulatory_basis || fd.regulatory_basis,
+          framework_tags: tags,
+          one_line_summary: s.one_line_summary || fd.one_line_summary,
+        }
+      }))
+    } catch {
+      setFilesData(prev => prev.map(fd => fd._id === uid ? { ...fd, extracting: false, aiSuggested: false, aiNote: 'AI mapping failed — please enter the details manually.' } : fd))
+    }
+  }
 
   const onFiles = (fileList) => {
     if (!fileList || fileList.length === 0) return
     const newFiles = []
+    const toMap = []
     let err = ''
     Array.from(fileList).forEach(f => {
       const valid = /\.(pdf|docx|doc|xlsx|md)$/i.test(f.name)
@@ -257,7 +190,11 @@ function UploadTab() {
         const title = titleRaw || f.name.replace(/\.[^/.]+$/, "")
         // Pre-fill category + domain from a detected id so the dropdowns line up.
         const [, , detCat, detDom] = (detectedId.match(/^DTLK-([A-Z]+)-([A-Z]+)-/) || []) // weird tuple destructure to make linter happy
+        const uid = ++idCounter.current
+        // AI mapping runs for text-bearing formats; xlsx has no text extractor → manual.
+        const willMap = /\.(pdf|docx|doc|md)$/i.test(f.name)
         newFiles.push({
+          _id: uid,
           file: f,
           doc_id: detectedId,
           doc_title: title,
@@ -267,13 +204,27 @@ function UploadTab() {
           update_type: 'minor',
           classification: 'Internal',
           change_summary: '',
+          effective_date: '',
+          next_review_date: '',
+          owner: '',
+          approver: '',
+          regulatory_basis: '',
+          framework_tags: '',
+          one_line_summary: '',
+          extracting: willMap,
+          aiSuggested: false,
+          aiMissing: [],
+          aiNote: willMap ? '' : 'No text extractor for this format — please enter details manually.',
         })
+        if (willMap) toMap.push({ uid, file: f })
       }
     })
     if (err) setUploadError(err)
     if (newFiles.length > 0) {
       setFilesData(prev => [...prev, ...newFiles])
       setUploadError('')
+      // Kick off AI mapping after state commit.
+      toMap.forEach(({ uid, file }) => autoMapFile(uid, file))
     }
   }
 
@@ -341,6 +292,13 @@ function UploadTab() {
           update_type: fd.update_type,
           classification: fd.classification,
           change_summary: fd.change_summary || '',
+          // AI-mapped (operator-confirmed) metadata — backend already stores these.
+          effective_date: fd.effective_date || null,
+          next_review_date: fd.next_review_date || null,
+          owner: fd.owner || '',
+          approver: fd.approver || '',
+          regulatory_basis: fd.regulatory_basis || '',
+          framework_tags: (fd.framework_tags || '').split(',').map(t => t.trim()).filter(Boolean),
           file_base64: base64,
           file_format: fileExt
         };
@@ -400,6 +358,30 @@ function UploadTab() {
                 </div>
                 <button type="button" onClick={() => handleRemove(idx)} style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer' }}><X size={18} /></button>
               </div>
+
+              {fd.extracting && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 12, background: 'rgba(21,152,204,0.1)', border: '1px solid rgba(21,152,204,0.3)', borderRadius: 6, color: 'var(--sky)', fontSize: '0.8rem' }}>
+                  <Sparkles size={14} /> Reading the document and mapping its metadata…
+                </div>
+              )}
+              {fd.aiSuggested && !fd.extracting && (
+                <div style={{ padding: '8px 12px', marginBottom: 12, background: 'rgba(52,191,58,0.1)', border: '1px solid rgba(52,191,58,0.3)', borderRadius: 6, color: '#34BF3A', fontSize: '0.8rem' }}>
+                  <Sparkles size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                  AI-suggested from the document — please review before uploading.
+                  {fd.one_line_summary ? <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: 4 }}>“{fd.one_line_summary}”</span> : null}
+                  {Array.isArray(fd.aiMissing) && fd.aiMissing.length > 0 && (
+                    <span style={{ display: 'block', color: '#F39C12', marginTop: 4 }}>
+                      Not found in the document (please confirm): {fd.aiMissing.join(', ')}
+                    </span>
+                  )}
+                </div>
+              )}
+              {fd.aiNote && !fd.extracting && (
+                <div style={{ padding: '8px 12px', marginBottom: 12, background: 'rgba(243,156,18,0.1)', border: '1px solid rgba(243,156,18,0.3)', borderRadius: 6, color: '#F39C12', fontSize: '0.8rem' }}>
+                  <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />{fd.aiNote}
+                </div>
+              )}
+
               <div className="grid-2" style={{ gap: 12 }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label>Category</label>
@@ -437,6 +419,30 @@ function UploadTab() {
                   <select className="input" value={fd.classification} onChange={e => updateFileData(idx, 'classification', e.target.value)}>
                     <option>Public</option><option>Internal</option><option>Confidential</option><option>Restricted</option>
                   </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Effective Date</label>
+                  <input type="date" className="input" value={fd.effective_date} onChange={e => updateFileData(idx, 'effective_date', e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Next Review / Expiry Date <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>(drives the agent's expiry checks)</span></label>
+                  <input type="date" className="input" value={fd.next_review_date} onChange={e => updateFileData(idx, 'next_review_date', e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Owner</label>
+                  <input type="text" className="input" placeholder="e.g. CISO / HR Manager" value={fd.owner} onChange={e => updateFileData(idx, 'owner', e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Approver</label>
+                  <input type="text" className="input" placeholder="e.g. CEO" value={fd.approver} onChange={e => updateFileData(idx, 'approver', e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Regulatory Basis</label>
+                  <input type="text" className="input" placeholder="e.g. NCA ECC-1:2018, PDPL" value={fd.regulatory_basis} onChange={e => updateFileData(idx, 'regulatory_basis', e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Framework Tags <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>(comma-separated)</span></label>
+                  <input type="text" className="input" placeholder="e.g. SAMA CSF, ISO 27001" value={fd.framework_tags} onChange={e => updateFileData(idx, 'framework_tags', e.target.value)} />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label>Update Type <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>(used when doc_id already exists — backend bumps version)</span></label>

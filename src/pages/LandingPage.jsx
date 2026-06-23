@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { signInWithPopup, GoogleAuthProvider, OAuthProvider } from 'firebase/auth'
+import { signInWithPopup, GoogleAuthProvider, OAuthProvider, getMultiFactorResolver, TotpMultiFactorGenerator } from 'firebase/auth'
 import { auth, GENERATE_PASSWORD_RESET_URL } from '../lib/firebase'
 import { signInWithEmail, resolveUserRole, signOut, CEO_EMAIL } from '../lib/auth'
 import { homePathForRole } from '../lib/routes'
@@ -47,6 +47,10 @@ export default function LandingPage() {
   const [notice, setNotice] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  // MFA (TOTP) sign-in challenge — only set when an enrolled user must provide a
+  // second factor. Inert otherwise (no one is enrolled until MFA is switched on).
+  const [mfaResolver, setMfaResolver] = useState(null)
+  const [mfaCode, setMfaCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [unconfigured, setUnconfigured] = useState(false)
   const [signedInEmail, setSignedInEmail] = useState('')
@@ -83,7 +87,28 @@ export default function LandingPage() {
       await signInWithEmail(email, password)
       // Navigation is handled by the onAuthStateChanged listener above.
     } catch (err) {
+      if (String(err?.code) === 'auth/multi-factor-auth-required') {
+        // Enrolled user — present the TOTP challenge instead of an error.
+        setMfaResolver(getMultiFactorResolver(auth, err))
+        setSubmitting(false)
+        return
+      }
       setAuthError(friendlyAuthError(err))
+      setSubmitting(false)
+    }
+  }
+
+  const handleMfaVerify = async (e) => {
+    e.preventDefault()
+    if (!mfaResolver || mfaCode.length < 6) return
+    setSubmitting(true); setAuthError('')
+    try {
+      const hint = mfaResolver.hints.find(h => h.factorId === TotpMultiFactorGenerator.FACTOR_ID) || mfaResolver.hints[0]
+      const assertion = TotpMultiFactorGenerator.assertionForSignIn(hint.uid, mfaCode.trim())
+      await mfaResolver.resolveSignIn(assertion)
+      // Navigation handled by the onAuthStateChanged listener.
+    } catch {
+      setAuthError('Incorrect or expired code — enter the current 6-digit code.')
       setSubmitting(false)
     }
   }
@@ -200,6 +225,21 @@ export default function LandingPage() {
             Forgot password?
           </button>
         </form>
+
+        {mfaResolver && (
+          <form onSubmit={handleMfaVerify} style={{ marginBottom: 18, textAlign: 'left' }}>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem', marginBottom: 8 }}>Two-factor required — enter the 6-digit code from your authenticator app:</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input inputMode="numeric" maxLength={6} value={mfaCode} autoFocus
+                onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))} placeholder="123456"
+                style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, color: '#fff', fontSize: '1rem', letterSpacing: '0.3em', outline: 'none' }} />
+              <button type="submit" disabled={submitting || mfaCode.length < 6}
+                style={{ padding: '12px 20px', border: 'none', borderRadius: 10, background: '#34BF3A', color: '#fff', fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: (submitting || mfaCode.length < 6) ? 0.6 : 1 }}>
+                {submitting ? 'Verifying…' : 'Verify'}
+              </button>
+            </div>
+          </form>
+        )}
 
         {SSO_ENABLED && (<>
         {/* Divider */}

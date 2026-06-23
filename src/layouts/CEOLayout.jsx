@@ -4,7 +4,7 @@ import { useRiyadhTime } from '../hooks/useUtils'
 import {
   Zap, BarChart3, Users, DollarSign, FileText, CheckSquare,
   Shield, TrendingUp, Bell, Settings, ChevronLeft, ChevronRight,
-  Search, Bot, Inbox, LogOut, FolderKanban, Lock, Library, Building2, ShieldCheck,
+  Search, Bot, Inbox, LogOut, FolderKanban, Lock, Library, Building2, ShieldCheck, Trash2,
 } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
 import { db } from '../lib/firebase'
@@ -106,6 +106,7 @@ const navItems = [
   { icon: Shield,       label: 'Compliance',          path: '/ceo/compliance' },
   { icon: Users,        label: 'Training Matrix',     path: '/ceo/training' },
   { icon: Library,      label: 'Policy Library',      path: '/ceo/policies' },
+  { icon: Bot,          label: 'GRC Assistant',       path: '/ceo/grc-agent' },
   { icon: TrendingUp,   label: 'Analytics',           path: '/ceo/analytics' },
   { icon: BarChart3,    label: 'Monthly Reports',     path: '/ceo/reports' },
   { icon: Bot,          label: 'AI Operations',       path: '/ceo/ai-ops' },
@@ -113,6 +114,7 @@ const navItems = [
   { icon: Settings,     label: 'System Health',       path: '/ceo/system' },
   { icon: Lock,         label: 'Admin Panel',         path: '/ceo/admin' },
   { icon: ShieldCheck,  label: 'Audit Export',        path: '/ceo/audit-export' },
+  { icon: Trash2,       label: 'Recycle Bin',         path: '/ceo/recycle-bin' },
 ]
 
 export default function CEOLayout() {

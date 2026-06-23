@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { auth, db } from '../../lib/firebase'
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, addDoc, query, where, serverTimestamp } from 'firebase/firestore'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 import { Link } from 'react-router-dom'
 import { Users, Shield, Grid3X3, Plus, X, CheckCircle, Loader, AlertTriangle, ScrollText, Search } from 'lucide-react'
 import AuthAccountAudit from '../../components/AuthAccountAudit'
@@ -89,7 +90,7 @@ export default function Admin() {
         getDocs(collection(db, 'clients')),
       ])
       setState({
-        users: usersSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        users: usersSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notDeleted),
         roles: rolesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
         access_matrix: matrixSnap.docs.reduce((acc, d) => { acc[d.id] = d.data(); return acc }, {}),
         clients: clientsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
@@ -376,10 +377,10 @@ export default function Admin() {
                               <button
                                 style={{ ...s.btn('sm'), background: 'rgba(239,88,41,0.15)', color: '#fb923c' }}
                                 onClick={async () => {
-                                  if (window.confirm('Delete user from database? This cannot be undone.')) {
+                                  if (window.confirm('Delete this user?\n\nIt moves to the Recycle Bin and can be restored by an admin — not permanently deleted.')) {
                                     try {
-                                      await deleteDoc(doc(db, 'users', u.id))
-                                      showToast('User deleted')
+                                      await softDelete('users', u.id)
+                                      showToast('User moved to Recycle Bin')
                                       await loadState()
                                     } catch (e) { setError(e.message) }
                                   }

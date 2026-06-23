@@ -1,24 +1,26 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { collection, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore'
-import { auth, db, GENERATE_PDF_URL, SEND_TIMESHEET_TO_CLIENT_URL, ASSEMBLE_PROJECT_TIMESHEET_URL } from '../../lib/firebase'
+import { auth, db, GENERATE_PDF_URL, ASSEMBLE_PROJECT_TIMESHEET_URL, CTO_SIGN_PROJECT_TIMESHEET_URL } from '../../lib/firebase'
 import { useAccessProfile } from '../../hooks/useAccessProfile'
-import { Calendar, Plus, Trash2, Loader, Check, CalendarDays, FileDown, RefreshCw } from 'lucide-react'
+import { Calendar, Plus, Trash2, Loader, Check, CalendarDays, FileDown, RefreshCw, PenLine } from 'lucide-react'
 
-// Client project timesheet — AUTO-ASSEMBLED from the canonical `timesheets`
-// (engineers' submissions), rows keyed by POSITION (never names). HR/CTO review +
-// add additional-billable (billed UNDER a position) → send to client → client signs.
+// Client project timesheet — CTO-owned (CEO overrides; CTO role is vacant). HR does
+// NOTHING here (CEO directive 2026-06-21). The monthly grid AUTO-ASSEMBLES from the
+// engineers' own submitted timesheets, rows keyed by POSITION (never names). The CTO
+// reviews + (optionally) adds additional-billable, then SIGNS — one action that records
+// internal sign-off evidence AND emails the client the sign link. Client signs → invoice.
 const NAVY = '#022873'
 const STATUS = { INHOUSE: { label: 'In house', color: '#C6EFCE' }, REMOTE: { label: 'Remote', color: '#FFCCCC' }, LEAVE: { label: 'Leave', color: '#BDD7EE' } }
 const GREY = '#D9D9D9'
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const STATE_LABEL = { DRAFT: 'Assembled (draft)', SUBMITTED: 'Submitted', CTO_APPROVED: 'Internally approved', SENT_TO_CLIENT: 'Sent to client', CLIENT_SIGNED: 'Client signed', INVOICED: 'Invoiced' }
+const STATE_LABEL = { DRAFT: 'Assembled (awaiting CTO sign-off)', SUBMITTED: 'Awaiting CTO sign-off', CTO_APPROVED: 'CTO signed', SENT_TO_CLIENT: 'Sent to client', CLIENT_SIGNED: 'Client signed', INVOICED: 'Invoiced' }
 const daysInMonth = (y, m) => new Date(y, m, 0).getDate()
 const pad2 = (n) => String(n).padStart(2, '0')
 const isWeekend = (y, m, d) => { const wd = new Date(y, m - 1, d).getDay(); return wd === 5 || wd === 6 }
 
-export default function HRProjectTimesheets() {
+export default function CTOProjectTimesheets() {
   const { profile } = useAccessProfile()
-  const canReview = ['ceo', 'cto'].includes(profile?.role_id)
+  const canSign = ['ceo', 'cto'].includes(profile?.role_id)
   const me = auth.currentUser?.email || ''
   const now = new Date()
 
@@ -32,6 +34,9 @@ export default function HRProjectTimesheets() {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [signModal, setSignModal] = useState(false)
+  const [signName, setSignName] = useState('')
+  const [signAffirm, setSignAffirm] = useState(false)
 
   const project = projects.find(p => p.id === projectId)
   const docId = projectId ? `${projectId}_${year}-${pad2(month)}` : ''
@@ -41,7 +46,8 @@ export default function HRProjectTimesheets() {
   const blocked = (d) => isWeekend(year, month, d) || isHol(d)
   const rows = ts?.rows || []
   const positions = useMemo(() => [...new Set(rows.map(r => r.role).filter(Boolean))], [rows])
-  const canEditExtras = canReview && ts && ['DRAFT', 'SUBMITTED'].includes(ts.state)
+  const isDraft = ts && ['DRAFT', 'SUBMITTED'].includes(ts.state)
+  const canEditExtras = canSign && isDraft
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'projects'), s => setProjects(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {})
@@ -49,20 +55,9 @@ export default function HRProjectTimesheets() {
     return () => { u1(); u2() }
   }, [])
 
-  const load = useCallback(() => {
-    if (!docId) { setTs(undefined); return }
-    setLoading(true); setMsg('')
-    getDoc(doc(db, 'project_timesheets', docId)).then(snap => {
-      if (snap.exists()) { const d = snap.data(); setTs(d); setExtras(d.additional_billable || []) }
-      else { setTs(null); setExtras([]) }
-      setLoading(false)
-    }).catch(e => { setMsg(e.message); setLoading(false) })
-  }, [docId])
-  useEffect(() => { load() }, [load])
-
-  const assemble = async () => {
+  const assemble = useCallback(async (silent) => {
     if (!projectId) return
-    setBusy(true); setMsg('')
+    if (!silent) { setBusy(true); setMsg('') }
     try {
       const token = await auth.currentUser.getIdToken()
       const res = await fetch(ASSEMBLE_PROJECT_TIMESHEET_URL, {
@@ -71,10 +66,27 @@ export default function HRProjectTimesheets() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
-      setMsg(data.rows === 0 ? 'No approved engineer timesheets found for this project/month.' : `Assembled ${data.rows} position row(s) from submitted timesheets.`)
-      load()
-    } catch (e) { setMsg('Assemble failed: ' + e.message) } finally { setBusy(false) }
-  }
+      if (!silent) setMsg(data.rows === 0 ? 'No submitted engineer timesheets found for this project/month yet.' : `Synced ${data.rows} position row(s) from engineer submissions.`)
+      return data
+    } catch (e) { if (!silent) setMsg('Sync failed: ' + e.message) } finally { if (!silent) setBusy(false) }
+  }, [projectId, year, month])
+
+  const load = useCallback(async () => {
+    if (!docId) { setTs(undefined); return }
+    setLoading(true); setMsg('')
+    try {
+      // Auto-assemble: the CTO never clicks "assemble" — opening a project/month
+      // (re)syncs the draft from engineers' submissions. Only when nothing has been
+      // sent/signed yet (server preserves SENT/SIGNED state on re-assemble).
+      const snap0 = await getDoc(doc(db, 'project_timesheets', docId))
+      const st = snap0.exists() ? snap0.data().state : null
+      if (!st || ['DRAFT', 'SUBMITTED'].includes(st)) await assemble(true)
+      const snap = await getDoc(doc(db, 'project_timesheets', docId))
+      if (snap.exists()) { const d = snap.data(); setTs(d); setExtras(d.additional_billable || []) }
+      else { setTs(null); setExtras([]) }
+    } catch (e) { setMsg(e.message) } finally { setLoading(false) }
+  }, [docId, assemble])
+  useEffect(() => { load() }, [load])
 
   const rowTotal = (r) => Object.entries(r.days || {}).filter(([d, v]) => (v === 'INHOUSE' || v === 'REMOTE') && !blocked(Number(d))).length
   const rowLeave = (r) => Object.values(r.days || {}).filter(v => v === 'LEAVE').length
@@ -83,26 +95,33 @@ export default function HRProjectTimesheets() {
   const setExtra = (i, f, v) => setExtras(x => x.map((e, j) => j === i ? { ...e, [f]: v } : e))
   const removeExtra = (i) => setExtras(x => x.filter((_, j) => j !== i))
 
-  const save = async (extra = {}) => {
+  const saveExtras = async () => {
     setBusy(true); setMsg('')
     try {
-      await updateDoc(doc(db, 'project_timesheets', docId), { additional_billable: extras, updated_at: serverTimestamp(), updated_by: me, ...extra })
-      setTs(t => ({ ...t, additional_billable: extras, ...extra })); setMsg('Saved.')
+      await updateDoc(doc(db, 'project_timesheets', docId), { additional_billable: extras, updated_at: serverTimestamp(), updated_by: me })
+      setTs(t => ({ ...t, additional_billable: extras })); setMsg('Saved.')
     } catch (e) { setMsg('Save failed: ' + e.message) } finally { setBusy(false) }
   }
-  const submit = () => save({ state: 'SUBMITTED', submitted_by: me, submitted_at: serverTimestamp() })
-  const approve = () => save({ state: 'CTO_APPROVED', cto_approved_by: me, cto_approved_at: serverTimestamp() })
 
-  const sendToClient = async () => {
-    if (!window.confirm('Send this approved timesheet to the client for signature (secure email link)?')) return
+  const openSign = () => { setSignName(profile?.full_name || me); setSignAffirm(false); setSignModal(true) }
+  const signAndSend = async () => {
     setBusy(true); setMsg('')
     try {
+      // Persist any unsaved extras first so the signed sheet is what the CTO sees.
+      await updateDoc(doc(db, 'project_timesheets', docId), { additional_billable: extras, updated_at: serverTimestamp(), updated_by: me }).catch(() => {})
       const token = await auth.currentUser.getIdToken()
-      const res = await fetch(SEND_TIMESHEET_TO_CLIENT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ docId }) })
-      const data = await res.json(); if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
-      setTs(t => ({ ...t, state: 'SENT_TO_CLIENT' })); setMsg('Sent to ' + data.sent_to + '.')
-    } catch (e) { setMsg('Send failed: ' + e.message) } finally { setBusy(false) }
+      const res = await fetch(CTO_SIGN_PROJECT_TIMESHEET_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ docId, signer_name: signName.trim(), affirm: signAffirm }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`)
+      setSignModal(false)
+      setMsg(data.sent ? `Signed and sent to ${data.sent_to} for signature.` : (data.error || 'Signed internally.'))
+      load()
+    } catch (e) { setMsg('Sign failed: ' + e.message) } finally { setBusy(false) }
   }
+
   const downloadPdf = async () => {
     setBusy(true); setMsg('')
     try {
@@ -123,7 +142,7 @@ export default function HRProjectTimesheets() {
       <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: NAVY, display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 4px' }}>
         <Calendar size={20} color="#1598CC" /> Project Timesheets
       </h1>
-      <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 18px' }}>Auto-built from engineers’ submitted timesheets · reviewed by CTO/CEO · signed by the client. Rows are positions, not names.</p>
+      <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 18px' }}>Auto-built from engineers’ submitted timesheets · reviewed &amp; signed by the CTO (CEO overrides) · then signed by the client. Rows are positions, not names.</p>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 18 }}>
         <select style={sel} value={projectId} onChange={e => setProjectId(e.target.value)}>
@@ -132,13 +151,13 @@ export default function HRProjectTimesheets() {
         </select>
         <select style={sel} value={month} onChange={e => setMonth(Number(e.target.value))}>{MONTHS.map((mn, i) => <option key={mn} value={i + 1}>{mn}</option>)}</select>
         <select style={sel} value={year} onChange={e => setYear(Number(e.target.value))}>{[year - 1, year, year + 1].map(y => <option key={y} value={y}>{y}</option>)}</select>
-        {projectId && <button onClick={assemble} disabled={busy} style={primaryBtn(busy)}><RefreshCw size={14} /> {ts ? 'Re-assemble' : 'Assemble from timesheets'}</button>}
-        <HolidayManager holidays={holidays} canEdit={canReview || profile?.role_id === 'hr'} onAdd={addHoliday} onRemove={removeHoliday} />
+        {projectId && isDraft && <button onClick={() => assemble(false)} disabled={busy} style={ghostBtn}><RefreshCw size={14} /> Re-sync from engineers</button>}
+        <HolidayManager holidays={holidays} canEdit={canSign} onAdd={addHoliday} onRemove={removeHoliday} />
       </div>
 
       {!projectId ? <Empty>Select a project and month.</Empty>
         : loading ? <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}><Loader size={24} className="spin" /><style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{100%{transform:rotate(360deg)}}`}</style></div>
-        : ts === null ? <Empty>No timesheet yet for {project?.project_name} · {MONTHS[month - 1]} {year}. Click <b>Assemble from timesheets</b> to build it from engineers’ submissions.</Empty>
+        : ts === null ? <Empty>No engineer submissions for {project?.project_name} · {MONTHS[month - 1]} {year} yet. The sheet builds itself once engineers submit their timesheets for this month.</Empty>
         : ts ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -152,7 +171,7 @@ export default function HRProjectTimesheets() {
             </div>
 
             <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
-              {rows.length === 0 ? <div style={{ padding: 24, color: '#94a3b8', textAlign: 'center' }}>No approved engineer timesheets for this period yet.</div> : (
+              {rows.length === 0 ? <div style={{ padding: 24, color: '#94a3b8', textAlign: 'center' }}>No engineer submissions for this period yet.</div> : (
                 <table style={{ borderCollapse: 'collapse', fontSize: '0.72rem', width: '100%' }}>
                   <thead><tr style={{ background: NAVY, color: '#fff' }}>
                     <th style={{ padding: '8px 10px', textAlign: 'left', position: 'sticky', left: 0, background: NAVY, minWidth: 150 }}>{ts.period_label}</th>
@@ -175,10 +194,10 @@ export default function HRProjectTimesheets() {
               )}
             </div>
 
-            {/* Additional billable — billed UNDER a position */}
+            {/* Additional billable — billed UNDER a position, added at CTO review */}
             <div style={{ ...cardStyle, marginTop: 16 }}>
               <div style={{ fontSize: '0.92rem', fontWeight: 700, color: NAVY, marginBottom: 4 }}>Additional billable items</div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: 10 }}>Client-requested extras (travel, ad-hoc services) — billed <b>under a position</b> (e.g. Data Governance), added at CTO/CEO review. The client signs to these too.</div>
+              <div style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: 10 }}>Client-requested extras (travel, ad-hoc services) — billed <b>under a position</b>, added at CTO/CEO review. The client signs to these too.</div>
               {extras.length === 0 && <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: 8 }}>None.</div>}
               {extras.map((e, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
@@ -196,22 +215,45 @@ export default function HRProjectTimesheets() {
                 </div>
               ))}
               {canEditExtras && <button onClick={addExtra} style={ghostBtn}><Plus size={13} /> Add billable item</button>}
-              {!canReview && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Only the CTO/CEO can add these (at review).</div>}
+              {!canSign && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Only the CTO/CEO can review and sign timesheets.</div>}
             </div>
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
-              {canEditExtras && <button onClick={() => save()} disabled={busy} style={ghostBtn}>Save extras</button>}
+              {canEditExtras && <button onClick={saveExtras} disabled={busy} style={ghostBtn}>Save extras</button>}
               <button onClick={downloadPdf} disabled={busy} style={ghostBtn}><FileDown size={14} /> Download PDF</button>
-              {ts.state === 'DRAFT' && <button onClick={submit} disabled={busy} style={primaryBtn(busy)}>Submit for review</button>}
-              {ts.state === 'SUBMITTED' && canReview && <button onClick={approve} disabled={busy} style={{ ...primaryBtn(busy), background: '#34BF3A' }}><Check size={14} /> Approve (CTO/CEO)</button>}
-              {ts.state === 'SUBMITTED' && !canReview && <span style={{ fontSize: '0.78rem', color: '#64748b' }}>Awaiting CTO/CEO review.</span>}
-              {ts.state === 'CTO_APPROVED' && <button onClick={sendToClient} disabled={busy} style={primaryBtn(busy)}>Send to client for signature</button>}
-              {ts.state === 'SENT_TO_CLIENT' && <><span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 600 }}>Awaiting client signature{ts.sign_sent_to ? ` (${ts.sign_sent_to})` : ''}.</span><button onClick={sendToClient} disabled={busy} style={ghostBtn}>Resend link</button></>}
-              {ts.state === 'CLIENT_SIGNED' && <span style={{ fontSize: '0.78rem', color: '#15803d', fontWeight: 700 }}>✓ Signed by {ts.client_signer_name || ts.client_signed_by} — ready to invoice.</span>}
-              {msg && <span style={{ fontSize: '0.78rem', color: msg.includes('failed') ? '#C0392B' : '#15803d' }}>{msg}</span>}
+              {isDraft && canSign && <button onClick={openSign} disabled={busy || rows.length === 0} style={primaryBtn(busy || rows.length === 0)}><PenLine size={14} /> Sign &amp; send to client</button>}
+              {ts.state === 'SENT_TO_CLIENT' && <span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 600 }}>Signed by {ts.cto_signer_name || ts.cto_signed_by} · awaiting client signature{ts.sign_sent_to ? ` (${ts.sign_sent_to})` : ''}.</span>}
+              {ts.state === 'CTO_APPROVED' && <span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 600 }}>Signed by {ts.cto_signer_name || ts.cto_signed_by} · no client email on file — add one on the client record.</span>}
+              {ts.state === 'CLIENT_SIGNED' && <span style={{ fontSize: '0.78rem', color: '#15803d', fontWeight: 700 }}><Check size={14} style={{ verticalAlign: -2 }} /> Signed by {ts.client_signer_name || ts.client_signed_by} — ready to invoice.</span>}
+              {msg && <span style={{ fontSize: '0.78rem', color: msg.toLowerCase().includes('fail') ? '#C0392B' : '#15803d' }}>{msg}</span>}
             </div>
           </>
         ) : null}
+
+      {/* ── CTO sign-off modal (typed-name e-signature + affirmation) ── */}
+      {signModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} onClick={() => !busy && setSignModal(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 14, padding: 28, width: '90%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: NAVY, margin: '0 0 6px' }}>Sign &amp; send to client</h3>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 16px' }}>
+              You are approving the <b>{ts?.period_label}</b> timesheet for <b>{ts?.project_name}</b> ({rows.length} position{rows.length === 1 ? '' : 's'}{extras.length ? `, ${extras.length} additional item${extras.length === 1 ? '' : 's'}` : ''}). On confirm it is recorded as internally signed and the client is emailed a secure signature link.
+            </p>
+            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#334155' }}>Your full name (signature)</label>
+            <input value={signName} onChange={e => setSignName(e.target.value)} style={{ ...sel, width: '100%', boxSizing: 'border-box', margin: '6px 0 14px' }} placeholder="e.g. Mohammed Alqumri" />
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.8rem', color: '#334155', cursor: 'pointer' }}>
+              <input type="checkbox" checked={signAffirm} onChange={e => setSignAffirm(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>I confirm I have reviewed this timesheet and approve it on behalf of {ts?.project_name ? 'Datalake Saudi Arabia LLC' : 'the company'} as CTO/CEO.</span>
+            </label>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 22 }}>
+              <button onClick={() => setSignModal(false)} disabled={busy} style={ghostBtn}>Cancel</button>
+              <button onClick={signAndSend} disabled={busy || !signName.trim() || !signAffirm} style={primaryBtn(busy || !signName.trim() || !signAffirm)}>
+                {busy ? 'Signing…' : 'Sign & send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

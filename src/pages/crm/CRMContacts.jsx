@@ -78,7 +78,11 @@ export default function CRMContacts() {
             <tbody>
               {filtered.map(c => (
                 <tr key={c.key} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                  <td style={{ padding: '11px 14px', fontWeight: 600, color: '#0F172A' }}>{c.name}</td>
+                  <td style={{ padding: '11px 14px', fontWeight: 600 }}>
+                    {c.email
+                      ? <Link to={`/crm/contacts/${encodeURIComponent(c.email.toLowerCase())}`} style={{ color: '#022873', textDecoration: 'none' }}>{c.name}</Link>
+                      : <span style={{ color: '#0F172A' }}>{c.name}</span>}
+                  </td>
                   <td style={{ padding: '11px 14px', color: '#475569' }}>{c.company ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Building2 size={13} color="#94a3b8" />{c.company}</span> : '—'}</td>
                   <td style={{ padding: '11px 14px', color: '#475569' }}>
                     {c.email && <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Mail size={12} color="#94a3b8" /><a href={`mailto:${c.email}`} style={{ color: '#1598CC', textDecoration: 'none' }}>{c.email}</a></div>}

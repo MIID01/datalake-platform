@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { collection, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore'
 import { db, auth } from '../../lib/firebase'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 import { Briefcase, MapPin, Plus, Edit2, X, CheckCircle, Clock, Users, DollarSign, FileText, Save, AlertTriangle } from 'lucide-react'
 
 const STATUS_COLORS = {
@@ -24,7 +25,7 @@ export default function HRJobListings() {
   useEffect(() => {
     const q = query(collection(db, 'job_listings'), orderBy('created_at', 'desc'))
     const unsub = onSnapshot(q, snap => {
-      setListings(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setListings(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notDeleted))
       setLoading(false)
     }, err => { console.warn('job_listings error:', err.message); setLoading(false) })
     return () => unsub()
@@ -181,11 +182,10 @@ export default function HRJobListings() {
                     </button>
                   )}
                   <button onClick={async () => {
-                    if (window.confirm('Permanently delete this job listing?')) {
+                    if (window.confirm('Delete this job listing?\n\nIt moves to the Recycle Bin and can be restored by an admin — not permanently deleted.')) {
                       try {
-                        const m = await import('firebase/firestore')
-                        await m.deleteDoc(m.doc(db, 'job_listings', l.id))
-                        setSuccess('Listing deleted')
+                        await softDelete('job_listings', l.id)
+                        setSuccess('Listing moved to Recycle Bin')
                       } catch(err) { setError(err.message) }
                     }
                   }} style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid rgba(192,57,43,0.4)', background: 'transparent', color: '#ef4444', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', fontFamily: 'inherit' }}>

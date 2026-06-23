@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy,
+  collection, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, query, orderBy,
 } from 'firebase/firestore'
 import { db, auth } from '../../lib/firebase'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 import {
   Users, Plus, Search, X, Edit2, Trash2, Save, AlertTriangle, Loader, CheckCircle2,
   Building2, Mail, Phone, FileText, BarChart3,
@@ -73,7 +74,7 @@ export default function CEOClients() {
   useEffect(() => {
     const unsubs = []
     unsubs.push(onSnapshot(query(collection(db, 'clients'), orderBy('client_name')),
-      snap => { setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false) },
+      snap => { setClients(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notDeleted)); setLoading(false) },
       err => { setError(err.message); setLoading(false) },
     ))
     unsubs.push(onSnapshot(collection(db, 'projects'),
@@ -240,8 +241,8 @@ export default function CEOClients() {
                                 alert(`Cannot delete "${c.client_name}" — ${stats.projects} project(s) reference this client. Move or close the projects first.`)
                                 return
                               }
-                              if (window.confirm(`Delete "${c.client_name}"? This cannot be undone.`)) {
-                                try { await deleteDoc(doc(db, 'clients', c.id)); showToast(`Client "${c.client_name}" deleted`) }
+                              if (window.confirm(`Delete "${c.client_name}"?\n\nIt moves to the Recycle Bin and can be restored by an admin — not permanently deleted.`)) {
+                                try { await softDelete('clients', c.id); showToast(`Client "${c.client_name}" moved to Recycle Bin`) }
                                 catch (e) { setError(e.message) }
                               }
                             }}

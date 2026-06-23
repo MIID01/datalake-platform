@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { auth, db, UPLOAD_CONTRACT_PDF_URL, RETRY_CONTRACT_EXTRACTION_URL } from '../../lib/firebase'
 import {
-  collection, onSnapshot, doc, setDoc, updateDoc, addDoc, deleteDoc, query, orderBy,
+  collection, onSnapshot, doc, setDoc, updateDoc, addDoc, query, orderBy,
   serverTimestamp, arrayUnion,
 } from 'firebase/firestore'
 import {
@@ -9,6 +9,8 @@ import {
   Send, RefreshCw, X, Eye, Pencil, Scale, Inbox, ShieldCheck, Trash2,
 } from 'lucide-react'
 import SearchablePicker from '../../components/SearchablePicker'
+import ConfirmModal from '../../components/ConfirmModal'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 
 // Status the contract goes through:
 //   PENDING_EXTRACTION → EXTRACTED → LEGAL_PENDING → LEGAL_APPROVED → ACTIVE
@@ -100,6 +102,7 @@ export default function HRContracts() {
   const [activeId, setActiveId] = useState(null)
   const [reviewFields, setReviewFields] = useState({})
   const [actioning, setActioning] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [toast, setToast] = useState(null)
   const [projects, setProjects] = useState([])
   const fileInputRef = useRef(null)
@@ -107,7 +110,7 @@ export default function HRContracts() {
   useEffect(() => {
     const q = query(collection(db, 'contracts'), orderBy('created_at', 'desc'))
     const unsub = onSnapshot(q,
-      snap => { setContracts(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false) },
+      snap => { setContracts(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notDeleted)); setLoading(false) },
       err => { setLoadError(err.message); setLoading(false) },
     )
     const unsubE = onSnapshot(query(collection(db, 'employees'), orderBy('employee_id')),
@@ -418,17 +421,16 @@ export default function HRContracts() {
     else if (e.type === 'dragleave') setDragActive(false)
   }
 
-  // ─── Delete a contract (unblock a wrong/test upload) ──────────
-  // Removes the Firestore record so it leaves the list and the employee can be
-  // re-mapped to a fresh contract. The uploaded PDF stays in the WORM archive.
-  const handleDeleteContract = async () => {
+  // ─── Soft-delete a contract (unblock a wrong/test upload) ──────────
+  // Marks the record deleted so it leaves the list; an admin can restore it
+  // from the Recycle Bin. The uploaded PDF always stays in the WORM archive.
+  const handleDeleteContract = async (reason) => {
     if (!active) return
-    const who = (active.contract_extracted_fields?.employee_name) || active.linked_employee_name || active.employee_id || 'this employee'
-    if (!window.confirm(`Delete this contract for ${who}?\n\nIt leaves the list and you can upload a new one. The archived PDF is retained for compliance. This cannot be undone.`)) return
     setActioning(true)
     try {
-      await deleteDoc(doc(db, 'contracts', active.id))
-      showToast('Contract deleted — you can upload a new one.')
+      await softDelete('contracts', active.id, { reason })
+      showToast('Contract moved to Recycle Bin — recoverable by an admin.')
+      setConfirmDelete(false)
       setActiveId(null)
     } catch (e) {
       showToast('Delete failed: ' + e.message, 'error')
@@ -532,6 +534,22 @@ export default function HRContracts() {
   // ─── Render ──────────────────────────────────────────────────
   return (
     <div style={styles.page}>
+      <ConfirmModal
+        open={confirmDelete}
+        danger
+        title="Delete this contract?"
+        confirmLabel="Move to Recycle Bin"
+        requireReason
+        busy={actioning}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={handleDeleteContract}
+        message={(
+          <>
+            This removes <strong>{(active?.contract_extracted_fields?.employee_name) || active?.linked_employee_name || active?.employee_id || 'this contract'}</strong> from the list.
+            It is <strong>not permanent</strong> — an admin can restore it from the Recycle Bin, and the signed PDF always stays in the WORM archive.
+          </>
+        )}
+      />
       {toast && (
         <div style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
@@ -730,7 +748,7 @@ export default function HRContracts() {
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button onClick={handleDeleteContract} disabled={actioning} title="Delete this contract"
+              <button onClick={() => setConfirmDelete(true)} disabled={actioning} title="Delete this contract"
                 style={{ background: 'transparent', border: '1px solid rgba(239,88,41,0.5)', color: '#fca5a5', padding: '6px 12px', borderRadius: 8, cursor: actioning ? 'not-allowed' : 'pointer', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <Trash2 size={13} /> Delete
               </button>

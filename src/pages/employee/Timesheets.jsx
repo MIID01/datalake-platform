@@ -621,7 +621,7 @@ export default function Timesheets() {
 
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
                 <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
-                <button className="btn btn-primary" onClick={handleSubmitTimesheet} disabled={submitLoading || totalEnteredHours === 0} style={{ opacity: submitLoading ? 0.7 : 1 }}>
+                <button className="btn btn-success" onClick={handleSubmitTimesheet} disabled={submitLoading || totalEnteredHours === 0} style={{ opacity: submitLoading ? 0.7 : 1 }}>
                   <Send size={16} /> {submitLoading ? 'Submitting...' : 'Submit Timesheet'}
                 </button>
               </div>

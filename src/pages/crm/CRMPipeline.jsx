@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../../lib/firebase'
 import { DEAL_STAGES, OPEN_STAGE_IDS, STAGE_IDS, stageIndex, fmtSar, canDeleteDeals } from '../../lib/deals'
+import { scoreDeal } from '../../lib/scoring'
 import { setDealsArchived } from '../../lib/crm-actions'
 import { useAccessProfile } from '../../hooks/useAccessProfile'
 import AddDealModal from '../../components/AddDealModal'
 import CSVImportModal from '../../components/CSVImportModal'
 import CRMLeadsList from './CRMLeadsList'
 import ConfirmDialog from '../../components/ConfirmDialog'
-import { TrendingUp, Building2, ChevronLeft, ChevronRight, Trophy, X as XIcon, Plus, Upload, LayoutGrid, List, Undo2, CheckCircle2, Trash2 } from 'lucide-react'
+import { TrendingUp, Building2, ChevronLeft, ChevronRight, Trophy, X as XIcon, Plus, Upload, LayoutGrid, List, Undo2, CheckCircle2, Trash2, Search } from 'lucide-react'
+
+const DEAL_SEARCH_FIELDS = ['title', 'company_name', 'contact_name', 'contact_email', 'owner_email']
 
 // Pipeline board — canonical source is the `deals` collection (NOT clients).
 // Deals are created here / via CSV import; stage moves persist on the deal.
@@ -22,6 +25,7 @@ export default function CRMPipeline() {
   const [showAdd, setShowAdd] = useState(false)
   const [showCsv, setShowCsv] = useState(false)
   const [view, setView] = useState('board') // 'board' | 'list'
+  const [q, setQ] = useState('')
   const [lastImport, setLastImport] = useState(null) // { count, batchId, skipped }
   const [undoing, setUndoing] = useState(false)
   const [delDeal, setDelDeal] = useState(null) // deal pending per-card delete
@@ -35,8 +39,17 @@ export default function CRMPipeline() {
     return () => unsub()
   }, [])
 
+  // Search filter (title / company / contact / email / owner). Applied to BOTH
+  // views off the canonical `deals` source — no separate index/store.
+  const search = q.trim().toLowerCase()
+  const matchesSearch = useCallback(
+    (d) => !search || DEAL_SEARCH_FIELDS.some(k => String(d[k] || '').toLowerCase().includes(search)),
+    [search])
+
   // Soft-delete (§2): archived deals never show on the live board.
-  const liveDeals = useMemo(() => deals.filter(d => !d.archived), [deals])
+  const liveDeals = useMemo(() => deals.filter(d => !d.archived && matchesSearch(d)), [deals, matchesSearch])
+  // List view owns its own archived filter; feed it the search-filtered set.
+  const searchedDeals = useMemo(() => deals.filter(matchesSearch), [deals, matchesSearch])
 
   const undoImport = async () => {
     if (!lastImport?.batchId) return
@@ -62,17 +75,19 @@ export default function CRMPipeline() {
   const byStage = useMemo(() => {
     const m = {}; DEAL_STAGES.forEach(s => { m[s.id] = [] })
     liveDeals.forEach(d => { (m[d.stage] || m.NEW).push(d) })
+    // Hottest leads first within each open column (P2 lead score).
+    OPEN_STAGE_IDS.forEach(id => m[id].sort((a, b) => (scoreDeal(b)?.score || 0) - (scoreDeal(a)?.score || 0)))
     return m
   }, [liveDeals])
 
   const totals = useMemo(() => {
-    const open = liveDeals.filter(d => OPEN_STAGE_IDS.includes(d.stage))
+    const open = deals.filter(d => !d.archived && OPEN_STAGE_IDS.includes(d.stage))
     return {
       openCount: open.length,
       openValue: open.reduce((s, d) => s + (Number(d.value_sar) || 0), 0),
-      wonValue: liveDeals.filter(d => d.stage === 'WON').reduce((s, d) => s + (Number(d.value_sar) || 0), 0),
+      wonValue: deals.filter(d => !d.archived && d.stage === 'WON').reduce((s, d) => s + (Number(d.value_sar) || 0), 0),
     }
-  }, [liveDeals])
+  }, [deals])
 
   const move = async (deal, dir, opts = {}) => {
     setUpdating(deal.id)
@@ -101,7 +116,13 @@ export default function CRMPipeline() {
             Deals move through stages with the ‹ / Advance / Won / Lost buttons. (No drag-and-drop yet.) Won links the deal to a client account.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+            <Search size={15} color="var(--text-tertiary)" style={{ position: 'absolute', left: 9, pointerEvents: 'none' }} />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search deals…"
+              style={{ padding: '8px 28px 8px 30px', borderRadius: 8, border: '1px solid var(--border-primary,#E5E7EB)', fontSize: '0.84rem', fontFamily: 'inherit', minWidth: 210, background: 'var(--bg-card,#fff)', color: 'var(--text-primary)' }} />
+            {q && <button onClick={() => setQ('')} title="Clear" style={{ position: 'absolute', right: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', lineHeight: 0, padding: 2 }}><XIcon size={13} /></button>}
+          </div>
           <div style={{ display: 'inline-flex', border: '1px solid var(--border-primary,#E5E7EB)', borderRadius: 8, overflow: 'hidden' }}>
             <button onClick={() => setView('board')} title="Board view" style={toggleBtn(view === 'board')}><LayoutGrid size={15} /> Board</button>
             <button onClick={() => setView('list')} title="List view" style={toggleBtn(view === 'list')}><List size={15} /> List</button>
@@ -130,7 +151,9 @@ export default function CRMPipeline() {
         </div>
       )}
 
-      {view === 'list' ? <CRMLeadsList deals={deals} canDelete={canDelete} /> : ( // list gets ALL deals; it owns the archived filter
+      {search && <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: 10 }}>Showing matches for “<strong>{q}</strong>” · {liveDeals.length} deal{liveDeals.length === 1 ? '' : 's'}</div>}
+
+      {view === 'list' ? <CRMLeadsList deals={searchedDeals} canDelete={canDelete} /> : ( // list owns the archived filter; gets the search-filtered set
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${DEAL_STAGES.length}, minmax(220px, 1fr))`, gap: 12, overflowX: 'auto' }}>
         {DEAL_STAGES.map(stage => (
           <div key={stage.id} style={{ background: 'var(--bg-surface, #f8fafc)', border: '1px solid var(--border-primary, #E5E7EB)', borderRadius: 10, padding: 12, minHeight: 360 }}>
@@ -156,8 +179,12 @@ export default function CRMPipeline() {
                         </button>
                       )}
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <Building2 size={11} /> {d.company_name || '—'} · {fmtSar(d.value_sar)}
+                      {OPEN_STAGE_IDS.includes(stage.id) && (() => {
+                        const s = scoreDeal(d)
+                        return s ? <span title={`Lead score ${s.score}/100 (${s.band})`} style={{ fontSize: '0.62rem', fontWeight: 700, color: s.color, background: s.color + '1A', borderRadius: 5, padding: '1px 6px' }}>{s.score} {s.band}</span> : null
+                      })()}
                     </div>
                     {OPEN_STAGE_IDS.includes(stage.id) && (
                       <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>

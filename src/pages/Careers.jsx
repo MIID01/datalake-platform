@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db, EXTRACT_CV_URL, CLOUD_FUNCTION_URL } from '../lib/firebase'
+import { LEGAL_FOOTER_EN } from '../lib/company-legal'
 import { MapPin, Briefcase, DollarSign, Upload, X, CheckCircle, ArrowLeft, ChevronDown, Loader, Sparkles, FileText, Shield } from 'lucide-react'
 import '../styles/careers.css'
 
@@ -583,7 +584,7 @@ export default function Careers() {
           <a href="#">Terms of Service</a>
           <a href="mailto:privacy@datalake.sa">Contact</a>
         </div>
-        <div>Datalake Saudi Arabia LLC, Riyadh Al-Yarmouk 13243, CR:1009194773 NUN:7048904952</div>
+        <div>{LEGAL_FOOTER_EN}</div>
       </footer>
 
       {/* Success Modal */}

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  collection, collectionGroup, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, query, orderBy,
+  collection, collectionGroup, onSnapshot, addDoc, doc, serverTimestamp, query, orderBy,
 } from 'firebase/firestore'
 import { db, auth } from '../../lib/firebase'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 import { CheckCircle, XCircle, Plus, X, Trash2, AlertTriangle, Loader, GraduationCap } from 'lucide-react'
 
 // Reads training_modules dynamically (no hardcoded list). For each module +
@@ -25,7 +26,7 @@ export default function CEOTraining() {
 
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, 'training_modules'), orderBy('created_at', 'desc')),
-      snap => setModules(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      snap => setModules(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notDeleted)),
       err => setError('Modules: ' + err.message))
     return () => unsub()
   }, [])
@@ -98,10 +99,10 @@ export default function CEOTraining() {
   }
 
   const deleteModule = async (m) => {
-    if (!window.confirm(`Delete module "${m.title}"? Completions stay in audit log.`)) return
+    if (!window.confirm(`Delete module "${m.title}"?\n\nIt moves to the Recycle Bin (restorable by an admin). Completions stay in the audit log.`)) return
     try {
-      await deleteDoc(doc(db, 'training_modules', m.id))
-      showToast('Module deleted')
+      await softDelete('training_modules', m.id)
+      showToast('Module moved to Recycle Bin')
     } catch (err) {
       setError(err.message)
     }

@@ -2,10 +2,15 @@ import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { doc, onSnapshot, collection, query, orderBy, where, addDoc, serverTimestamp, updateDoc, getDocs } from 'firebase/firestore'
 import { auth, db, SEND_DEAL_EMAIL_URL, GENERATE_PDF_URL } from '../../lib/firebase'
-import { DEAL_STAGES, stageMeta, fmtSar, ACTIVITY_TYPES, computeQuoteTotals, quoteStateMeta, canDeleteDeals } from '../../lib/deals'
+import { DEAL_STAGES, stageMeta, fmtSar, computeQuoteTotals, quoteStateMeta, canDeleteDeals } from '../../lib/deals'
+import { normalizeActivity, sortByWhenDesc } from '../../lib/activity'
+import { scoreDeal } from '../../lib/scoring'
 import { setDealsArchived } from '../../lib/crm-actions'
 import { useAccessProfile } from '../../hooks/useAccessProfile'
 import { SignedBadgeList } from '../../components/SignedBadge'
+import ActivityTimeline from '../../components/crm/ActivityTimeline'
+import LogActivity from '../../components/crm/LogActivity'
+import NextSteps from '../../components/crm/NextSteps'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { ArrowLeft, Building2, Mail, Send, Loader, Trophy, FileText, Plus, Trash2 } from 'lucide-react'
 
@@ -38,11 +43,10 @@ export default function CRMDealDetail() {
   const [delBusy, setDelBusy] = useState(false)
   const [delErr, setDelErr] = useState('')
   const [acts, setActs] = useState([])
+  const [tasks, setTasks] = useState([])
+  const [busyTask, setBusyTask] = useState('')
   const [clients, setClients] = useState([])
 
-  const [actType, setActType] = useState('NOTE')
-  const [actBody, setActBody] = useState('')
-  const [savingAct, setSavingAct] = useState(false)
   const [emTo, setEmTo] = useState('')
   const [emSubj, setEmSubj] = useState('')
   const [emBody, setEmBody] = useState('')
@@ -71,6 +75,14 @@ export default function CRMDealDetail() {
     return () => unsub()
   }, [id])
 
+  // Next-step tasks for this deal (canonical crm_tasks). where() only → no composite index.
+  useEffect(() => {
+    const unsub = onSnapshot(query(collection(db, 'crm_tasks'), where('deal_id', '==', id)),
+      s => setTasks(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+      e => console.warn('deal tasks:', e.message))
+    return () => unsub()
+  }, [id])
+
   useEffect(() => { getDocs(collection(db, 'clients')).then(s => setClients(s.docs.map(d => ({ id: d.id, ...d.data() })))).catch(() => {}) }, [])
   useEffect(() => { if (deal && !emTo && deal.contact_email) setEmTo(deal.contact_email) }, [deal]) // eslint-disable-line
 
@@ -84,17 +96,10 @@ export default function CRMDealDetail() {
     return () => unsub()
   }, [id])
 
-  const addActivity = async () => {
-    if (!actBody.trim()) return
-    setSavingAct(true)
-    try {
-      const me = auth.currentUser
-      await addDoc(collection(db, 'deals', id, 'deal_activities'), {
-        type: actType, body: actBody.trim(), created_at: serverTimestamp(), created_by: me?.email || 'unknown', created_by_uid: me?.uid || null,
-      })
-      await updateDoc(doc(db, 'deals', id), { last_activity_at: serverTimestamp() })
-      setActBody('')
-    } catch (e) { alert('Add activity failed: ' + e.message) } finally { setSavingAct(false) }
+  const completeTask = async (t) => {
+    setBusyTask(t.id)
+    try { await updateDoc(doc(db, 'crm_tasks', t.id), { status: 'DONE', done_at: serverTimestamp(), updated_at: serverTimestamp() }) }
+    catch (e) { alert('Complete failed: ' + e.message) } finally { setBusyTask('') }
   }
 
   const sendEmail = async () => {
@@ -213,6 +218,7 @@ export default function CRMDealDetail() {
   if (error) return <div style={{ padding: 24 }}><Link to="/crm/pipeline" style={{ color: '#1598CC' }}>← Pipeline</Link><div style={{ marginTop: 16, color: '#991b1b' }}>{error}</div></div>
 
   const sm = stageMeta(deal.stage)
+  const lead = scoreDeal(deal)
   const needsWonLink = deal.stage === 'WON' && !deal.won_client_id && !deal.client_id
 
   return (
@@ -264,28 +270,45 @@ export default function CRMDealDetail() {
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16, alignItems: 'start' }}>
-        {/* Activity timeline */}
-        <div className="card">
-          <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 10 }}>Activity</div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <select value={actType} onChange={e => setActType(e.target.value)} style={{ ...inp, maxWidth: 120 }}>{ACTIVITY_TYPES.filter(t => t !== 'EMAIL').map(t => <option key={t} value={t}>{t}</option>)}</select>
-            <input value={actBody} onChange={e => setActBody(e.target.value)} placeholder="Log a note / call / meeting / task…" style={inp} onKeyDown={e => e.key === 'Enter' && addActivity()} />
-            <button className="btn btn-primary write-action" onClick={addActivity} disabled={savingAct || !actBody.trim()}>{savingAct ? <Loader size={14} className="spin" /> : 'Add'}</button>
-          </div>
-          {acts.length === 0 ? (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', textAlign: 'center', padding: 16 }}>No activity yet.</div>
-          ) : acts.map(a => (
-            <div key={a.id} style={{ padding: '10px 0', borderTop: '1px solid var(--border-primary, #E5E7EB)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#022873' }}>{a.type}{a.type === 'EMAIL' && a.email_to ? ` → ${a.email_to}` : ''}</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>{a.created_at?.toDate ? a.created_at.toDate().toLocaleString() : ''}</span>
-              </div>
-              {a.type === 'EMAIL' && a.email_subject && <div style={{ fontSize: '0.8rem', fontWeight: 600, marginTop: 2 }}>{a.email_subject}</div>}
-              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 2, whiteSpace: 'pre-wrap' }}>{a.body}</div>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginTop: 2 }}>{a.created_by}</div>
+      {/* Lead score (DTLK-CRM-ENT-001 P2) — explainable; every point traces to a real signal */}
+      {lead && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-secondary)' }}>LEAD SCORE</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {lead.lowSignal && <span style={{ fontSize: '0.68rem', color: '#b45309' }}>low signal — no activity logged yet</span>}
+              <span style={{ fontSize: '1.4rem', fontWeight: 800, color: lead.color }}>{lead.score}</span>
+              <span style={{ padding: '3px 11px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, background: lead.color + '22', color: lead.color }}>{lead.band}</span>
             </div>
-          ))}
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {lead.factors.map(f => (
+              <div key={f.label}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                  <span>{f.label} <span style={{ color: 'var(--text-tertiary)' }}>· {f.note}</span></span>
+                  <span>{f.points}/{f.max}</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg-surface, #f1f5f9)', borderRadius: 4, overflow: 'hidden', marginTop: 2 }}>
+                  <div style={{ width: `${(f.points / f.max) * 100}%`, height: '100%', background: lead.color }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginTop: 8 }}>Computed from real signals on this deal — no AI, every point traceable. Logging activity refreshes recency.</div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16, alignItems: 'start' }}>
+        {/* Activity timeline + logging */}
+        <div className="card">
+          <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 8 }}>Next steps</div>
+          <NextSteps tasks={tasks} onComplete={completeTask} busyId={busyTask} />
+
+          <div style={{ fontSize: '0.9rem', fontWeight: 700, margin: '16px 0 8px' }}>Log activity</div>
+          <LogActivity dealId={id} dealTitle={deal.title} />
+
+          <div style={{ fontSize: '0.9rem', fontWeight: 700, margin: '4px 0 0' }}>Timeline</div>
+          <ActivityTimeline items={acts.map(a => normalizeActivity(a, id, deal.title)).sort(sortByWhenDesc)} />
         </div>
 
         {/* Email composer + contact */}

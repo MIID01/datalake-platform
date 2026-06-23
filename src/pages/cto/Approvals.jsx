@@ -48,12 +48,12 @@ const TYPE_COLOR = {
 }
 
 const AI_STATUS_CFG = {
-  AI_VALID:        { label: 'AI: PASS',        bg: '#eafbe7', color: '#27ae60', border: '#27ae60' },
-  AI_FLAGGED:      { label: 'AI: FLAGGED',     bg: '#fdecea', color: '#C0392B', border: '#C0392B' },
-  AI_INCONCLUSIVE: { label: 'AI: INCONCLUSIVE',bg: '#fff3cd', color: '#F39C12', border: '#F39C12' },
-  // legacy naming
-  PASSED:          { label: 'AI: PASS',        bg: '#eafbe7', color: '#27ae60', border: '#27ae60' },
-  FAILED:          { label: 'AI: FLAGGED',     bg: '#fdecea', color: '#C0392B', border: '#C0392B' },
+  AI_VALID:        { label: 'Checks: PASS',       bg: '#eafbe7', color: '#27ae60', border: '#27ae60' },
+  AI_FLAGGED:      { label: 'Checks: FAILED',     bg: '#fdecea', color: '#C0392B', border: '#C0392B' },
+  AI_INCONCLUSIVE: { label: 'Checks: NEEDS DATA', bg: '#fff3cd', color: '#F39C12', border: '#F39C12' },
+  // legacy naming (older records)
+  PASSED:          { label: 'Checks: PASS',       bg: '#eafbe7', color: '#27ae60', border: '#27ae60' },
+  FAILED:          { label: 'Checks: FAILED',     bg: '#fdecea', color: '#C0392B', border: '#C0392B' },
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -223,7 +223,7 @@ function TimesheetDetail({ ts, showToast }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <Bot size={14} color={aiCfg?.color || '#8898aa'} />
             <span style={{ fontWeight: 700, fontSize: '0.75rem', color: aiCfg?.color || '#8898aa' }}>
-              AI Advisory — pre-screened by Datalake Controller AI
+              Automated validation — deterministic checks (advisory)
             </span>
             {aiCfg && (
               <span style={{ marginLeft: 'auto', padding: '2px 8px', borderRadius: 10, background: aiCfg.bg, color: aiCfg.color, border: `1px solid ${aiCfg.border}`, fontSize: '0.65rem', fontWeight: 700 }}>
@@ -246,7 +246,7 @@ function TimesheetDetail({ ts, showToast }) {
           )}
           {ts.ai_validation_model && (
             <div style={{ marginTop: 6, fontSize: '0.64rem', color: 'var(--text-tertiary)' }}>
-              Model: {ts.ai_validation_model}
+              Checked by: {ts.ai_validation_model}
               {ts.ai_validation_ms ? ` · ${ts.ai_validation_ms}ms` : ''}
               {ts.ai_validated_at ? ` · ${fmtTs(ts.ai_validated_at)}` : ''}
               &nbsp;·&nbsp;<em>Advisory only — the human approver above makes the decision</em>
@@ -388,7 +388,7 @@ export default function Approvals() {
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>Timesheet Approvals</h1>
         <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 4 }}>
-          Review the engineer's submitted entries, then approve or reject. AI pre-screening is advisory only. 48hr SLA before management escalation.
+          Review the engineer's submitted entries, then approve or reject. Automated validation is advisory only. 48hr SLA before management escalation.
         </p>
       </div>
 
@@ -448,7 +448,7 @@ export default function Approvals() {
                       <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: '0.62rem', fontWeight: 600, background: sc.bg, color: sc.color }}>{sc.label}</span>
                       {/* AI badge — clearly labelled as advisory */}
                       {aiCfg && (
-                        <span title={`AI Advisory: ${ts.ai_validation_status}`} style={{
+                        <span title={`Automated checks: ${ts.ai_validation_status}`} style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12,
                           fontSize: '0.62rem', fontWeight: 700, background: aiCfg.bg, color: aiCfg.color, border: `1px solid ${aiCfg.border}30`,
                         }}>
@@ -515,7 +515,7 @@ export default function Approvals() {
               {actionModal.ts.ai_validation_status && (
                 <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                   <Bot size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
-                  AI advisory: {actionModal.ts.ai_validation_status}
+                  Automated checks: {actionModal.ts.ai_validation_status}
                   {actionModal.ts.ai_validation?.issues?.length ? ` · ${actionModal.ts.ai_validation.issues.length} flag(s)` : ''}
                   &nbsp;— advisory only
                 </div>

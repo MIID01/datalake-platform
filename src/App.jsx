@@ -38,6 +38,7 @@ import CEOPayroll from './pages/ceo/CEOPayroll'
 import CEOTickets from './pages/ceo/CEOTickets'
 import CEOTraining from './pages/ceo/CEOTraining'
 import GrcLibrary from './pages/ceo/GrcLibrary'
+import GrcAgentPanel from './pages/ceo/GrcAgentPanel'
 import CEOContracts from './pages/ceo/Contracts'
 import CEOApprovals from './pages/ceo/Approvals'
 import CEOCompliance from './pages/ceo/Compliance'
@@ -53,6 +54,7 @@ import CEOEmployees from './pages/ceo/CEOEmployees'
 import CEOClients from './pages/ceo/CEOClients'
 import CEOMonthlyReports from './pages/ceo/MonthlyReports'
 import CEOAuditExport from './pages/ceo/AuditExport'
+import CEORecycleBin from './pages/ceo/RecycleBin'
 
 // CTO Pages
 import CTODashboard from './pages/cto/Dashboard'
@@ -70,6 +72,7 @@ import EmpTraining from './pages/employee/Training'
 import EmpSupport from './pages/employee/Support'
 import EmpProfile from './pages/employee/Profile'
 import EmployeeBusinessCard from './pages/employee/BusinessCard'
+import EmpPolicies from './pages/employee/Policies'
 import EmployeeOnboarding from './pages/employee/Onboarding'
 
 // HR Pages
@@ -91,8 +94,9 @@ import CRMClientDetail from './pages/crm/CRMClientDetail'
 import CRMPipeline from './pages/crm/CRMPipeline'
 import CRMDashboard from './pages/crm/CRMDashboard'
 import CRMContacts from './pages/crm/CRMContacts'
+import CRMContactDetail from './pages/crm/CRMContactDetail'
 import CRMTasks from './pages/crm/CRMTasks'
-import HRProjectTimesheets from './pages/hr/HRProjectTimesheets'
+import CTOProjectTimesheets from './pages/cto/ProjectTimesheets'
 import CRMCampaigns from './pages/crm/CRMCampaigns'
 import SignTimesheet from './pages/SignTimesheet'
 import ClientSignTimesheets from './pages/client/ClientSignTimesheets'
@@ -132,6 +136,7 @@ export default function App() {
           <Route path="payroll" element={<CEOPayroll />} />
           <Route path="training" element={<CEOTraining />} />
           <Route path="policies" element={<GrcLibrary />} />
+          <Route path="grc-agent" element={<GrcAgentPanel />} />
           <Route path="contracts" element={<CEOContracts />} />
           <Route path="approvals" element={<CEOApprovals />} />
           <Route path="compliance" element={<CEOCompliance />} />
@@ -144,6 +149,7 @@ export default function App() {
           <Route path="admin" element={<CEOAdmin />} />
           <Route path="admin/delegation" element={<CEODelegation />} />
           <Route path="audit-export" element={<CEOAuditExport />} />
+          <Route path="recycle-bin" element={<CEORecycleBin />} />
         </Route>
 
         {/* CTO Portal */}
@@ -151,6 +157,7 @@ export default function App() {
           <Route index element={<CTODashboard />} />
           <Route path="approvals" element={<CTOApprovals />} />
           <Route path="projects" element={<CTOProjects />} />
+          <Route path="timesheets" element={<CTOProjectTimesheets />} />
         </Route>
 
         {/* IT Administration Portal (it_admin) — segregated from CEO /ceo/admin */}
@@ -193,6 +200,7 @@ export default function App() {
           <Route path="support" element={<EmpSupport />} />
           <Route path="profile" element={<EmpProfile />} />
           <Route path="card" element={<EmployeeBusinessCard />} />
+          <Route path="policies" element={<EmpPolicies />} />
           <Route path="*" element={<Navigate to="/employee/dashboard" replace />} />
         </Route>
 
@@ -204,6 +212,7 @@ export default function App() {
           <Route path="clients/:id" element={<CRMClientDetail />} />
           <Route path="pipeline" element={<CRMPipeline />} />
           <Route path="contacts" element={<CRMContacts />} />
+          <Route path="contacts/:email" element={<CRMContactDetail />} />
           <Route path="tasks" element={<CRMTasks />} />
           <Route path="campaigns" element={<CRMCampaigns />} />
           <Route path="deals/:id" element={<CRMDealDetail />} />
@@ -224,7 +233,6 @@ export default function App() {
           <Route path="iqama" element={<HRIqama />} />
           <Route path="scoring" element={<HRScoring />} />
           <Route path="deductions" element={<HRDeductions />} />
-          <Route path="timesheets" element={<HRProjectTimesheets />} />
           <Route path="interview-cv" element={<InterviewCVPrep />} />
           {/* Alias: people naturally type /hr/interview-prep — keep it working */}
           <Route path="interview-prep" element={<Navigate to="/hr/interview-cv" replace />} />

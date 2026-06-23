@@ -3,16 +3,20 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { useRiyadhTime } from '../hooks/useUtils'
 import {
   LayoutDashboard, ClipboardCheck, FolderKanban, Users, BarChart3,
-  ChevronLeft, ChevronRight, Search, Bell, LogOut
+  ChevronLeft, ChevronRight, Search, Bell, LogOut, Calendar
 } from 'lucide-react'
 import { signIn, signOut, onAuthChange } from '../lib/auth'
+import PortalSwitcher from '../components/PortalSwitcher'
 import '../styles/ceo.css'
 
-const CTO_EMAIL = 'cto@datalake.sa'
+// CTO portal access is CEO-only (CTO role is vacant; the CEO acts as CTO). The
+// dormant cto@datalake.sa identity was removed. A real CTO would be gated via RBAC.
+const CEO_EMAIL = 'm.alqumri@datalake.sa'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/cto', end: true },
   { icon: ClipboardCheck, label: 'Timesheet Approvals', path: '/cto/approvals', glow: true },
+  { icon: Calendar, label: 'Project Timesheets', path: '/cto/timesheets' },
   { icon: FolderKanban, label: 'Projects', path: '/cto/projects' },
   { icon: Users, label: 'Team Utilization', path: '/cto/utilization', disabled: true },
   { icon: BarChart3, label: 'Engineer Roster', path: '/cto/roster', disabled: true },
@@ -38,7 +42,7 @@ export default function CTOLayout() {
     setAuthError('')
     try {
       const result = await signIn()
-      if (result.email !== CTO_EMAIL && result.email !== 'm.alqumri@datalake.sa') {
+      if (result.email !== CEO_EMAIL) {
         setAuthError(`Access denied. ${result.email} is not authorized for the CTO portal.`)
         await signOut()
       }
@@ -58,7 +62,7 @@ export default function CTOLayout() {
     )
   }
 
-  if (!user || (user.email !== CTO_EMAIL && user.email !== 'm.alqumri@datalake.sa')) {
+  if (!user || user.email !== CEO_EMAIL) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'linear-gradient(135deg, #0a1628 0%, #1a3a2a 100%)', fontFamily: "'DM Sans', sans-serif" }}>
         <div style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '48px 40px', maxWidth: 420, width: '90%', textAlign: 'center' }}>
@@ -108,6 +112,7 @@ export default function CTOLayout() {
             )
           })}
         </nav>
+        {!collapsed && <PortalSwitcher collapsed={collapsed} theme="dark" />}
         <div className="sidebar-footer">
           <button className="sidebar-collapse-btn" onClick={() => setCollapsed(!collapsed)}>
             {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}

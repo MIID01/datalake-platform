@@ -47,8 +47,8 @@ UID-keyed `users` doc → `users` query by email → hardcoded email fallbacks.
 ### What each role can access
 | Role | Access |
 |---|---|
-| **CEO** (`m.alqumri@datalake.sa`) | Full access to every portal; the only approver for payroll and RBAC role assignment. Cannot change their **own** role (segregation of duties, enforced in `firestore.rules`). |
-| **finance** | `/finance/*` (dashboard, invoices, payroll, expenses, reports). Reads payroll; prepares payroll DRAFTs but **cannot approve**. |
+| **CEO** (`m.alqumri@datalake.sa`) | Full access to every portal; the **final** approver for payroll (`FINANCE_APPROVED → APPROVED`) and the only approver for RBAC role assignment. Cannot change their **own** role (segregation of duties, enforced in `firestore.rules`). |
+| **finance** | `/finance/*` (dashboard, invoices, payroll, expenses, reports). Reads payroll; prepares payroll DRAFTs and gives the **first approval** (`DRAFT → FINANCE_APPROVED`, signature) — but **cannot** give final approval (a signer distinct from the CEO, enforced server-side). |
 | **hr** | `/hr/*` (talent, employees, contracts, Iqama, scoring). Manages employee records; prepares payroll DRAFTs but cannot approve. |
 | **it_admin** | `/admin/*` credential & access management. **Explicitly not the CEO** — credential reset is gated to `it_admin` only (`functions/adminAuth.js`). |
 | **employee** | `/employee/*` — own profile, timesheets, leave, expenses, documents, training, support. Every authenticated user is also an employee. |
@@ -134,7 +134,7 @@ UID-keyed `users` doc → `users` query by email → hardcoded email fallbacks.
 | PDPL alignment | ✅ | Saudi Personal Data Protection Law: in-app **Right to Access** (Art. 15 — "Download My Data" export) and **Right to Erasure** (Art. 18 — deletion request to HR with 30-day SLA) in `src/pages/employee/Profile.jsx`; PDPL consent captured at onboarding with IP + user-agent. |
 | Encryption at rest | ✅ (platform) | Google Cloud default **AES-256** encryption on Firestore, Cloud Storage, and BigQuery. |
 | Encryption in transit | ✅ (platform) | **TLS 1.2+** for all client↔Firebase, client↔Cloud Run, and service↔service traffic. |
-| Self-hosted AI (no external APIs) | ✅ | LLM (Qwen/Ollama), OCR (PaddleOCR), and CV reformatting (`cv-agent`: PaddleOCR + Qwen) all run on self-hosted Cloud Run in `me-central2`. No prompt or candidate data leaves Google Cloud / `me-central2`; **no third-party AI API (Vertex, Gemini, OpenAI, etc.) is called.** cv-agent's prior Vertex-Gemini path was removed 2026-06-08 (Gemini is not reachable in me-central2). |
+| Self-hosted AI (no external APIs) | ✅ | LLM (**Gemma 3** via Ollama — open-weight, self-hosted; model id from the `LLM_MODEL` env so the deployed model and audit label never drift; Qwen 2.5 was retired), OCR (PaddleOCR), and CV reformatting (`cv-agent`: PaddleOCR + Gemma 3) all run on self-hosted Cloud Run in `me-central2`. No prompt or candidate data leaves Google Cloud / `me-central2`; **no third-party AI API (Vertex, Gemini, OpenAI, etc.) is called.** cv-agent's prior Vertex-Gemini path was removed 2026-06-08 (Gemini is not reachable in me-central2). |
 | Secrets management | ✅ | Credentials (Zoho OAuth, etc.) in Google Secret Manager. Gmail uses IAM `signJwt` domain-wide delegation — **no service-account key files**. Integration secrets are masked (`********`) on read in the Admin UI. |
 | WORM storage | ✅ | HR documents in a Write-Once-Read-Many bucket (`datalake-worm-hr`); object delete/overwrite restricted to CEO in `storage.rules`. |
 | Tier-1 PII (salary) | ✅ | No blanket read on `payroll_runs` (see §2 / CAPA-PAY-001). |
@@ -201,7 +201,7 @@ are what is implemented and verifiable in code.)*
 | CAPA | Finding | Resolution | Status |
 |---|---|---|---|
 | **CAPA-PAY-001** | Blanket read exposed all salaries. | `payroll_runs` read restricted to **CEO / finance / HR**. Employees cannot read the collection directly — they retrieve only their own payslip via the `listMyPayslips` Cloud Function, which derives `employee_id` from the verified auth-token email (**caller == subject**, else 403). | ✅ Resolved |
-| **CAPA-PAY-002** | No separation between preparer and approver. | **Segregation of duties:** finance/HR may only create/edit a payroll run while `status == DRAFT` and **cannot** set it to `APPROVED`; **only the CEO** may transition `DRAFT → APPROVED`. | ✅ Resolved |
+| **CAPA-PAY-002** | No separation between preparer and approver. | **Segregation of duties (multi-stage chain):** HR/finance prepare the run while `status == DRAFT`; **Finance** gives the first approval `DRAFT → FINANCE_APPROVED` (signature); the **CEO** gives final approval `FINANCE_APPROVED → APPROVED` (requires the signed payroll register). Each stage is a **distinct signer** and every transition is written **only** by the `recordApproval` Cloud Function (Admin SDK) — no client SDK path can flip status. | ✅ Resolved |
 | **CAPA-PAY-003** | Approval evidence could be altered. | Per-run `approval_evidence` rows are **CEO-only create** and **immutable** (`update, delete: if false`). | ✅ Resolved |
 
 **Verification:** an anonymous REST read of `/payroll_runs` returns `403 PERMISSION_DENIED` after

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Briefcase, Plus, DollarSign, Users, Clock, ChevronDown, CheckCircle, FolderPlus, UserPlus, MapPin, Search, X as XIcon, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 import NewProjectModal from '../../components/NewProjectModal'
 import AssignEngineerModal from '../../components/AssignEngineerModal'
 
@@ -29,7 +30,7 @@ export default function Projects() {
   useEffect(() => {
     try {
       const q = query(collection(db,'projects'), orderBy('created_at','desc'))
-      const unsub = onSnapshot(q, snap => setProjects(snap.docs.map(d=>({id:d.id,...d.data()}))), err => console.warn('Projects listener:', err.message))
+      const unsub = onSnapshot(q, snap => setProjects(snap.docs.map(d=>({id:d.id,...d.data()})).filter(notDeleted)), err => console.warn('Projects listener:', err.message))
       return () => unsub()
     } catch(e) { console.warn(e) }
   }, [])
@@ -211,10 +212,10 @@ export default function Projects() {
                     </button>
                     <button onClick={async (e)=>{
                       e.stopPropagation(); 
-                      if(window.confirm('Delete this project?')) {
+                      if(window.confirm('Delete this project?\n\nIt moves to the Recycle Bin and can be restored by an admin — not permanently deleted.')) {
                         try {
-                          await import('firebase/firestore').then(m => m.deleteDoc(m.doc(db, 'projects', p.id)))
-                          showToast('Project deleted')
+                          await softDelete('projects', p.id)
+                          showToast('Project moved to Recycle Bin')
                         } catch(err) { console.error(err) }
                       }
                     }} className="btn btn-sm" style={{color: 'var(--red)', border: '1px solid var(--red)'}}>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc, query, orderBy, updateDoc, where } from 'firebase/firestore'
+import { softDelete, notDeleted } from '../../lib/soft-delete'
 import { db } from '../../lib/firebase'
 import { Users, Search, Filter, Briefcase, Mail, Phone, ChevronRight, UserPlus, X, Loader, Trash2, Edit2, CheckCircle, Send, Archive, UserMinus, Eye } from 'lucide-react'
 import AddEmployeeModal from '../../components/AddEmployeeModal'
@@ -33,7 +34,7 @@ export default function CEOEmployees() {
   useEffect(() => {
     const q = query(collection(db, 'employees'), orderBy('employee_id'))
     const unsub = onSnapshot(q, snap => {
-      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(notDeleted))
       setLoading(false)
     }, err => { console.warn(err); setLoading(false) })
     const unsubUsers = onSnapshot(collection(db, 'users'), snap => {
@@ -77,8 +78,8 @@ export default function CEOEmployees() {
   }
 
   const handleDelete = async (id) => {
-    if(window.confirm('Delete this employee completely?')) {
-      await deleteDoc(doc(db, 'employees', id))
+    if(window.confirm('Delete this employee?\n\nIt moves to the Recycle Bin and can be restored by an admin — not permanently deleted.')) {
+      await softDelete('employees', id)
     }
   }
 

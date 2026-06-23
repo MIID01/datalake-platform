@@ -6,6 +6,7 @@ import { homePathForRole, portalPrefixForRole } from '../lib/routes'
 import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/firestore'
 import { ShieldAlert, Loader, LogOut } from 'lucide-react'
 import ForcePasswordChange from './ForcePasswordChange'
+import { useSessionTimeout } from '../hooks/useSessionTimeout'
 
 /**
  * AuthGate — Multi-role authentication and routing
@@ -35,6 +36,9 @@ export default function AuthGate({ children }) {
   // Forced first-login password change. null = still checking, true = on a temp
   // password (must change before any portal), false = cleared.
   const [mustChange, setMustChange] = useState(null)
+
+  // Auto sign-out on inactivity (30m) + absolute cap (8h) while signed in.
+  useSessionTimeout(!!uid)
 
   // Step 1: Listen to Firebase Auth state
   useEffect(() => {
