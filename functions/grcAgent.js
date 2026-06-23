@@ -27,6 +27,7 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 const { callLLM, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
 const { canAccess } = require("./grcLibrary");
+const { retrieve } = require("./grcRag");
 
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
@@ -38,6 +39,17 @@ const PRIVILEGED = ["ceo", "compliance_lead"]; // who may propose / run readines
 const MAX_STEPS = 12;
 const MAX_PROPOSALS = 5;
 const PROPOSAL_TTL_DAYS = 21;
+
+// ── RAG caps (DTLK-GRC-AI-001): keep the assistant to GRC, grounded in the corpus ──
+const VECTOR_MIN_SCORE = 0.35;   // cosine relevance gate (vector mode)
+const SEED_TOPK = 6;
+// Off-topic gate: a question is in-scope only if the corpus returns a relevant chunk
+// OR it clearly concerns GRC/compliance/policy process. Anything else is refused
+// deterministically (no LLM call) so the agent never free-forms general knowledge.
+const SCOPE_RE = /\b(polic|procedure|standard|guideline|control|complian|govern|risk|audit|review|expir|overdue|renew|capa|evidence|approval|owner|classif|retention|incident|access control|mfa|encrypt|data protection|privacy|pdpl|nca|sama|iso\s?27001|ecc|csf|register|document|grc|whistle|dpo|consent)\b/i;
+// Fixed refusals — never an LLM free-form answer.
+const REFUSAL_OFFTOPIC = "I can only help with Datalake's governance, risk and compliance documents and processes. I can't answer that. Try asking about a policy, what's overdue for review, or our compliance posture.";
+const REFUSAL_NOTFOUND = "Not found in the current library. I couldn't find an accessible document that grounds an answer to that. If the policy exists, please upload it to the GRC Library.";
 
 const sha256 = (v) => crypto.createHash("sha256").update(JSON.stringify(v ?? "")).digest("hex");
 const clampInt = (n, lo, hi, dflt) => {
@@ -107,24 +119,18 @@ function buildTools(ctx) {
     searchPolicies: {
       cls: "READ",
       async run(args) {
-        const q = String(args?.query || "").toLowerCase().trim();
-        const snap = await db.collection("grc_documents").where("status", "==", "ACTIVE").get();
-        const visible = snap.docs.map((d) => d.data()).filter((d) => canAccess(ctx.role, d.classification, d.domain));
-        const terms = q.split(/\s+/).filter(Boolean);
-        const scored = visible.map((d) => {
-          const hay = `${d.doc_id} ${d.doc_title} ${d.regulatory_basis || ""} ${(d.framework_tags || []).join(" ")} ${d.extracted_text || ""}`.toLowerCase();
-          let score = 0;
-          terms.forEach((t) => { if (hay.includes(t)) score++; });
-          return { d, score };
-        }).filter((x) => (terms.length ? x.score > 0 : true)).sort((a, b) => b.score - a.score).slice(0, 5);
+        // Vector RAG (cosine over embedded chunks); honest keyword fallback if the
+        // embed model is unavailable. Access-filtered per caller; relevance-gated.
+        const r = await retrieve({
+          query: String(args?.query || ""),
+          accessFilter: (c, d) => canAccess(ctx.role, c, d),
+          topK: SEED_TOPK, minScore: VECTOR_MIN_SCORE, triggeredBy: ctx.triggeredBy,
+        });
+        r.hits.forEach((h) => ctx.knownDocIds.add(h.doc_id));
         return {
-          count: scored.length,
-          results: scored.map(({ d }) => ({
-            doc_id: d.doc_id, title: d.doc_title, version: d.version, domain: d.domain,
-            classification: d.classification, next_review_date: normDate(d.next_review_date),
-            excerpt: String(d.extracted_text || "").slice(0, 500),
-          })),
-          note: scored.length === 0 ? "No accessible ACTIVE document matched." : "",
+          retrieval_mode: r.mode, count: r.hits.length, top_score: Number(r.top_score || 0).toFixed(3),
+          results: r.hits.map((h) => ({ doc_id: h.doc_id, version: h.version, title: h.title, domain: h.domain, classification: h.classification, excerpt: String(h.text || "").slice(0, 600) })),
+          note: r.hits.length === 0 ? "No accessible document chunk passed the relevance gate." : "",
         };
       },
     },
@@ -137,6 +143,7 @@ function buildTools(ctx) {
         if (snap.empty) return { error: "not found" };
         const d = snap.docs[0].data();
         if (!canAccess(ctx.role, d.classification, d.domain)) return { error: "access denied for your role" };
+        ctx.knownDocIds.add(d.doc_id);
         return {
           doc_id: d.doc_id, title: d.doc_title, version: d.version, classification: d.classification, domain: d.domain,
           owner: d.owner || null, approver: d.approver || null,
@@ -160,6 +167,7 @@ function buildTools(ctx) {
           if (days <= within) items.push({ doc_id: d.doc_id, title: d.doc_title, next_review_date: normDate(ms), days_until: days, status: days < 0 ? "OVERDUE" : "DUE_SOON" });
         });
         items.sort((a, b) => (a.days_until ?? 99999) - (b.days_until ?? 99999));
+        items.forEach((it) => ctx.knownDocIds.add(it.doc_id));
         return { within_days: within, count: items.length, items: items.slice(0, 50) };
       },
     },
@@ -169,6 +177,7 @@ function buildTools(ctx) {
         const snap = await db.collection("grc_change_log").orderBy("timestamp", "desc").limit(40).get();
         let rows = snap.docs.map((d) => d.data());
         if (args?.doc_id) rows = rows.filter((r) => r.doc_id === String(args.doc_id));
+        rows.forEach((r) => { if (r.doc_id) ctx.knownDocIds.add(r.doc_id); });
         return {
           count: rows.length,
           entries: rows.slice(0, 15).map((r) => ({
@@ -257,10 +266,12 @@ const DECISION_SCHEMA = {
 
 async function decide(ctx, transcript, question, history) {
   const sys =
-    "You are the GRC Compliance Assistant for Datalake Saudi Arabia LLC. You help staff understand and manage corporate " +
-    "governance documents (policies, procedures, forms) and the compliance/policy process.\n" +
+    "You are the GRC Compliance Assistant for Datalake Saudi Arabia LLC. Your ONLY domain is Datalake's governance, risk and " +
+    "compliance documents (policies, procedures, forms) and the compliance/policy process. " +
+    "You are NOT a general assistant: if a question is not about Datalake GRC/compliance, reply exactly: " +
+    "'I can only help with Datalake's governance, risk and compliance documents and processes.' Do not answer it.\n" +
     "STRICT GROUNDING — this is critical:\n" +
-    "• Answer ONLY from the tool results in this session. NEVER invent policy text, document IDs, dates, owners, approvals, numbers or regulations.\n" +
+    "• Answer ONLY from the tool results in this session (the retrieved document excerpts and READ-tool data). NEVER use outside/general knowledge. NEVER invent policy text, document IDs, dates, owners, approvals, numbers or regulations.\n" +
     "• Cite the source for every factual claim as `doc_id vVERSION` (e.g. DTLK-POL-SEC-001 v2.0). Put the cited doc_ids in the citations array too.\n" +
     "• If the tools return nothing that grounds the answer, reply exactly that it is 'Not found in the current library' and suggest what to upload — do NOT guess.\n" +
     "• You may explain the compliance/policy PROCESS (review cadence, approval chain, audit-evidence requirements) using what the logs and documents actually show.\n" +
@@ -317,15 +328,38 @@ async function grcAssistantChatHandler(req, res, { verifyAuth, getUserAccessProf
       modelName: MODEL_NAME,
       proposalsCreated: 0,
       proposalIds: [],
+      knownDocIds: new Set(), // doc_ids the tools actually surfaced this run — the only valid citations
     };
     await runRef.set({
       agent: AGENT_NAME, principal: AGENT_PRINCIPAL, kind: "chat", status: "RUNNING",
       question, role: ctx.role, triggered_by_email: ctx.email, started_at: FieldValue.serverTimestamp(),
     });
 
+    // ── CAP 1: deterministic off-topic + grounding gate (no LLM call) ──
+    // Seed-retrieve against the access-filtered corpus. The question is in-scope only
+    // if a relevant chunk came back OR it clearly concerns GRC/compliance/process.
+    // Otherwise refuse with a fixed message — the model never free-forms.
+    const seed = await retrieve({
+      query: question, accessFilter: (c, d) => canAccess(ctx.role, c, d),
+      topK: SEED_TOPK, minScore: VECTOR_MIN_SCORE, triggeredBy: ctx.triggeredBy,
+    });
+    seed.hits.forEach((h) => ctx.knownDocIds.add(h.doc_id));
+    const onTopic = seed.hits.length > 0 || SCOPE_RE.test(question);
+    if (!onTopic) {
+      await runRef.set({ status: "DONE", steps_used: 0, answer: REFUSAL_OFFTOPIC, citations: [], refused: "offtopic", finished_at: FieldValue.serverTimestamp() }, { merge: true });
+      await logAgentAction({ run_id: ctx.runId, actor: AGENT_PRINCIPAL, triggered_by: ctx.triggeredBy, step: 0, tool: "scope_gate", tool_class: "GATE", args_sha256: sha256(question), result_summary: "refused: off-topic" });
+      return res.status(200).json({ success: true, run_id: ctx.runId, answer: REFUSAL_OFFTOPIC, citations: [], refused: true });
+    }
+
     const tools = buildTools(ctx);
     const allowed = Object.keys(tools);
     const transcript = [];
+    // Seed the model with the retrieved grounding context so it can answer directly.
+    if (seed.hits.length) {
+      transcript.push(`STEP 0: searchPolicies(seed) [${seed.mode}] → ${JSON.stringify(seed.hits.map((h) => ({ doc_id: h.doc_id, version: h.version, title: h.title, classification: h.classification, excerpt: String(h.text || "").slice(0, 600) }))).slice(0, 2000)}`);
+    } else {
+      transcript.push(`STEP 0: searchPolicies(seed) → no chunk passed the relevance gate. If you cannot ground an answer, reply that it is "Not found in the current library".`);
+    }
     let steps = 0, answer = "", citations = [], llmError = null;
 
     while (steps < MAX_STEPS) {
@@ -352,6 +386,10 @@ async function grcAssistantChatHandler(req, res, { verifyAuth, getUserAccessProf
     }
 
     if (!answer && !llmError) answer = "I couldn't complete the answer from the available documents. Please rephrase or narrow your question.";
+
+    // ── CAP 2: citations must reference doc_ids the tools actually surfaced ──
+    // (strip any fabricated citation the model may have emitted).
+    citations = (citations || []).filter((c) => [...ctx.knownDocIds].some((k) => k && String(c).includes(k)));
 
     await runRef.set({
       status: llmError ? "FAILED" : "DONE", steps_used: steps, answer: llmError ? null : answer,

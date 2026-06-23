@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { ShieldCheck, AlertTriangle, CheckCircle, X, RefreshCw, Clock, FileWarning } from 'lucide-react'
-import { auth, db, GRC_AUDIT_READINESS_URL, APPROVE_GRC_PROPOSAL_URL } from '../../lib/firebase'
+import { auth, db, GRC_AUDIT_READINESS_URL, APPROVE_GRC_PROPOSAL_URL, REINDEX_GRC_EMBEDDINGS_URL } from '../../lib/firebase'
 import GrcChat from '../../components/GrcChat'
 
 export default function GrcAgentPanel() {
@@ -36,6 +36,27 @@ function ReadinessCard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexNote, setReindexNote] = useState('')
+
+  const reindex = async () => {
+    setReindexing(true); setReindexNote('')
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch(REINDEX_GRC_EMBEDDINGS_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Reindex failed')
+      setReindexNote(`Indexed ${json.embedded_docs} doc(s), ${json.chunks_indexed} chunks${json.skipped ? `, ${json.skipped} skipped` : ''}.`)
+    } catch (err) {
+      setReindexNote(err.message || 'Reindex failed')
+    } finally {
+      setReindexing(false)
+    }
+  }
 
   const run = async () => {
     setLoading(true); setError('')
@@ -60,10 +81,16 @@ function ReadinessCard() {
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}><ShieldCheck size={18} style={{ color: 'var(--sky)' }} /> Audit Readiness</h3>
-        <button className="btn btn-ghost btn-sm" onClick={run} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <RefreshCw size={14} /> {loading ? 'Computing…' : 'Run check'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={reindex} disabled={reindexing} title="Rebuild the search index (run after pulling the embed model)" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <RefreshCw size={14} /> {reindexing ? 'Indexing…' : 'Rebuild index'}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={run} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <RefreshCw size={14} /> {loading ? 'Computing…' : 'Run check'}
+          </button>
+        </div>
       </div>
+      {reindexNote && <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginBottom: 12 }}>{reindexNote}</div>}
       {error && <div style={{ color: '#ff6b6b', fontSize: '0.82rem', marginBottom: 12 }}>{error}</div>}
       {!data && !error && (
         <p style={{ fontSize: '0.83rem', color: 'var(--text-tertiary)' }}>Run a check to compute readiness from the live document set. Figures are real counts — nothing is assumed compliant.</p>

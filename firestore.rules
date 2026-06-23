@@ -204,6 +204,12 @@ service cloud.firestore {
       allow read:  if isCeo() || getUserRole() == "compliance_lead";
       allow write: if false;
     }
+    // RAG index — chunk text + embeddings. Server-side (Admin SDK) only; the agent
+    // reads it inside the Cloud Function and returns access-filtered results. No
+    // client SDK path (would bypass the classification filter).
+    match /grc_doc_chunks/{chunkId} {
+      allow read, write: if false;
+    }
 
     // ── Client project timesheets (monthly grid; DTLK-HR-TS-002) ──
     // Rows=roles, cols=days. Compiled by CRM/HR, reviewed by CTO/CEO (where labeled

@@ -233,6 +233,8 @@ export const DOWNLOAD_GRC_DOCUMENT_URL =
 // audit-readiness) + human approval boundary for agent proposals.
 export const EXTRACT_GRC_METADATA_URL =
   "https://extractgrcmetadata-ifzodp5svq-wx.a.run.app";
+export const REINDEX_GRC_EMBEDDINGS_URL =
+  "https://reindexgrcembeddings-ifzodp5svq-wx.a.run.app";
 export const GRC_ASSISTANT_CHAT_URL =
   "https://grcassistantchat-ifzodp5svq-wx.a.run.app";
 export const GRC_AUDIT_READINESS_URL =

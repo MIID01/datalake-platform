@@ -3516,7 +3516,8 @@ const {
   listGrcDocumentsHandler,
   downloadGrcDocumentHandler,
   getGrcChangeLogHandler,
-  extractGrcMetadataHandler
+  extractGrcMetadataHandler,
+  reindexGrcEmbeddingsHandler
 } = require("./grcLibrary");
 
 exports.uploadGrcDocument = onRequest(
@@ -3529,6 +3530,13 @@ exports.uploadGrcDocument = onRequest(
 exports.extractGrcMetadata = onRequest(
   { region: "me-central2", memory: "512MiB", timeoutSeconds: 540, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => extractGrcMetadataHandler(req, res, hireHelpers)
+);
+
+// DTLK-GRC-AI-001 — rebuild the vector RAG index over all ACTIVE docs (run once after
+// pulling the embed model / a bulk import). 540s to embed many chunks. CEO/compliance_lead.
+exports.reindexGrcEmbeddings = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 540, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => reindexGrcEmbeddingsHandler(req, res, hireHelpers)
 );
 
 exports.listGrcDocuments = onRequest(

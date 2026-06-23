@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require("uuid");
 const { BigQuery } = require("@google-cloud/bigquery");
 const { PubSub } = require("@google-cloud/pubsub");
 const { callLLM, parseJsonOutput } = require("./lib/ai-client");
+const { indexGrcDocument } = require("./grcRag");
 const pubsub = new PubSub();
 
 // Optional text extractors — load defensively so a missing dep never crashes the
@@ -198,6 +199,15 @@ async function uploadGrcDocumentHandler(req, res, { verifyAuth, getUserAccessPro
       // BigQuery Audit
       auditLog(req, profile, "GRC_DOCUMENT_" + actionType, doc_id, { version: newVersion, file_format, classification });
     });
+
+    // Vector-index the new version for the GRC agent's RAG (best-effort; the keyword
+    // fallback covers retrieval if the embed model isn't available). Never blocks the
+    // upload response on indexing.
+    try {
+      await indexGrcDocument({ doc_id, version: newVersion, domain, classification, title: doc_title, text: extractedText, triggeredBy: profile.email });
+    } catch (e) {
+      console.warn("[grcLibrary] RAG index failed (non-fatal):", e.message);
+    }
 
     // PUBLISH PUB/SUB EVENT
     await pubsub.topic("datalake.grc.uploaded").publishMessage({ json: { document_id: doc_id } });
@@ -465,12 +475,59 @@ async function extractGrcMetadataHandler(req, res, { verifyAuth, getUserAccessPr
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 6. reindexGrcEmbeddings — (re)build the RAG index for ALL active docs.
+// Run once after pulling the embed model, or after a bulk import. CEO only.
+// Uses each doc's stored extracted_text; docs uploaded before extraction
+// existed have none and are reported as skipped (honest — not silently "done").
+// ═══════════════════════════════════════════════════════════════════
+async function reindexGrcEmbeddingsHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    return res.status(204).send("");
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    const decoded = await verifyAuth(req);
+    const profile = await getUserAccessProfile(decoded.uid);
+    if (!["ceo", "compliance_lead"].includes(profile.role_id)) {
+      return res.status(403).json({ error: "Unauthorized. Requires ceo or compliance_lead." });
+    }
+
+    const snap = await db.collection("grc_documents").where("status", "==", "ACTIVE").get();
+    let indexed = 0, embeddedDocs = 0, skipped = 0;
+    const results = [];
+    for (const d of snap.docs) {
+      const doc = d.data();
+      const text = doc.extracted_text || "";
+      if (!text || text.length < 30) { skipped++; results.push({ doc_id: doc.doc_id, status: "skipped_no_text" }); continue; }
+      const r = await indexGrcDocument({
+        doc_id: doc.doc_id, version: doc.version, domain: doc.domain,
+        classification: doc.classification, title: doc.doc_title, text, triggeredBy: profile.email,
+      });
+      if (r.embedded) { embeddedDocs++; indexed += r.indexed; results.push({ doc_id: doc.doc_id, status: "indexed", chunks: r.indexed }); }
+      else { skipped++; results.push({ doc_id: doc.doc_id, status: "skipped", reason: r.reason }); }
+    }
+
+    auditLog(req, profile, "GRC_REINDEX", "ALL", { embedded_docs: embeddedDocs, chunks: indexed, skipped });
+    return res.status(200).json({ success: true, total: snap.size, embedded_docs: embeddedDocs, chunks_indexed: indexed, skipped, results });
+  } catch (err) {
+    console.error(err);
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") return res.status(401).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   uploadGrcDocumentHandler,
   listGrcDocumentsHandler,
   downloadGrcDocumentHandler,
   getGrcChangeLogHandler,
   extractGrcMetadataHandler,
+  reindexGrcEmbeddingsHandler,
   // shared for the GRC agent (same access matrix + text helper)
   canAccess,
   extractDocText,

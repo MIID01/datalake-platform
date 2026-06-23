@@ -64,6 +64,10 @@ const BACKEND_IS_CLOUD_RUN = /\.run\.app(\/|$)/i.test(AI_INFERENCE_URL);
 const MODEL_NAME = process.env.LLM_MODEL || "qwen2.5:14b-instruct";
 const VISION_MODEL = process.env.VISION_MODEL || "gemma3:12b";
 const MODEL_VERSION = process.env.LLM_MODEL_VERSION || "qwen2.5";
+// Embedding model served by the SAME self-hosted Ollama backend (no new service,
+// in me-central2). Ops step: `ollama pull nomic-embed-text` on datalake-ai-inference.
+// If absent, callEmbedding fails honestly and callers fall back to keyword search.
+const EMBED_MODEL = process.env.EMBED_MODEL || "nomic-embed-text";
 const MAX_TOKENS = 2000; // Hard ceiling per DTLK-PROMPT-AI-001 §Cost Control
 const BQ_DATASET = "datalake_audit";
 const BQ_TABLE = "ai_actions";
@@ -499,6 +503,56 @@ async function callOCR({ fileBase64, lang, agent, type, triggeredBy }) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// callEmbedding — vector embeddings from the SAME self-hosted Ollama
+// backend (EMBED_MODEL, me-central2). OpenAI-compatible /v1/embeddings.
+// Returns { success, vectors: number[][] }. Fails honestly if the model
+// isn't pulled — callers (GRC RAG) then fall back to keyword retrieval.
+// ══════════════════════════════════════════════════════════════════
+async function callEmbedding({ texts, agent = "auditor", type = "embedding", triggeredBy = "system" }) {
+  const startTime = Date.now();
+  const inputs = (Array.isArray(texts) ? texts : [texts]).map((t) => String(t || "").slice(0, 8000)).filter(Boolean);
+  if (inputs.length === 0) return { success: true, vectors: [] };
+
+  try { await ensureInferenceUp(); } catch (wakeErr) {
+    return { success: false, error: `Inference backend not ready: ${wakeErr.message}`, vectors: [] };
+  }
+
+  let authToken = null;
+  if (BACKEND_IS_CLOUD_RUN) {
+    try { authToken = await getAuthToken(AI_INFERENCE_URL); }
+    catch (authErr) { return { success: false, error: `Auth error: ${authErr.message}`, vectors: [] }; }
+  }
+
+  try {
+    const response = await fetch(`${AI_INFERENCE_URL}/v1/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: authToken } : {}) },
+      body: JSON.stringify({ model: EMBED_MODEL, input: inputs }),
+      timeout: 180000,
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Embedding HTTP ${response.status}: ${errText}`);
+    }
+    const data = await response.json();
+    const vectors = Array.isArray(data.data) ? data.data.map((d) => d.embedding) : [];
+    const inferenceMs = Date.now() - startTime;
+    await logAiAction({
+      agent, type, triggeredBy, promptTemplateId: "DTLK-GRC-AI-001/embed-v1",
+      input: `embed_${inputs.length}_chunks`, inputType: "text",
+      modelName: EMBED_MODEL, outputSummary: `embedded ${vectors.length} chunks`,
+      outputAction: "embedding_complete", inferenceMs,
+    }).catch(() => {});
+    return { success: true, vectors, model: EMBED_MODEL, inferenceMs };
+  } catch (err) {
+    const inferenceMs = Date.now() - startTime;
+    console.error(`[AI Client] Embedding call failed:`, err.message);
+    await logAiAction({ agent, type, triggeredBy, input: "embed", outputAction: "error", error: err.message, inferenceMs }).catch(() => {});
+    return { success: false, error: err.message, vectors: [], inferenceMs };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // parseJsonOutput — Safe JSON parser for LLM outputs
 // Models sometimes wrap JSON in markdown fences — strip them.
 // ══════════════════════════════════════════════════════════════════
@@ -555,4 +609,4 @@ function extractFirstJsonObject(s) {
   return null; // unbalanced / truncated — not salvageable
 }
 
-module.exports = { callLLM, callOCR, logAiAction, parseJsonOutput, MODEL_NAME, MODEL_VERSION };
+module.exports = { callLLM, callOCR, callEmbedding, logAiAction, parseJsonOutput, MODEL_NAME, MODEL_VERSION, EMBED_MODEL };
