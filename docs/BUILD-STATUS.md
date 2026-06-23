@@ -1,7 +1,25 @@
 # Datalake Platform — Build Status
 
 _Single place to see what's built, what's live, and what's still open._
-_Last updated: 2026-06-19. Ground truth is always `git log` + the code; this is the human summary._
+_Last updated: 2026-06-23. Ground truth is always `git log` + the code; this is the human summary._
+
+## 📌 2026-06-23 consolidation (read this first)
+All in-flight work across sessions was **committed in 2 clean commits** and **pushed to
+`origin/feature/crm-phase-1`** (backup only — **NOT merged to `main`, so NOT auto-deployed**).
+- **LIVE in production now** (hosting + the two agent functions + agent rules): CRM **P1**
+  (activity timeline/logging + contact detail), CRM **P2** (explainable lead scoring),
+  pipeline **search**, campaigner **honesty + link-privacy** fixes, follow-up **agent** +
+  stuck-window selector, Careers footer → `LEGAL_FOOTER_EN`.
+- **Committed but NOT deployed** (need your review, then deploy): recycle-bin/soft-delete
+  backend + WORM recovery, GRC agent/library, timesheet validation + CTO project-sign,
+  MFA enrollment, invoice-validate, session-timeout, misc.
+- ⚠️ **Caveat to fix when back:** the hosting deploys shipped the **frontend** for those
+  not-yet-deployed backend features (recycle-bin, GRC panels, MFA, CTO timesheets). Those
+  pages are **live but their Cloud Functions are not deployed**, so they will **error if
+  used** until you `firebase deploy --only functions` (after reviewing them). They're
+  otherwise inert. I did **not** deploy unverified backend while you were away.
+- **Excluded from git:** `docs/interview-invite-abdullah-fauzy.html` (candidate PII).
+
 
 ---
 
