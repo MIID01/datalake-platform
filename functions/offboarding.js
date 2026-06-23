@@ -20,13 +20,16 @@ async function dailyOffboardingSweepHandler() {
   const today = new Date().toISOString().split("T")[0];
   console.log(`[OffboardingSweep] Running for date: ${today}`);
 
-  const snapshot = await db.collection("engineers")
+  // Canonical collection is `employees` with UPPERCASE `employment_status`. The old
+  // query hit a non-canonical `engineers` collection (empty in prod) with lowercase
+  // `status`, so auto-offboarding never actually ran. Fixed to the canonical source.
+  const snapshot = await db.collection("employees")
     .where("contract_end", "==", today)
-    .where("status", "==", "active")
+    .where("employment_status", "==", "ACTIVE")
     .get();
 
   if (snapshot.empty) {
-    console.log("[OffboardingSweep] No engineers to offboard today.");
+    console.log("[OffboardingSweep] No employees to offboard today.");
     return { processed: 0 };
   }
 

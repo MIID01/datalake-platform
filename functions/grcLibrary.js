@@ -7,11 +7,44 @@ const admin = require("firebase-admin");
 const { v4: uuidv4 } = require("uuid");
 const { BigQuery } = require("@google-cloud/bigquery");
 const { PubSub } = require("@google-cloud/pubsub");
+const { callLLM, parseJsonOutput } = require("./lib/ai-client");
 const pubsub = new PubSub();
+
+// Optional text extractors — load defensively so a missing dep never crashes the
+// whole functions bundle (extraction simply degrades to "no text → manual entry").
+const pdfParse = (() => { try { return require("pdf-parse"); } catch (_) { return null; } })();
+const mammoth = (() => { try { return require("mammoth"); } catch (_) { return null; } })();
 
 const db = admin.firestore();
 const bigquery = new BigQuery();
 const BUCKET_NAME = "datalake-grc-library";
+
+// We keep a capped copy of each document's text on the grc_documents record so the
+// GRC agent has a real, in-region corpus to ground answers on (no external index).
+const EXTRACT_TEXT_CAP = 12000;
+
+// Turn an uploaded file buffer into plain text for AI mapping + the agent corpus.
+// PDF → pdf-parse; DOCX → mammoth; MD → utf8. Anything else (xlsx, scans with no
+// text layer) returns "" so the caller falls back to manual entry — never a guess.
+async function extractDocText(buffer, format) {
+  const fmt = String(format || "").toLowerCase();
+  try {
+    if (fmt === "pdf" && pdfParse) {
+      const out = await pdfParse(buffer);
+      return (out.text || "").trim();
+    }
+    if ((fmt === "docx" || fmt === "doc") && mammoth) {
+      const out = await mammoth.extractRawText({ buffer });
+      return (out.value || "").trim();
+    }
+    if (fmt === "md") {
+      return buffer.toString("utf8").trim();
+    }
+  } catch (e) {
+    console.warn("[grcLibrary] text extraction failed:", e.message);
+  }
+  return "";
+}
 
 // Regex updated per correction 1
 const docIdRegex = /^DTLK-(POL|PROC|PRO|FORM|FOR|REG|TBL|PLN|INS|ARCH|MAP|RPT|WI|OPS|UI|PR)-(GRC|COM|RSK|HRM|OUT|DBM|PRI|BCM|SEC|FIN|LEG|OPS|SYS|DSN|CEO|ENG|PLAT|TLP|TSK)-\d{3}[A-Z]?$/;
@@ -98,6 +131,11 @@ async function uploadGrcDocumentHandler(req, res, { verifyAuth, getUserAccessPro
     const fileBuffer = Buffer.from(file_base64, "base64");
     const fileSizeBytes = fileBuffer.length;
 
+    // Capped plain-text copy for the GRC agent's grounding corpus. Best-effort:
+    // an unextractable file (xlsx / image-only PDF) just stores "" and the agent
+    // answers from metadata only — it never fabricates body text it cannot read.
+    const extractedText = (await extractDocText(fileBuffer, file_format)).slice(0, EXTRACT_TEXT_CAP);
+
     let newVersion = "1.0";
     let previousVersion = null;
     let oldGcsPath = null;
@@ -143,7 +181,8 @@ async function uploadGrcDocumentHandler(req, res, { verifyAuth, getUserAccessPro
         regulatory_basis: regulatory_basis || "", framework_tags: framework_tags || [],
         gcs_path: gcsPath, file_format, file_size_bytes: fileSizeBytes,
         uploaded_by: profile.email, uploaded_at: admin.firestore.FieldValue.serverTimestamp(),
-        status: "ACTIVE", change_summary: change_summary || "Initial upload"
+        status: "ACTIVE", change_summary: change_summary || "Initial upload",
+        extracted_text: extractedText, extracted_text_chars: extractedText.length
       };
 
       t.set(newRef, docPayload);
@@ -302,9 +341,137 @@ async function getGrcChangeLogHandler(req, res, { verifyAuth, getUserAccessProfi
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 5. extractGrcMetadata — AI auto-mapping on upload (DTLK-GRC-AI-001)
+// Reads the file's OWN text and proposes metadata so the operator reviews
+// instead of hand-typing. STRICTLY grounded: any field not present in the
+// text comes back "" — the model never invents a value. The result only
+// PRE-FILLS the upload form; a human still confirms before the real write.
+// ═══════════════════════════════════════════════════════════════════
+const GRC_CATEGORY_CODES = ["POL", "PRO", "FORM", "REG", "REP", "STD", "GDL"];
+const GRC_DOMAIN_CODES = ["GRC", "HR", "HRM", "PRI", "SEC", "ITS", "FIN", "RSK", "OPS", "LGL"];
+
+const GRC_EXTRACT_SCHEMA = {
+  type: "object",
+  properties: {
+    doc_title: { type: "string" },
+    suggested_category: { type: "string" },
+    suggested_domain: { type: "string" },
+    classification: { type: "string" },
+    effective_date: { type: "string" },
+    next_review_date: { type: "string" },
+    owner: { type: "string" },
+    approver: { type: "string" },
+    regulatory_basis: { type: "string" },
+    framework_tags: { type: "array", items: { type: "string" } },
+    one_line_summary: { type: "string" },
+  },
+  required: ["doc_title"],
+};
+
+async function extractGrcMetadataHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS }) {
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    return res.status(204).send("");
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    const decoded = await verifyAuth(req);
+    const profile = await getUserAccessProfile(decoded.uid);
+    if (!["ceo", "compliance_lead"].includes(profile.role_id)) {
+      return res.status(403).json({ error: "Unauthorized. Requires ceo or compliance_lead." });
+    }
+
+    const { file_base64, file_format, filename } = req.body || {};
+    if (!file_base64 || !file_format) {
+      return res.status(400).json({ error: "file_base64 and file_format are required" });
+    }
+
+    const buffer = Buffer.from(file_base64, "base64");
+    const text = (await extractDocText(buffer, file_format)).slice(0, EXTRACT_TEXT_CAP);
+
+    // No readable text → be honest. The UI keeps manual entry; nothing invented.
+    if (!text || text.length < 30) {
+      return res.status(200).json({
+        success: true,
+        extracted: false,
+        reason: `No readable text found in this ${String(file_format).toUpperCase()} (scanned image or unsupported format). Please enter the details manually.`,
+        suggestions: {},
+      });
+    }
+
+    const result = await callLLM({
+      agent: "auditor",
+      type: "grc_metadata_extract",
+      triggeredBy: profile.email,
+      promptTemplateId: "DTLK-GRC-AI-001/extract-v1",
+      jsonSchema: GRC_EXTRACT_SCHEMA,
+      systemPrompt:
+        "You map a corporate GRC document (policy / procedure / form / standard) to its metadata for Datalake Saudi Arabia LLC. " +
+        "STRICT GROUNDING: use ONLY text actually present in the document. NEVER invent a title, owner, approver, date, regulation or framework. " +
+        "If a field is not stated in the document, return an empty string \"\" (or [] for framework_tags). Do NOT guess to look complete.\n" +
+        `- suggested_category: ONE of ${GRC_CATEGORY_CODES.join(", ")} (POL=Policy, PRO=Procedure, FORM=Form, REG=Register, REP=Report, STD=Standard, GDL=Guideline).\n` +
+        `- suggested_domain: ONE of ${GRC_DOMAIN_CODES.join(", ")} (SEC=Information Security, PRI=Privacy/PDPL, HRM=HR, FIN=Finance, RSK=Risk, GRC=Governance, LGL=Legal, ITS=IT, OPS=Operations).\n` +
+        "- classification: ONE of Public, Internal, Confidential, Restricted (use the document's own marking if present, else \"\").\n" +
+        "- effective_date / next_review_date: ISO YYYY-MM-DD if explicitly stated, else \"\".\n" +
+        "- regulatory_basis: e.g. 'NCA ECC-1:2018', 'SAMA CSF', 'PDPL' only if the document cites it.\n" +
+        "- one_line_summary: one factual sentence describing the document's purpose, from its content.\n" +
+        "Output JSON only.",
+      userPrompt: `FILENAME: ${filename || "(unknown)"}\n\nDOCUMENT TEXT:\n${text}`,
+    });
+
+    if (!result.success) {
+      return res.status(502).json({ error: `AI extraction unavailable: ${result.error || "inference error"}` });
+    }
+    const parsed = parseJsonOutput(result.output);
+    if (!parsed.success) {
+      return res.status(200).json({ success: true, extracted: false, reason: "AI returned an unreadable result — please enter details manually.", suggestions: {} });
+    }
+
+    const d = parsed.data || {};
+    const pick = (v) => (typeof v === "string" ? v.trim() : "");
+    const cat = pick(d.suggested_category).toUpperCase();
+    const dom = pick(d.suggested_domain).toUpperCase();
+    const suggestions = {
+      doc_title: pick(d.doc_title),
+      suggested_category: GRC_CATEGORY_CODES.includes(cat) ? cat : "",
+      suggested_domain: GRC_DOMAIN_CODES.includes(dom) ? dom : "",
+      classification: ["Public", "Internal", "Confidential", "Restricted"].includes(pick(d.classification)) ? pick(d.classification) : "",
+      effective_date: pick(d.effective_date),
+      next_review_date: pick(d.next_review_date),
+      owner: pick(d.owner),
+      approver: pick(d.approver),
+      regulatory_basis: pick(d.regulatory_basis),
+      framework_tags: Array.isArray(d.framework_tags) ? d.framework_tags.map((t) => String(t).trim()).filter(Boolean).slice(0, 10) : [],
+      one_line_summary: pick(d.one_line_summary),
+    };
+    // Tell the UI which fields had no grounded value so it can flag them for the operator.
+    const missing = Object.keys(suggestions).filter((k) => {
+      const v = suggestions[k];
+      return Array.isArray(v) ? v.length === 0 : !v;
+    });
+
+    auditLog(req, profile, "GRC_METADATA_EXTRACTED", filename || "upload", { extracted: true, missing_count: missing.length });
+
+    return res.status(200).json({ success: true, extracted: true, suggestions, missing });
+  } catch (err) {
+    console.error(err);
+    if (err.code === "AUTH_MISSING" || err.code === "AUTH_INVALID") return res.status(401).json({ error: err.message });
+    if (err.code === "AUTH_DOMAIN") return res.status(403).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   uploadGrcDocumentHandler,
   listGrcDocumentsHandler,
   downloadGrcDocumentHandler,
-  getGrcChangeLogHandler
+  getGrcChangeLogHandler,
+  extractGrcMetadataHandler,
+  // shared for the GRC agent (same access matrix + text helper)
+  canAccess,
+  extractDocText,
 };

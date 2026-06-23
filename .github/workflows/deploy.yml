@@ -42,6 +42,10 @@ jobs:
           VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
         run: npm run build
 
+      # ── Data-residency guard: fail if any Cloud Function isn't pinned to me-central2 ──
+      - name: Check Cloud Function region pins (KSA residency)
+        run: node functions/scripts/check-region-pins.js
+
       # ── Deploy to a preview channel (does NOT touch live) ──
       - name: Deploy to preview channel
         id: preview

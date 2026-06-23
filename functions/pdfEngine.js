@@ -5,7 +5,9 @@ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 const { COMPANY, LEGAL_FOOTER_EN } = require("./lib/company-legal");
+const { canAccess } = require("./grcLibrary");
 const db = admin.firestore();
+const GRC_BUCKET_NAME = "datalake-grc-library";
 
 // Bundled company letterhead logo (Datalake color logo, transparent PNG) used in
 // every generated PDF header. Loaded once at cold start; a missing asset must
@@ -53,8 +55,23 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
     //     OR the employee whose employee_id matches the suffix (caller ==
     //     subject, derived from auth token, never trusted from request).
     //   everything else → CEO/finance/HR only.
+    // grc_policy: company-wide letterhead download. Any role may pull a policy IF the
+    // GRC access matrix permits that classification/domain (same boundary as the
+    // library list/download endpoints). We fetch the ACTIVE doc here for both the
+    // access check and the cover-page render below.
+    let grcDoc = null;
+    let mergeOriginalPdf = false;
+
     const isPrivilegedPdfRole = ["ceo", "finance", "hr"].includes(profile.role_id);
-    if (template === "payslip" && String(docId).includes("__")) {
+    if (template === "grc_policy") {
+      const gsnap = await db.collection("grc_documents")
+        .where("doc_id", "==", docId).where("status", "==", "ACTIVE").limit(1).get();
+      if (gsnap.empty) return res.status(404).json({ error: "Policy not found" });
+      grcDoc = gsnap.docs[0].data();
+      if (!canAccess(profile.role_id, grcDoc.classification, grcDoc.domain)) {
+        return res.status(403).json({ error: "You do not have access to this document's classification." });
+      }
+    } else if (template === "payslip" && String(docId).includes("__")) {
       const subjectEmpId = String(docId).split("__")[1];
       if (!isPrivilegedPdfRole) {
         // Resolve the caller's own employee_id from auth-token email — DO NOT
@@ -480,6 +497,56 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
       doc.text("Approved by", rx, sy + 14, { width: 220 });
       doc.fontSize(10).text((client && (client.contact_person || client.client_approver)) || "—", rx, sy + 30, { width: 220 });
 
+    } else if (template === "grc_policy") {
+      // ── Official policy cover sheet (letterhead + real metadata only) ──
+      const d = grcDoc || {};
+      const fmtDate = (v) => {
+        if (!v) return "—";
+        if (typeof v === "string") return v;
+        const ms = v._seconds ? v._seconds * 1000 : (v.seconds ? v.seconds * 1000 : null);
+        return ms ? new Date(ms).toISOString().slice(0, 10) : "—";
+      };
+      doc.fontSize(18).fillColor(primaryColor).text(d.doc_title || docId, { align: "left" });
+      doc.moveDown(0.3);
+      doc.fontSize(10).fillColor("#555").text("Controlled document — official copy issued from the GRC Document Library.", { align: "left" });
+      doc.moveDown(1);
+
+      const meta = [
+        ["Document ID", d.doc_id || docId],
+        ["Version", d.version ? `v${d.version}` : "—"],
+        ["Status", d.status || "—"],
+        ["Classification", d.classification || "—"],
+        ["Domain", d.domain || "—"],
+        ["Effective date", fmtDate(d.effective_date)],
+        ["Next review / expiry", fmtDate(d.next_review_date)],
+        ["Owner", d.owner || "—"],
+        ["Approver", d.approver || "—"],
+        ["Regulatory basis", d.regulatory_basis || "—"],
+        ["Framework tags", Array.isArray(d.framework_tags) && d.framework_tags.length ? d.framework_tags.join(", ") : "—"],
+      ];
+      doc.fontSize(11).fillColor("black");
+      meta.forEach(([k, v]) => {
+        const yRow = doc.y;
+        doc.fillColor(primaryColor).text(`${k}:`, 50, yRow, { width: 160, continued: false });
+        doc.fillColor("black").text(String(v), 215, yRow, { width: doc.page.width - 265 });
+        doc.moveDown(0.35);
+      });
+      doc.moveDown(0.5);
+      doc.strokeColor("#cccccc").lineWidth(0.5).moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+      doc.moveDown(0.8);
+
+      if (String(d.file_format || "").toLowerCase() === "pdf") {
+        // The original signed-off PDF is appended after this cover, unaltered.
+        doc.fontSize(10).fillColor("#555").text("The official policy document follows on the next page(s), reproduced without alteration.", { align: "left" });
+        mergeOriginalPdf = true;
+      } else if (d.extracted_text) {
+        // Non-PDF source: render the document's OWN text verbatim (never AI-rewritten).
+        doc.fontSize(11).fillColor(primaryColor).text("Document text", { align: "left" });
+        doc.moveDown(0.3);
+        doc.fontSize(10).fillColor("black").text(String(d.extracted_text), { align: "left", width: doc.page.width - 100 });
+      } else {
+        doc.fontSize(10).fillColor("#555").text("No machine-readable text is available for inline display. Download the original file from the library to read the full document.", { align: "left" });
+      }
     } else {
       throw new Error(`Unknown template: ${template}`);
     }
@@ -502,14 +569,42 @@ async function generatePDFHandler(req, res, { verifyAuth, getUserAccessProfile, 
 
     doc.end();
     await finishedPromise;
-    const pdfData = Buffer.concat(buffers);
+    let pdfData = Buffer.concat(buffers);
+
+    // grc_policy is generated-and-streamed (no cache file). When the source is a PDF,
+    // merge the original signed-off pages AFTER the branded cover, UNALTERED, via
+    // pdf-lib (pdfkit cannot merge existing PDFs). No write to any erasable bucket.
+    if (template === "grc_policy") {
+      if (mergeOriginalPdf && grcDoc && grcDoc.gcs_path) {
+        try {
+          const { PDFDocument } = require("pdf-lib");
+          const [orig] = await admin.storage().bucket(GRC_BUCKET_NAME).file(grcDoc.gcs_path).download();
+          const out = await PDFDocument.create();
+          const coverDoc = await PDFDocument.load(pdfData);
+          const coverPages = await out.copyPages(coverDoc, coverDoc.getPageIndices());
+          coverPages.forEach((p) => out.addPage(p));
+          const srcDoc = await PDFDocument.load(orig, { ignoreEncryption: true });
+          const srcPages = await out.copyPages(srcDoc, srcDoc.getPageIndices());
+          srcPages.forEach((p) => out.addPage(p));
+          pdfData = Buffer.from(await out.save());
+        } catch (mergeErr) {
+          // Faithfulness over convenience: if we cannot merge the original cleanly,
+          // return the branded cover alone rather than a re-typed/altered body.
+          console.error("[PDF Engine] grc_policy merge failed:", mergeErr.message);
+        }
+      }
+      res.set("Access-Control-Allow-Origin", ALLOWED_ORIGINS.includes(req.headers.origin) ? req.headers.origin : "");
+      res.set("Content-Type", "application/pdf");
+      res.set("Content-Disposition", `inline; filename="${docId}_letterhead.pdf"`);
+      return res.status(200).send(pdfData);
+    }
 
     // Save to GCS
     const bucketName = "datalake-worm-finance";
     const bucket = admin.storage().bucket(bucketName);
     const timestamp = Date.now();
     const filePath = `pdfs/${template}/${docId}_${timestamp}.pdf`;
-    
+
     // Create bucket object if it doesn't exist? Assume bucket exists.
     try {
       const file = bucket.file(filePath);

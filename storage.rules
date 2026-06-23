@@ -47,9 +47,14 @@ service firebase.storage {
     }
 
     match /datalake-worm-hr/employee_documents/{fileName} {
+      // WORM: write-once. No client delete/overwrite — not even the CEO. Lawful
+      // disposal of WORM content happens only Admin-side under a retention policy
+      // (a CEO-deletable bucket is not WORM). True immutability is the bucket-level
+      // GCS retention policy (see scripts/set-worm-retention.sh) — this rule is the
+      // client-SDK boundary on top of it.
       allow read: if request.auth != null;
       allow create: if request.auth != null;
-      allow update, delete: if isCeo();
+      allow update, delete: if false;
     }
 
     // Approval-evidence uploads — the signature image is now written by the

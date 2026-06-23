@@ -26,6 +26,7 @@ setGlobalOptions({
 });
 
 const { callLLM, callOCR, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
+const { validateTimesheet } = require("./lib/timesheet-validate");
 const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 
 admin.initializeApp();
@@ -1637,80 +1638,27 @@ exports.submitTimesheet = onRequest(
 
       res.status(200).json({ success: true, timesheet_id: timesheetId, state: "SUBMITTED", message: "Timesheet submitted. CTO will review within 48 hours." });
 
-      // ── FIRE-AND-FORGET: Controller AI timesheet validation ──
-      // Runs async after response is sent. Does NOT block the engineer.
-      // CTO sees AI badge (✅ or ⚠️) when reviewing in TaskInbox.
-      (async () => {
-        try {
-          const validationInput = {
-            timesheet_id: timesheetId, period_label: periodLabel,
-            period_month, period_year,
-            engineer_name: assignment.engineer_name,
-            project_name: project.project_name, client_name: project.client_name,
-            total_hours_submitted: total_hours, in_house_hours, remote_hours, leave_hours,
-            days_entries: days,
-            contracted_rate_sar_per_hour: project.rate_amount_sar || null,
-            rate_structure: project.rate_structure || "HOURLY",
-            po_value_sar: project.po_value_sar || null,
-            po_total_hours: project.po_total_hours || null,
-            po_used_hours: project.po_used_hours || null,
-            billing_period_start: `${period_year}-${String(period_month).padStart(2, "0")}-01`,
-            billing_period_end: new Date(period_year, period_month, 0).toISOString().split("T")[0],
-          };
-
-          const llmResult = await callLLM({
-            agent: "controller", type: "timesheet_validate",
-            triggeredBy: decodedToken.email,
-            promptTemplateId: "CONTROLLER_TIMESHEET_V1",
-            systemPrompt: `You are the Datalake Controller AI. Validate this timesheet against the purchase order and Saudi tax requirements.
-Check ALL of the following:
-1. Total hours match sum of all day entries
-2. No duplicate dates in day entries
-3. All dates fall within the billing period
-4. Hour types valid: in_house, remote, leave_annual, leave_sick, leave_public_holiday
-5. If rate provided: total_amount_sar = total_hours × rate
-6. VAT: vat_amount_sar = total_amount_sar × 0.15 (ZATCA requirement)
-7. total_with_vat_sar = total_amount_sar + vat_amount_sar
-8. If PO caps provided: check hours do not exceed cap
-
-Return ONLY a valid JSON object:
-{
-  "valid": true|false,
-  "total_hours_verified": N,
-  "total_amount_sar": N or null,
-  "vat_amount_sar": N or null,
-  "total_with_vat_sar": N or null,
-  "po_remaining_hours": N or null,
-  "po_remaining_amount_sar": N or null,
-  "issues": ["..."],
-  "warnings": ["..."],
-  "notes": "..."
-}
-Return valid JSON only, no markdown.`,
-            userPrompt: JSON.stringify(validationInput),
-          });
-
-          if (llmResult.success) {
-            const parsed = parseJsonOutput(llmResult.output);
-            const validation = parsed.success ? parsed.data : { valid: null, issues: ["AI output parse failed"], raw: llmResult.output };
-            const validationStatus = validation.valid === true ? "AI_VALID" : validation.valid === false ? "AI_FLAGGED" : "AI_INCONCLUSIVE";
-
-            await db.collection("timesheets").doc(timesheetId).update({
-              ai_validation: validation,
-              ai_validation_status: validationStatus,
-              ai_validated_at: admin.firestore.FieldValue.serverTimestamp(),
-              ai_validated_by: "controller_ai",
-              ai_validation_model: MODEL_NAME,
-              ai_validation_ms: llmResult.inferenceMs,
-            });
-            console.log(`[Controller AI] Timesheet ${timesheetId} → ${validationStatus} (${validation.issues?.length || 0} issues)`);
-          } else {
-            console.warn(`[Controller AI] Timesheet ${timesheetId} validation failed:`, llmResult.error);
-          }
-        } catch (aiErr) {
-          console.error(`[Controller AI] Timesheet ${timesheetId} fire-and-forget error:`, aiErr.message);
-        }
-      })();
+      // ── Automated timesheet validation (deterministic — no LLM) ──
+      // Pure code checks: hours sum, valid day types, dates-in-period, rate×hours,
+      // VAT 15%, PO cap. 100% accurate + instant. Missing project rate/PO → NEEDS
+      // DATA (advisory), never a false FAILED. Advisory only — the CTO/CEO decides.
+      try {
+        const validation = validateTimesheet(
+          { days, total_hours, period_month, period_year },
+          project,
+        );
+        await db.collection("timesheets").doc(timesheetId).update({
+          ai_validation: validation,
+          ai_validation_status: validation.status,
+          ai_validated_at: admin.firestore.FieldValue.serverTimestamp(),
+          ai_validated_by: "automated_checks",
+          ai_validation_model: "deterministic-v1",
+          ai_validation_ms: 0,
+        });
+        console.log(`[Timesheet checks] ${timesheetId} → ${validation.status} (${validation.issues.length} issue(s))`);
+      } catch (vErr) {
+        console.error(`[Timesheet checks] ${timesheetId} error:`, vErr.message);
+      }
 
     } catch (err) { console.error("submitTimesheet error:", err); res.status(500).json({ error: "Internal server error", detail: err.message }); }
   }
@@ -1741,7 +1689,8 @@ exports.ctoApproveTimesheet = onRequest(
     let decodedToken;
     try { decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]); } catch { res.status(401).json({ error: "Invalid token" }); return; }
 
-    const authorized = ["cto@datalake.sa", "m.alqumri@datalake.sa"];
+    // CTO role is VACANT — CEO acts as CTO. Dormant cto@datalake.sa removed.
+    const authorized = ["m.alqumri@datalake.sa"];
     if (!authorized.includes(decodedToken.email)) { res.status(403).json({ error: "Only CTO or CEO can approve timesheets" }); return; }
 
     try {
@@ -2149,7 +2098,7 @@ exports.resendTimesheetSignLink = onRequest(
       }
     } catch { /* role stays null → denied below unless CEO */ }
     const isCeo = decodedToken.email === "m.alqumri@datalake.sa";
-    if (!(isCeo || decodedToken.email === "cto@datalake.sa" || ["ceo", "cto", "finance", "hr"].includes(callerRole))) {
+    if (!(isCeo || ["ceo", "cto", "finance", "hr"].includes(callerRole))) {
       res.status(403).json({ error: "Only CEO/CTO/finance/HR can resend a sign link." }); return;
     }
 
@@ -3219,10 +3168,14 @@ exports.sendInterviewInvite = onRequest(
 );
 
 // Project-timesheet client sign-off — portal (authed) + emailed token link (public).
-const { sendTimesheetToClientHandler, signProjectTimesheetHandler, assembleProjectTimesheetHandler } = require("./projectTimesheetSign");
+const { sendTimesheetToClientHandler, signProjectTimesheetHandler, assembleProjectTimesheetHandler, ctoSignProjectTimesheetHandler } = require("./projectTimesheetSign");
 exports.sendTimesheetToClient = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS, invoker: "public" },
   (req, res) => sendTimesheetToClientHandler(req, res, { verifyAuth, getUserAccessProfile })
+);
+exports.ctoSignProjectTimesheet = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => ctoSignProjectTimesheetHandler(req, res, { verifyAuth, getUserAccessProfile })
 );
 exports.assembleProjectTimesheet = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS, invoker: "public" },
@@ -3315,6 +3268,21 @@ exports.financeReviewDealQuote = onRequest(
 exports.approveDealQuote = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => approveDealQuoteHandler(req, res, hireHelpers)
+);
+
+// CRM — DTLK-AI-AGENT-001 — Stuck-Deal Follow-up agent (the platform's first real
+// agent) + the human-in-the-loop approval boundary. runFollowupAgent only PROPOSES
+// (writes agent_proposals); approveAgentProposal is the only path a proposal becomes
+// a crm_task. CEO/business only (gated in-handler). 540s to absorb GPU wake + multi
+// LLM steps. invoker:"public" per the IAM rule (Firebase ID token, not OIDC).
+const { runFollowupAgentHandler, approveAgentProposalHandler } = require("./crmAgent");
+exports.runFollowupAgent = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 540, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => runFollowupAgentHandler(req, res, hireHelpers)
+);
+exports.approveAgentProposal = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => approveAgentProposalHandler(req, res, hireHelpers)
 );
 
 // CRM — hardened import + bulk soft-delete (DTLK-UI-CRM-001 §3, P0.0). Server is
@@ -3547,12 +3515,20 @@ const {
   uploadGrcDocumentHandler,
   listGrcDocumentsHandler,
   downloadGrcDocumentHandler,
-  getGrcChangeLogHandler
+  getGrcChangeLogHandler,
+  extractGrcMetadataHandler
 } = require("./grcLibrary");
 
 exports.uploadGrcDocument = onRequest(
   { region: "me-central2", memory: "512MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
   (req, res) => uploadGrcDocumentHandler(req, res, hireHelpers)
+);
+
+// DTLK-GRC-AI-001 — AI auto-mapping: read the file's own text and propose metadata.
+// 540s + 512MiB to absorb GPU wake + extraction. invoker:"public" per the IAM rule.
+exports.extractGrcMetadata = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 540, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => extractGrcMetadataHandler(req, res, hireHelpers)
 );
 
 exports.listGrcDocuments = onRequest(
@@ -3568,6 +3544,35 @@ exports.downloadGrcDocument = onRequest(
 exports.getGrcChangeLog = onRequest(
   { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS },
   (req, res) => getGrcChangeLogHandler(req, res, hireHelpers)
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// DTLK-GRC-AI-001 — GRC Compliance Agent (chat + readiness + sweep + approve).
+// Chat is grounded/cited and access-filtered per caller; proposals are propose-only
+// and a human APPROVE applies them. invoker:"public" per the IAM rule (ID token).
+// ═══════════════════════════════════════════════════════════════════
+const {
+  grcAssistantChatHandler,
+  grcAuditReadinessHandler,
+  grcReviewSweepHandler,
+  approveGrcProposalHandler,
+} = require("./grcAgent");
+
+exports.grcAssistantChat = onRequest(
+  { region: "me-central2", memory: "512MiB", timeoutSeconds: 540, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => grcAssistantChatHandler(req, res, hireHelpers)
+);
+exports.grcAuditReadiness = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => grcAuditReadinessHandler(req, res, hireHelpers)
+);
+exports.approveGrcProposal = onRequest(
+  { region: "me-central2", memory: "256MiB", timeoutSeconds: 30, cors: ALLOWED_ORIGINS, invoker: "public" },
+  (req, res) => approveGrcProposalHandler(req, res, hireHelpers)
+);
+exports.grcReviewSweep = onSchedule(
+  { schedule: "every day 06:30", region: "me-central2", memory: "256MiB", timeoutSeconds: 300 },
+  async () => { await grcReviewSweepHandler(); }
 );
 
 const { backfillEmployeeHandler, recordLeaverHandler, getBackfillConsentFormHandler, submitBackfillConsentHandler } = require("./backfill");
@@ -4003,6 +4008,19 @@ exports.clientApproveLeave = onRequest(
 exports.approveLeave = onRequest(
   { region: "me-central2", memory: "256MiB" },
   (req, res) => approveLeaveHandler(req, res, { verifyAuth, getUserAccessProfile, ALLOWED_ORIGINS })
+);
+
+// ── Contract recovery from WORM (re-link a PDF whose Firestore row was deleted) ──
+const { listOrphanedContractPdfsHandler, relinkContractPdfHandler } = require("./contractRecovery");
+
+exports.listOrphanedContractPdfs = onRequest(
+  { invoker: "public", region: "me-central2", memory: "256MiB", timeoutSeconds: 120, cors: ALLOWED_ORIGINS },
+  (req, res) => listOrphanedContractPdfsHandler(req, res, { verifyAuth, getUserAccessProfile })
+);
+
+exports.relinkContractPdf = onRequest(
+  { invoker: "public", region: "me-central2", memory: "256MiB", timeoutSeconds: 60, cors: ALLOWED_ORIGINS },
+  (req, res) => relinkContractPdfHandler(req, res, { verifyAuth, getUserAccessProfile })
 );
 
 exports.validateLeaveRequest = onDocumentCreated(

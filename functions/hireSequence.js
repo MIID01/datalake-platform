@@ -627,6 +627,45 @@ async function provisionEngineerHandler(event) {
       updated_at: now,
     });
 
+    // ── Promote the prepared Skills Portfolio CV (DTLK-FORM-HR-CV-002) to WORM ──
+    // While a candidate, the CV lived in the ERASABLE bucket (PDPL Art.18). On hire the
+    // lawful basis becomes the employment contract, so the final CV becomes a permanent
+    // HR record: copy it into datalake-worm-hr under the new hire (immutable, "to their
+    // name"). Sourced from the CANONICAL prepared artifact. Best-effort — never blocks
+    // provisioning.
+    try {
+      const candSnap = await db.collection("talent_pool").doc(hire.candidate_id).get();
+      const cand = candSnap.exists ? candSnap.data() : {};
+      const srcPath = cand.interview_cv_path || cand.portfolio_path;
+      if (srcPath) {
+        const srcBucketName = cand.interview_cv_bucket || cand.portfolio_bucket || "datalake-production-sa.firebasestorage.app";
+        const srcFile = admin.storage().bucket(srcBucketName).file(srcPath);
+        const [cvExists] = await srcFile.exists();
+        if (cvExists) {
+          const [cvBuf] = await srcFile.download();
+          const safe = String(hire.candidate_name || "employee").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+          const wormPath = `skills-portfolio/${engineerId}/${Date.now()}_DTLK-FORM-HR-CV-002_${safe}.docx`;
+          await admin.storage().bucket("datalake-worm-hr").file(wormPath).save(cvBuf, {
+            contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            metadata: { metadata: {
+              engineer_id: engineerId, candidate_id: hire.candidate_id, hire_id: hire.hire_id,
+              source_path: srcPath, promoted_by: hire.initiated_by || "system",
+              regulatory_basis: "Post-hire HR record — WORM retained; PDPL lawful basis: employment contract",
+            } },
+          });
+          await db.collection("engineers").doc(engineerId).set({
+            skills_portfolio_worm_path: `gs://datalake-worm-hr/${wormPath}`,
+            skills_portfolio_promoted_at: now,
+          }, { merge: true });
+          await db.collection("task_audit_log").add({
+            event: "SKILLS_PORTFOLIO_PROMOTED_TO_WORM", action_by: hire.initiated_by || "system", action_at: now,
+            details: { engineer_id: engineerId, candidate_id: hire.candidate_id, worm_path: wormPath, source_path: srcPath },
+          });
+          console.log(`[Hire] Promoted Skills Portfolio CV to WORM: ${wormPath}`);
+        }
+      }
+    } catch (cvErr) { console.warn("[Hire] CV→WORM promotion skipped (non-blocking):", cvErr.message); }
+
     // Send welcome email. The platform is email/password only (Google SSO was
     // removed), and a freshly-provisioned account has no password yet — so we
     // include a set-password link instead of the old "sign in with Google" text.

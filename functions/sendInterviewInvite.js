@@ -68,6 +68,10 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
     const locStr = location || (mode === "online" ? "Online — meeting link to follow" : `${COMPANY.legal_name_en}, Riyadh`);
     const summary = `Interview Invitation — ${COMPANY.legal_name_en}`;
 
+    // Prepared Skills Portfolio CV — the CANONICAL artifact from prepareInterviewCV
+    // (talent_pool.interview_cv_path). Auto-attached so HR never hand-attaches it.
+    const cvAttachment = await loadPreparedCv(candidate);
+
     // ── 5. Create the meeting + send the invite ──
     // Full-Outlook path: when M365/Graph is configured, create the event on the
     // organizer's mailbox — Outlook auto-sends the invite to attendees and Teams
@@ -90,6 +94,9 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
           ...toList.map((e) => ({ email: e, optional: false })),
           ...ccList.map((e) => ({ email: e, optional: true })),
         ],
+        attachments: cvAttachment
+          ? [{ name: cvAttachment.filename, contentType: cvAttachment.contentType, contentBytes: cvAttachment.buffer.toString("base64") }]
+          : [],
       });
       joinUrl = result.joinUrl;
       graphEventId = result.id;
@@ -116,6 +123,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
         subject: summary,
         bodyText,
         ics,
+        attachment: cvAttachment,
       });
       const sendResult = await gmail.users.messages.send({ userId: "hr@datalake.sa", requestBody: { raw } });
       gmailMessageId = sendResult.data.id;
@@ -134,6 +142,7 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
       interview_invited_cc: ccList,
       interview_invited_by: profile.email,
       interview_invited_at: now,
+      interview_cv_attached: !!cvAttachment,
     });
 
     await db.collection("task_audit_log").add({
@@ -182,6 +191,31 @@ async function handler(req, res, { verifyAuth, getUserAccessProfile }) {
 // ── Helpers ──
 
 function isEmail(e) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); }
+
+// Load the candidate's prepared Skills Portfolio CV — the CANONICAL artifact from
+// prepareInterviewCV (talent_pool.interview_cv_path, erasable bucket per PDPL). Used
+// to auto-attach it to the invite. Returns null if none prepared / on read error so
+// the invite still sends.
+async function loadPreparedCv(candidate) {
+  const cvPath = candidate.interview_cv_path || candidate.portfolio_path;
+  if (!cvPath) return null;
+  try {
+    const bucketName = candidate.interview_cv_bucket || candidate.portfolio_bucket || "datalake-production-sa.firebasestorage.app";
+    const file = admin.storage().bucket(bucketName).file(cvPath);
+    const [exists] = await file.exists();
+    if (!exists) return null;
+    const [buffer] = await file.download();
+    const safeName = String(candidate.full_name || "candidate").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return {
+      buffer,
+      filename: `DTLK-FORM-HR-CV-002_${safeName}.docx`,
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    };
+  } catch (e) {
+    console.warn("loadPreparedCv failed (invite will send without attachment):", e.message);
+    return null;
+  }
+}
 
 // "2026-06-20T14:30" is Riyadh wall-clock. Build the real UTC instant by taking
 // the components as UTC then subtracting the +3 offset.
@@ -282,7 +316,7 @@ function mimeEncodeSubject(s) {
 }
 
 // multipart/mixed → [ alternative(text + inline calendar) , .ics attachment ]
-function buildRawWithIcs({ from, to, cc, subject, bodyText, ics }) {
+function buildRawWithIcs({ from, to, cc, subject, bodyText, ics, attachment }) {
   const mixed = `mixed_${Date.now().toString(16)}`;
   const alt = `alt_${Date.now().toString(16)}`;
   const ccHeader = Array.isArray(cc) && cc.length ? [`Cc: ${cc.join(", ")}`] : [];
@@ -320,6 +354,16 @@ function buildRawWithIcs({ from, to, cc, subject, bodyText, ics }) {
     "",
     icsB64,
     "",
+    // Prepared Skills Portfolio CV (DTLK-FORM-HR-CV-002), if one is prepared.
+    ...(attachment ? [
+      `--${mixed}`,
+      `Content-Type: ${attachment.contentType}; name="${attachment.filename}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${attachment.filename}"`,
+      "",
+      attachment.buffer.toString("base64"),
+      "",
+    ] : []),
     `--${mixed}--`,
   ].join("\r\n");
 

@@ -59,7 +59,7 @@ async function getGraphToken() {
  * wall-clock strings ("YYYY-MM-DDTHH:mm:ss") with an explicit timeZone.
  * Returns { id, joinUrl, webLink }.
  */
-async function createTeamsCalendarEvent({ organizer, subject, bodyHtml, startLocal, endLocal, timeZone, location, attendees }) {
+async function createTeamsCalendarEvent({ organizer, subject, bodyHtml, startLocal, endLocal, timeZone, location, attendees, attachments }) {
   const token = await getGraphToken();
   const event = {
     subject,
@@ -74,6 +74,16 @@ async function createTeamsCalendarEvent({ organizer, subject, bodyHtml, startLoc
     isOnlineMeeting: true,
     onlineMeetingProvider: "teamsForBusiness",
   };
+  // Inline file attachments (e.g. the prepared Skills Portfolio CV). Graph inline
+  // fileAttachment supports up to ~3 MB — a CV DOCX is comfortably under that.
+  if (Array.isArray(attachments) && attachments.length) {
+    event.attachments = attachments.map((a) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: a.name,
+      contentType: a.contentType || "application/octet-stream",
+      contentBytes: a.contentBytes,
+    }));
+  }
   const r = await fetch(`${GRAPH}/users/${encodeURIComponent(organizer)}/events`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

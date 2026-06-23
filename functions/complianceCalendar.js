@@ -3,12 +3,13 @@
  *
  * complianceCalendarRunner — daily Cloud Scheduler job
  *   Reads compliance calendar, identifies items due in 7 days,
- *   drafts artifacts via self-hosted Qwen 2.5 7B, routes to CEO for approval.
+ *   drafts artifacts via the self-hosted LLM (Gemma 3; model id from LLM_MODEL env),
+ *   routes to CEO for approval.
  *
  * approveDraftCompliance — CEO approves and archives to WORM
  *
  * DTLK-PROMPT-AI-001: NO Gemini / VertexAI / external APIs.
- * All AI inference via self-hosted datalake-ai-inference (Qwen 2.5 7B).
+ * All AI inference via self-hosted datalake-ai-inference (Gemma 3; Qwen 2.5 retired).
  */
 
 const admin = require("firebase-admin");
@@ -57,7 +58,7 @@ async function complianceCalendarRunnerHandler() {
         continue;
       }
 
-      // Draft artifact via Gemini
+      // Draft artifact via self-hosted LLM (callLLM → datalake-ai-inference)
       const draftContent = await draftComplianceArtifact(item);
 
       await db.collection("compliance_drafts").doc(existingId).set({
@@ -84,7 +85,7 @@ async function complianceCalendarRunnerHandler() {
 }
 
 async function draftComplianceArtifact(item) {
-  // DTLK-PROMPT-AI-001: Self-hosted Qwen 2.5 7B — no external AI APIs.
+  // DTLK-PROMPT-AI-001: Self-hosted LLM (Gemma 3) — no external AI APIs.
   const docId = `DTLK-COMP-${item.id.toUpperCase()}-${new Date().toISOString().split("T")[0].replace(/-/g, "")}`;
 
   const llmResult = await callLLM({

@@ -24,6 +24,7 @@
 
 const fetch = require("node-fetch");
 const crypto = require("crypto");
+const admin = require("firebase-admin");
 const { BigQuery } = require("@google-cloud/bigquery");
 const { GoogleAuth } = require("google-auth-library");
 
@@ -192,16 +193,28 @@ async function logAiAction(action) {
   try {
     await bigquery.dataset(BQ_DATASET).table(BQ_TABLE).insert([row]);
   } catch (err) {
-    // A BigQuery insert failure is a COMPLIANCE VIOLATION — log loudly.
-    // Do NOT suppress. If the audit log fails, the calling function should
-    // decide whether to abort or proceed with a warning.
+    // A BigQuery insert failure is a COMPLIANCE VIOLATION — log loudly AND write a
+    // durable fallback so the audit record is NEVER silently lost (fail-durable, not
+    // fail-silent). The fallback Firestore collection is server-write-only and can be
+    // re-ingested to BigQuery. Only if BOTH sinks fail do we re-throw.
     console.error(
       "[AUDIT LOG FAILED — COMPLIANCE VIOLATION]",
       err.message,
       JSON.stringify(err.errors || [])
     );
-    // Re-throw so callers can decide; callLLM/callOCR catch and log but continue.
-    throw err;
+    try {
+      await admin.firestore().collection("ai_audit_fallback").add({
+        ...row,
+        _fallback_reason: String(err.message || "bigquery insert failed").slice(0, 500),
+        _fallback_at: admin.firestore.FieldValue.serverTimestamp(),
+        _reingested: false,
+      });
+      console.error("[AUDIT LOG] wrote durable Firestore fallback (ai_audit_fallback) — not lost.");
+      return; // audit is captured durably; do not break the caller's AI action.
+    } catch (fallbackErr) {
+      console.error("[AUDIT LOG] FALLBACK ALSO FAILED — re-throwing", fallbackErr.message);
+      throw err; // both sinks down → surface it
+    }
   }
 }
 

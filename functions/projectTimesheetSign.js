@@ -32,7 +32,10 @@ async function assembleProjectTimesheetHandler(req, res, { verifyAuth, getUserAc
   try {
     const decoded = await verifyAuth(req);
     const profile = await getUserAccessProfile(decoded.uid);
-    if (!["ceo", "hr", "business", "sales"].includes(profile.role_id)) return res.status(403).json({ error: "Forbidden" });
+    // CTO owns the client timesheet; CEO overrides (CTO role is vacant). HR is OUT
+    // of the timesheet flow per CEO directive 2026-06-21. business/sales kept so CRM
+    // can still surface a draft, but only CTO/CEO can sign (see ctoSign handler).
+    if (!["ceo", "cto", "business", "sales"].includes(profile.role_id)) return res.status(403).json({ error: "Forbidden" });
 
     const project_id = req.body?.project_id;
     const year = Number(req.body?.year), month = Number(req.body?.month);
@@ -53,7 +56,10 @@ async function assembleProjectTimesheetHandler(req, res, { verifyAuth, getUserAc
     tsSnap.forEach((d) => {
       const t = d.data();
       if (Number(t.period_month) !== month || Number(t.period_year) !== year) return;
-      if (!["CTO_APPROVED", "CLIENT_SIGNED"].includes(t.state)) return;
+      // New model (consolidated-only): the CTO signs ONCE at the consolidated level,
+      // so engineers' own sheets only need to be SUBMITTED to roll up. (CTO_APPROVED /
+      // CLIENT_SIGNED still included for back-compat with anything already advanced.)
+      if (!["SUBMITTED", "CTO_APPROVED", "CLIENT_SIGNED"].includes(t.state)) return;
       const role = roleByEmail[String(t.engineer_email || "").toLowerCase()] || roleById[t.engineer_id] || t.role_on_project || "Role";
       const days = {};
       Object.entries(t.days || {}).forEach(([dk, e]) => {
@@ -239,4 +245,102 @@ async function signProjectTimesheetHandler(req, res, { verifyAuth, getUserAccess
   }
 }
 
-module.exports = { sendTimesheetToClientHandler, signProjectTimesheetHandler, assembleProjectTimesheetHandler };
+// ── CTO/CEO signs the consolidated monthly sheet, THEN auto-sends it to the client
+// in ONE action (CEO directive 2026-06-21: HR does nothing; engineer submits → CTO
+// signs once → client signs once). CTO role is VACANT, so the CEO overrides. Writes
+// an immutable internal sign-off evidence row, marks the underlying engineer sheets
+// CTO_APPROVED (so the engineer sees their submission was approved), then emails the
+// client a tokenised sign link. ──
+async function ctoSignProjectTimesheetHandler(req, res, { verifyAuth, getUserAccessProfile }) {
+  cors(res);
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  try {
+    const decoded = await verifyAuth(req);
+    const profile = await getUserAccessProfile(decoded.uid);
+    if (!["ceo", "cto"].includes(profile.role_id)) return res.status(403).json({ error: "Forbidden: CTO/CEO only" });
+
+    const { docId, signer_name, affirm, client_email } = req.body || {};
+    if (!docId) return res.status(400).json({ error: "docId required" });
+    const name = String(signer_name || "").trim();
+    if (!name || affirm !== true) return res.status(400).json({ error: "Your name and the affirmation are required to sign." });
+
+    const ref = db.collection("project_timesheets").doc(docId);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Timesheet not found" });
+    const t = snap.data();
+    if (!["DRAFT", "SUBMITTED"].includes(t.state)) return res.status(400).json({ error: `Already ${t.state} — cannot sign again.` });
+    if (!(t.rows && t.rows.length)) return res.status(400).json({ error: "Nothing to sign — no engineer submissions assembled yet." });
+
+    const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || "";
+    const ua = req.headers["user-agent"] || "";
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const isOverride = profile.role_id === "ceo";
+
+    // 1) Internal CTO/CEO sign-off evidence (immutable via firestore.rules) + state flip
+    await ref.collection("approval_evidence").add({
+      action: "CTO_SIGN_TIMESHEET",
+      label: `Internal approval (${isOverride ? "CEO override — CTO vacant" : "CTO"}) — ${t.period_label}`,
+      signer_name: name, signer_email: profile.email || decoded.email || null, signer_uid: decoded.uid || null,
+      signer_role: profile.role_id, ceo_override: isOverride,
+      signed_at: now, ip_address: ip, user_agent: ua, affirmation: true, typed_name: name,
+      parent_collection: "project_timesheets", parent_id: docId,
+    });
+    await ref.update({
+      state: "CTO_APPROVED",
+      cto_signed_by: profile.email || decoded.email || null, cto_signer_name: name,
+      cto_signed_role: profile.role_id, cto_signed_at: now, updated_at: now,
+    });
+
+    // 1b) Mark the underlying engineer timesheets approved so the engineer's own
+    // history reflects the sign-off (best-effort — never block the sign on this).
+    try {
+      const srcIds = [...new Set((t.rows || []).map((r) => r.source_timesheet_id).filter(Boolean))];
+      await Promise.all(srcIds.map((id) =>
+        db.collection("timesheets").doc(id).update({
+          state: "CTO_APPROVED", cto_action_at: now, cto_action_by: profile.email || null,
+          cto_decision: "APPROVE", cto_notes: `Approved via consolidated sheet ${docId}`,
+        }).catch(() => {})
+      ));
+    } catch (e) { console.warn("ctoSign: engineer rollup update skipped:", e.message); }
+
+    // 2) Auto-send to the client for signature
+    let to = (client_email || "").trim();
+    if (!to && t.client_id) {
+      const c = await db.collection("clients").doc(t.client_id).get();
+      if (c.exists) to = c.data().contact_email || "";
+    }
+    if (!to) {
+      await ref.update({ sign_send_status: "NO_RECIPIENT" });
+      return res.json({ ok: true, signed: true, sent: false, error: "Signed internally, but no client email on file — add one on the client record, then Resend." });
+    }
+
+    const token = crypto.randomBytes(24).toString("hex");
+    await ref.update({
+      sign_token: token, sign_token_expires: Date.now() + 1000 * 60 * 60 * 24 * 14,
+      sign_sent_to: to, sign_sent_by: profile.email, sign_sent_at: now, sign_send_status: "SENT",
+      state: "SENT_TO_CLIENT",
+    });
+    const link = `${APP_URL}/sign-timesheet/${docId}?t=${token}`;
+    const html =
+      `<p>Dear ${t.client_name || "Client"},</p>` +
+      `<p>Please review and sign the <b>${t.period_label}</b> timesheet for <b>${t.project_name}</b> (PO ${t.po_number || "—"}).</p>` +
+      `<p><a href="${link}" style="background:#022873;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">Review &amp; sign the timesheet</a></p>` +
+      `<p style="font-size:12px;color:#666">Or paste this link: ${link}<br>This link expires in 14 days.</p>` +
+      `<p>${COMPANY.legal_name_en}</p>`;
+    const raw = Buffer.from(
+      `From: ${COMPANY.legal_name_en} <hr@datalake.sa>\r\nTo: ${to}\r\n` +
+      `Subject: Timesheet for signature — ${t.project_name} (${t.period_label})\r\n` +
+      `MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n${html}`
+    ).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const gmail = await getGmailClient();
+    await gmail.users.messages.send({ userId: "hr@datalake.sa", requestBody: { raw } });
+
+    return res.json({ ok: true, signed: true, sent: true, sent_to: to });
+  } catch (e) {
+    console.error("ctoSignProjectTimesheet:", e);
+    return res.status(500).json({ error: e.message });
+  }
+}
+
+module.exports = { sendTimesheetToClientHandler, signProjectTimesheetHandler, assembleProjectTimesheetHandler, ctoSignProjectTimesheetHandler };

@@ -3,9 +3,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
     
     function isCeoOrCto() {
-      return request.auth != null && 
-        (request.auth.token.email == "m.alqumri@datalake.sa" ||
-         request.auth.token.email == "cto@datalake.sa");
+      // CTO role is VACANT — the CEO acts as CTO. The dormant cto@datalake.sa
+      // hardcoded identity was removed (no such account should exist). A real CTO,
+      // if ever hired, would be granted via users.role_id == "cto" (RBAC), not a
+      // hardcoded email.
+      return request.auth != null && request.auth.token.email == "m.alqumri@datalake.sa";
     }
     
     function isCeo() {
@@ -163,20 +165,64 @@ service cloud.firestore {
       allow delete: if isCeo() || isBusinessOrSales();
     }
 
+    // ── CRM agent (DTLK-AI-AGENT-001) — Stuck-Deal Follow-up assistant ──
+    // The agent ONLY proposes; the human-review queue + audit are written by Cloud
+    // Functions on the Admin SDK. No client SDK path may create/flip a proposal or
+    // forge an audit row — that is the entire trust boundary. CEO/business read-only.
+    match /agent_runs/{runId} {
+      allow read:  if isCeo() || isBusinessOrSales();
+      allow write: if false; // runFollowupAgent (Admin SDK) only
+    }
+    match /agent_proposals/{propId} {
+      allow read:  if isCeo() || isBusinessOrSales();
+      allow write: if false; // runFollowupAgent proposes, approveAgentProposal decides (Admin SDK)
+    }
+    match /agent_action_log/{logId} {
+      allow read:  if isCeo() || isBusinessOrSales();
+      allow write: if false; // append-only audit — server-side only
+    }
+
+    // ── GRC Compliance Agent (DTLK-GRC-AI-001) ──
+    // Same trust boundary as the CRM agent: all writes are Admin-SDK-only. The agent
+    // PROPOSES (grc_proposals); approveGrcProposal (Admin SDK) is the only path a
+    // proposal applies. grc_readiness is a server-computed snapshot. Read = CEO or
+    // compliance_lead (the GRC surfaces). grc_documents.extracted_text is never
+    // exposed to the client SDK (grc_documents has no read rule → default-deny).
+    match /grc_agent_runs/{runId} {
+      allow read:  if isCeo() || getUserRole() == "compliance_lead";
+      allow write: if false;
+    }
+    match /grc_proposals/{propId} {
+      allow read:  if isCeo() || getUserRole() == "compliance_lead";
+      allow write: if false;
+    }
+    match /grc_action_log/{logId} {
+      allow read:  if isCeo() || getUserRole() == "compliance_lead";
+      allow write: if false;
+    }
+    match /grc_readiness/{docId} {
+      allow read:  if isCeo() || getUserRole() == "compliance_lead";
+      allow write: if false;
+    }
+
     // ── Client project timesheets (monthly grid; DTLK-HR-TS-002) ──
     // Rows=roles, cols=days. Compiled by CRM/HR, reviewed by CTO/CEO (where labeled
     // additional-billable items are added), then client-signed. CEO-only delete.
     match /project_timesheets/{tsId} {
+      // CTO owns this; CEO overrides (CTO vacant). HR is OUT of the timesheet flow
+      // (CEO directive 2026-06-21). State transitions (assemble / CTO-sign / send /
+      // client-sign) all run via Cloud Functions (Admin SDK, bypass rules); the only
+      // client-SDK write is the CTO/CEO editing additional-billable on a draft.
       // Owning client can READ their own (to review/sign in the portal); not write.
-      allow read:   if isCeo() || isBusinessOrSales() || isHR() || isAssignedClient(resource.data.client_id);
-      allow create: if isCeo() || isBusinessOrSales() || isHR();
-      allow update: if isCeo() || isBusinessOrSales() || isHR();
+      allow read:   if isCeoOrCto() || isBusinessOrSales() || isAssignedClient(resource.data.client_id);
+      allow create: if isCeoOrCto() || isBusinessOrSales();
+      allow update: if isCeoOrCto();
       allow delete: if isCeo();
 
-      // Signature/approval evidence — written ONLY by the signProjectTimesheet
-      // Cloud Function (Admin SDK, bypasses rules). Immutable + read-restricted.
+      // Signature/approval evidence — written ONLY by the (cto)signProjectTimesheet
+      // Cloud Functions (Admin SDK, bypasses rules). Immutable + read-restricted.
       match /approval_evidence/{evId} {
-        allow read:  if isCeo() || isBusinessOrSales() || isHR();
+        allow read:  if isCeoOrCto() || isBusinessOrSales();
         allow write: if false;
       }
     }
@@ -220,7 +266,11 @@ service cloud.firestore {
 
     // ── Employees & HR ──
     match /employees/{docId} {
-      allow read: if request.auth != null;
+      // PII (incl. salary fields): staff (CEO/HR/finance/CTO) read all; an employee
+      // reads only their own record. NOT "any authenticated user" (that exposed all
+      // employee PII to every signed-in account, including external client users).
+      allow read: if isCeo() || isHR() || isFinance() || getUserRole() == "cto" ||
+        (request.auth != null && request.auth.token.email == resource.data.email);
       allow create: if request.auth != null && (getUserRole() == "ceo" || getUserRole() == "hr");
       // CEO/HR may update any field. The employee who owns the record (matched by email)
       // may edit ONLY their own limited self-service fields.
@@ -286,16 +336,36 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     match /leave_requests/{docId} {
-      allow read, write: if request.auth != null;
+      // Owner (engineer), the assigned client-PM approver, and HR/CEO. 4-party
+      // approval chain writes status directly, so update stays open to those parties.
+      allow read: if isCeo() || isHR() ||
+        (request.auth != null && (resource.data.engineer_email == request.auth.token.email || resource.data.client_pm_email == request.auth.token.email));
+      allow create: if request.auth != null && request.resource.data.engineer_email == request.auth.token.email;
+      allow update: if isCeo() || isHR() ||
+        (request.auth != null && (resource.data.engineer_email == request.auth.token.email || resource.data.client_pm_email == request.auth.token.email));
+      allow delete: if isCeo() || isHR() || (request.auth != null && resource.data.engineer_email == request.auth.token.email);
     }
     match /leave_balances/{docId} {
-      allow read, write: if request.auth != null;
+      // Doc id == engineer_email. Owner reads own; HR/finance/CEO read all; HR/CEO write.
+      allow read: if isCeo() || isHR() || isFinance() ||
+        (request.auth != null && docId == request.auth.token.email);
+      allow write: if isCeo() || isHR();
     }
     match /expenses/{docId} {
-      allow read, write: if request.auth != null;
+      // Owner creates own; owner + finance/CEO read; CEO/finance approve (update).
+      allow read: if isCeo() || isFinance() || isHR() ||
+        (request.auth != null && resource.data.engineer_email == request.auth.token.email);
+      allow create: if request.auth != null && request.resource.data.engineer_email == request.auth.token.email;
+      allow update: if isCeo() || isFinance();
+      allow delete: if isCeo() || isFinance() || (request.auth != null && resource.data.engineer_email == request.auth.token.email);
     }
     match /travel_requests/{docId} {
-      allow read, write: if request.auth != null;
+      // Owner self-service; staff manage.
+      allow read: if isCeo() || isHR() || isFinance() ||
+        (request.auth != null && resource.data.engineer_email == request.auth.token.email);
+      allow create: if request.auth != null && request.resource.data.engineer_email == request.auth.token.email;
+      allow update, delete: if isCeo() || isHR() || isFinance() ||
+        (request.auth != null && resource.data.engineer_email == request.auth.token.email);
     }
 
     // ── Projects & Timesheets ──
@@ -404,7 +474,14 @@ service cloud.firestore {
 
     // ── Operations & Support ──
     match /tasks/{taskId} {
-      allow read, write: if request.auth != null;
+      // Tasks are created server-side (createTask CF, Admin SDK). CEO consumes them
+      // in TaskInbox; the named assignee may read/act on their own.
+      allow read: if isCeo() ||
+        (request.auth != null && resource.data.assigned_to_id == request.auth.token.email);
+      allow create: if isCeo();
+      allow update: if isCeo() ||
+        (request.auth != null && resource.data.assigned_to_id == request.auth.token.email);
+      allow delete: if isCeo();
     }
     match /task_audit_log/{logId} {
       // Append-only audit trail: any authenticated user (and the Admin SDK in
@@ -416,7 +493,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     match /support_tickets/{docId} {
-      allow read, write: if request.auth != null;
+      // Owner raises + replies on own ticket; HR/CEO read all; CEO manages.
+      allow read: if isCeo() || isHR() ||
+        (request.auth != null && resource.data.engineer_email == request.auth.token.email);
+      allow create: if request.auth != null && request.resource.data.engineer_email == request.auth.token.email;
+      allow update: if isCeo() ||
+        (request.auth != null && resource.data.engineer_email == request.auth.token.email);
+      allow delete: if isCeo();
     }
     match /pending_approvals/{docId} {
       // SoD Hub queue: rows are created by generateInvoice and cleared by
@@ -426,10 +509,15 @@ service cloud.firestore {
       allow write: if false;
     }
     match /evaluations/{evalId} {
-      allow read, write: if request.auth != null;
+      // Immutable hiring scorecards — written only by submitHRScore (Admin SDK).
+      allow read: if isCeo() || isHR();
+      allow create, update, delete: if false;
     }
     match /audit_log/{logId} {
-      allow read, write: if request.auth != null;
+      // Audit trail — written only server-side (Admin SDK). No client writes (a
+      // client-writable audit log is not tamper-evident). Read restricted to staff.
+      allow read: if isCeo() || isHR() || isFinance();
+      allow create, update, delete: if false;
     }
     match /client_profile/{docId} {
       allow read: if true;
@@ -538,7 +626,12 @@ service cloud.firestore {
       allow create: if request.auth != null;
     }
     match /analytics/{docId} { allow read, write: if request.auth != null; }
-    match /compliance/{docId} { allow read, write: if request.auth != null; }
+    match /compliance/{docId} {
+      // Compliance/CAPA register — feeds AuditExport. Read by GRC staff; write limited
+      // to CEO/CTO (the SAMA materiality auto-create runs in a CEO/CTO context).
+      allow read: if isCeoOrCto() || isHR() || isFinance();
+      allow write: if isCeoOrCto();
+    }
     match /pipeline/{docId} { allow read, write: if request.auth != null; }
     match /system_health/{docId} { allow read, write: if request.auth != null; }
 
