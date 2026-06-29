@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db, CTO_APPROVE_TIMESHEET_URL, RESEND_SIGN_LINK_URL } from '../../lib/firebase'
+import { db, CTO_APPROVE_TIMESHEET_URL } from '../../lib/firebase'
 import { auth } from '../../lib/firebase'
 import {
   ClipboardCheck, CheckCircle, XCircle, Clock, AlertTriangle,
   Calendar, ChevronDown, Send, MessageSquare, Bot, User, Hash,
-  Briefcase, FileText, Mail, RefreshCw,
+  Briefcase, FileText, Layers,
 } from 'lucide-react'
 
 // ─── constants ────────────────────────────────────────────────────────────────
@@ -92,33 +92,9 @@ function buildLineItems(ts) {
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 /** Full timesheet line-item table — the primary review surface */
-function TimesheetDetail({ ts, showToast }) {
+function TimesheetDetail({ ts }) {
   const lineItems = buildLineItems(ts)
   const aiCfg = AI_STATUS_CFG[ts.ai_validation_status] || null
-  const [resending, setResending] = useState(false)
-
-  // Resend the client sign-link. The token never leaves the server — this asks
-  // the backend to re-email the existing link to the client approver and log a
-  // fresh email_log row. The live timesheets listener reflects the updated
-  // sign_link_status / sent_at / messageId automatically.
-  const resendSignLink = async () => {
-    setResending(true)
-    try {
-      const idToken = await auth.currentUser.getIdToken()
-      const res = await fetch(RESEND_SIGN_LINK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ timesheet_id: ts.id }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Resend failed')
-      showToast?.(`Sign link re-sent to ${data.to}${data.message_id ? ` · messageId ${data.message_id}` : ''}`)
-    } catch (err) {
-      showToast?.(err.message || 'Could not resend the sign link.', 'error')
-    } finally {
-      setResending(false)
-    }
-  }
 
   return (
     <div style={{ padding: '0 20px 20px', borderTop: '1px solid var(--border-primary)', paddingTop: 20 }}>
@@ -264,46 +240,15 @@ function TimesheetDetail({ ts, showToast }) {
         </div>
       )}
 
-      {/* ── 6b. Client sign-off tracking — the evidence surface: sent → opened → signed ── */}
-      {(ts.state === 'CTO_APPROVED' || ts.state === 'CLIENT_SIGNED' || ts.sign_link_status) && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-primary)', fontSize: '0.76rem' }}>
-          <div style={{ fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontSize: '0.68rem' }}>
-            <Mail size={12} style={{ verticalAlign: -1, marginRight: 4 }} /> Client sign-off tracking
+      {/* ── 6b. Consolidated sign-off note — the client signs ONE monthly sheet ── */}
+      {ts.state === 'CTO_APPROVED' && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: 'rgba(21,152,204,0.06)', border: '1px solid rgba(21,152,204,0.2)', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+          <div style={{ fontWeight: 700, color: '#1598CC', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, fontSize: '0.68rem' }}>
+            <Layers size={12} style={{ verticalAlign: -1, marginRight: 4 }} /> Approved — rolls up to the monthly client sheet
           </div>
-          <div style={{ marginBottom: 4 }}>
-            {ts.sign_link_status === 'SENT' ? (
-              <span style={{ color: '#34BF3A' }}>✓ Sign link sent to <strong>{ts.sign_link_to}</strong> on {fmtTs(ts.sign_link_sent_at)}{ts.sign_link_message_id ? <> · messageId <code style={{ fontFamily: 'var(--font-mono, monospace)' }}>{ts.sign_link_message_id}</code></> : ''}</span>
-            ) : ts.sign_link_status === 'NO_RECIPIENT' ? (
-              <span style={{ color: '#C0392B' }}>✗ No client approver email on the project — sign link could not be sent. Add a client contact to the project, then re-approve.</span>
-            ) : ts.sign_link_status === 'SEND_FAILED' ? (
-              <span style={{ color: '#C0392B' }}>✗ Sign link send FAILED to {ts.sign_link_to}: {ts.sign_link_send_error || 'unknown error'}</span>
-            ) : (
-              <span style={{ color: 'var(--text-tertiary)' }}>Sign link status pending…</span>
-            )}
-          </div>
-          <div style={{ marginBottom: 4 }}>
-            {ts.sign_link_first_opened_at
-              ? <span style={{ color: '#1598CC' }}>✓ Opened by client on {fmtTs(ts.sign_link_first_opened_at)}{ts.sign_link_open_count ? ` (${ts.sign_link_open_count}×)` : ''}</span>
-              : <span style={{ color: 'var(--text-tertiary)' }}>Not yet opened by the client</span>}
-          </div>
-          <div>
-            {(ts.state === 'CLIENT_SIGNED' || ts.client_action_at)
-              ? <span style={{ color: '#34BF3A' }}>✓ Signed on {fmtTs(ts.client_action_at)}{ts.client_signature_method ? ` · ${ts.client_signature_method}` : ''}</span>
-              : <span style={{ color: 'var(--text-tertiary)' }}>Awaiting client signature</span>}
-          </div>
-          {ts.state === 'CTO_APPROVED' && (
-            <div style={{ marginTop: 10 }}>
-              <button onClick={resendSignLink} disabled={resending}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-card)', color: '#1598CC', fontSize: '0.74rem', fontWeight: 600, cursor: resending ? 'wait' : 'pointer' }}>
-                <RefreshCw size={13} className={resending ? 'spin' : ''} />
-                {resending ? 'Resending…' : (ts.sign_link_resend_count ? `Resend sign link (${ts.sign_link_resend_count}×)` : 'Resend sign link')}
-              </button>
-              <span style={{ marginLeft: 8, fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>
-                Re-emails the same link to {ts.client_approver_email || 'the client approver'} — the link is never shown here.
-              </span>
-            </div>
-          )}
-          <style>{`.spin { animation: spin 1s linear infinite; } @keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
+          This timesheet is now included in the consolidated monthly sheet for{' '}
+          <strong>{ts.project_name || 'the project'}</strong> ({ts.period_label || `${ts.period_month}/${ts.period_year}`}).
+          The client receives one sheet to sign — assembled and sent from the CTO project-timesheet screen. No per-engineer link is sent.
         </div>
       )}
 
@@ -472,7 +417,7 @@ export default function Approvals() {
                 </div>
 
                 {/* ── Expanded: full timesheet detail ── */}
-                {isExpanded && <TimesheetDetail ts={ts} showToast={showToast} />}
+                {isExpanded && <TimesheetDetail ts={ts} />}
 
                 {/* ── Action buttons (only for actionable states, inside expanded) ── */}
                 {isExpanded && (ts.state === 'SUBMITTED' || ts.state === 'CEO_ESCALATED') && (
@@ -524,7 +469,7 @@ export default function Approvals() {
 
             {actionModal.decision === 'APPROVE' && (
               <div style={{ marginBottom: 16, padding: '8px 12px', borderRadius: 8, background: 'rgba(52,191,58,0.06)', border: '1px solid rgba(52,191,58,0.2)', fontSize: '0.75rem', color: '#34BF3A' }}>
-                Approving will: write an immutable snapshot of these line items + your identity to the evidence store, generate a client sign-link, and log to the WORM audit bucket.
+                Approving will: write an immutable snapshot of these line items + your identity to the evidence store and log to the WORM audit bucket. The client is NOT emailed now — this timesheet rolls up into the monthly sheet you sign once and send from the project-timesheet screen.
               </div>
             )}
 

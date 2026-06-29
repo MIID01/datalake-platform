@@ -27,7 +27,6 @@ setGlobalOptions({
 
 const { callLLM, callOCR, parseJsonOutput, MODEL_NAME } = require("./lib/ai-client");
 const { validateTimesheet } = require("./lib/timesheet-validate");
-const { LEGAL_EMAIL_FOOTER } = require("./lib/company-legal");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -885,9 +884,23 @@ const ALLOWED_TRANSITIONS = {
   INTERVIEW_SCHEDULED:  ["INTERVIEWED", "REJECTED"],
   INTERVIEWED:          ["SCORED", "REJECTED"],
   SCORED:               ["SELECTED", "REJECTED"],
-  SELECTED:             ["INTERVIEW_PREP", "REJECTED"],
+  // SELECTED = passed OUR technical interview. Supports BOTH hire types (DTLK-HIRE-ONB-001):
+  //  • Internal Datalake hire → extend an offer directly (OFFER_EXTENDED).
+  //  • Client-deployed engineer → continue to INTERVIEW_PREP → CLIENT_SUBMITTED first.
+  SELECTED:             ["OFFER_EXTENDED", "INTERVIEW_PREP", "REJECTED"],
   INTERVIEW_PREP:       ["CLIENT_SUBMITTED", "REJECTED"],
-  CLIENT_SUBMITTED:     ["HIRED", "REJECTED"],
+  // Client accepted the candidate → extend the offer. (Direct HIRED kept for back-compat.)
+  CLIENT_SUBMITTED:     ["OFFER_EXTENDED", "HIRED", "REJECTED"],
+  // ── Offer lifecycle (new). "Accepted" is the explicit state we were missing —
+  // the candidate is now hireable; the hire sequence takes over from OFFER_ACCEPTED.
+  OFFER_EXTENDED:       ["OFFER_ACCEPTED", "OFFER_DECLINED", "REJECTED"],
+  OFFER_ACCEPTED:       ["HIRE_INITIATED", "REJECTED"],
+  OFFER_DECLINED:       [],
+  // ── Hire-execution states written by hireSequence.js (initiateHire → recordSignature
+  // → provisionEngineer). Previously orphaned (not in this map, not styled in the HR
+  // UI) so a candidate mid-hire was unrenderable/unmovable. Now first-class + visible.
+  HIRE_INITIATED:       ["CONTRACT_SIGNED", "REJECTED"],
+  CONTRACT_SIGNED:      ["HIRED"],
   HIRED:                ["ONBOARDING"],
   ONBOARDING:           ["ACTIVE_EMPLOYEE"],
   REJECTED:             [],
@@ -1720,13 +1733,11 @@ exports.ctoApproveTimesheet = onRequest(
       });
 
       if (decision === "APPROVE") {
-        const clientToken = crypto.randomBytes(32).toString("hex");
-        await tsRef.update({
-          client_sign_token: clientToken,
-          // 30-day TTL on the sign token (resend re-extends). The token is also
-          // single-use (burned on sign/reject) and per-timesheet scoped.
-          sign_token_expires_at: admin.firestore.Timestamp.fromMillis(Date.now() + 30 * 24 * 3600 * 1000),
-        });
+        // Consolidated-only client sign-off (CEO directive 2026-06-25): the CTO no
+        // longer issues a per-engineer client sign token / link here. Individual CTO
+        // approval is now an INTERNAL step only — approved timesheets roll up into the
+        // single monthly project_timesheet, which the CTO signs ONCE and which is the
+        // only artifact sent to the client (see functions/projectTimesheetSign.js).
 
         // ── Immutable approval snapshot: the exact line items + totals approved,
         // the AI advisory result, and approver identity + timestamp. Written to
@@ -1820,89 +1831,12 @@ exports.ctoApproveTimesheet = onRequest(
           console.error("[ctoApproveTimesheet] approval snapshot/PDF failed (non-blocking):", snapErr.message);
         }
 
-        const cTaskId = `TSK-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        await db.collection("tasks").doc(cTaskId).set({
-          task_id: cTaskId, title: `Sign timesheet: ${ts.engineer_name} — ${ts.period_label}`,
-          description: `Please review and sign the approved timesheet for ${ts.engineer_name} on project ${ts.project_name}.`,
-          task_type: "SIGN", creation_method: "RULE_TRIGGERED", created_by: "system:ctoApproveTimesheet", created_at: nowTS,
-          assigned_to_type: "INDIVIDUAL", assigned_to_id: ts.client_approver_email, assigned_to_role: "CLIENT_APPROVER",
-          priority: "NORMAL", escalation_type: "HARD_DEADLINE",
-          due_at: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 7*24*3600000)),
-          related_entity_type: "TIMESHEET", related_entity_id: timesheet_id, state: "OPEN",
-          completed_at: null, completed_by: null, completion_action: null, completion_reason_codes: [],
-          completion_notes: null, verification_status: "PENDING_VERIFICATION", recurrence: "ONE_TIME", notes: null,
-        });
-
-        // ── Send the client sign-link email FOR REAL (Gmail DWD) + email_log proof ──
-        // Previously this step only console.logged a fake "[Email] Sent" line, so the
-        // token was generated but no link ever reached the client and nothing was
-        // logged. Now we actually dispatch, write an email_log row (PENDING →
-        // SENT/FAILED with the Gmail messageId), and stamp the timesheet with the
-        // sent proof so the approval view can surface it. Wrapped so an email hiccup
-        // never blocks the approval itself.
-        const signUrl = `https://datalake-production-sa.web.app/client/timesheet/${clientToken}`;
-        const clientTo = ts.client_approver_email || null;
-        try {
-          const { getGmailClient, sendEmailRaw } = require("./lib/gmail");
-          const logRef = db.collection("email_log").doc();
-          const emailSubject = `Action required: sign ${ts.engineer_name}'s timesheet — ${ts.period_label}`;
-          const emailBody = [
-            `Dear ${ts.client_approver_name || "Client Approver"},`,
-            ``,
-            `${ts.engineer_name}'s timesheet for ${ts.period_label} on ${ts.project_name} has been approved and is ready for your signature.`,
-            `Total: ${ts.total_hours || 0} hours.`,
-            ``,
-            `Review and sign here (no login required):`,
-            signUrl,
-            ``,
-            `This link is unique to you — please do not forward it.`,
-            ``,
-            LEGAL_EMAIL_FOOTER,
-          ].join("\n");
-
-          await logRef.set({
-            log_id: logRef.id, to: clientTo, subject: emailSubject,
-            template_id: "timesheet_client_sign",
-            related_entity_type: "TIMESHEET", related_entity_id: timesheet_id,
-            sign_url: signUrl, sent_by: "system:ctoApproveTimesheet", created_at: nowTS,
-            status: clientTo ? "PENDING" : "SKIPPED_NO_RECIPIENT",
-          });
-
-          if (!clientTo) {
-            // The project carried no client approver email, so there is nobody to
-            // send the sign link to. Surface WHY on the timesheet — this is the most
-            // likely "the link didn't generate" cause when a project lacks a client.
-            console.error(`[ctoApproveTimesheet] timesheet ${timesheet_id} has no client_approver_email — sign link not sent.`);
-            await tsRef.update({ sign_link_status: "NO_RECIPIENT", sign_link_url: signUrl, sign_link_email_log_id: logRef.id });
-          } else {
-            try {
-              const gmail = await getGmailClient();
-              const result = await sendEmailRaw(gmail, clientTo, emailSubject, emailBody);
-              const messageId = result?.data?.id || null;
-              await logRef.update({ status: "SENT", gmail_message_id: messageId, sent_at: nowTS });
-              await tsRef.update({
-                sign_link_status: "SENT", sign_link_url: signUrl, sign_link_to: clientTo,
-                sign_link_sent_at: nowTS, sign_link_email_log_id: logRef.id, sign_link_message_id: messageId,
-              });
-            } catch (sendErr) {
-              console.error(`[ctoApproveTimesheet] Gmail send failed for ${clientTo}:`, sendErr.message);
-              await logRef.update({ status: "FAILED", error: String(sendErr.message || sendErr).slice(0, 500), failed_at: nowTS });
-              await tsRef.update({
-                sign_link_status: "SEND_FAILED", sign_link_url: signUrl, sign_link_to: clientTo,
-                sign_link_email_log_id: logRef.id, sign_link_send_error: String(sendErr.message || sendErr).slice(0, 300),
-              });
-            }
-          }
-
-          await db.collection("audit_log").add({
-            event: "TIMESHEET_SIGN_LINK_DISPATCHED", timesheet_id, to: clientTo,
-            email_log_id: logRef.id, sign_url: signUrl,
-            status: clientTo ? "ATTEMPTED" : "NO_RECIPIENT",
-            timestamp: nowTS,
-          });
-        } catch (emailStepErr) {
-          console.error(`[ctoApproveTimesheet] sign-link email step failed (non-blocking):`, emailStepErr.message);
-        }
+        // (Removed 2026-06-25) The per-engineer client sign-link email and the
+        // CLIENT_APPROVER "Sign timesheet" task used to fire here. Under the
+        // consolidated-only model the client receives ONE monthly project_timesheet
+        // to sign — never a link per engineer — so neither is created on individual
+        // CTO approval. Client dispatch now lives solely in ctoSignProjectTimesheet
+        // (functions/projectTimesheetSign.js).
 
         // Trigger Controller AI timesheet validation via Pub/Sub
         await pubsub.topic("datalake.timesheet.cto_approved").publishMessage({ json: { timesheet_id } });
@@ -1917,7 +1851,7 @@ exports.ctoApproveTimesheet = onRequest(
 
       res.status(200).json({
         success: true, timesheet_id, new_state: newState,
-        message: decision === "APPROVE" ? "Timesheet approved. Client notified to sign." : "Timesheet rejected. Engineer will resubmit.",
+        message: decision === "APPROVE" ? "Timesheet approved — it will roll up into the monthly client sheet for sign-off." : "Timesheet rejected. Engineer will resubmit.",
       });
     } catch (err) { console.error("ctoApproveTimesheet error:", err); res.status(500).json({ error: "Internal server error", detail: err.message }); }
   }
@@ -2082,101 +2016,15 @@ exports.resendTimesheetSignLink = onRequest(
     if (req.method === "OPTIONS") { res.set("Access-Control-Max-Age", "3600"); return res.status(204).send(""); }
     if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) { res.status(401).json({ error: "Missing authorization" }); return; }
-    let decodedToken;
-    try { decodedToken = await admin.auth().verifyIdToken(authHeader.split("Bearer ")[1]); } catch { res.status(401).json({ error: "Invalid token" }); return; }
-
-    // Staff-only — resolve the caller's role from their own record (CEO/CTO/finance/HR).
-    let callerRole = null;
-    try {
-      const ud = await db.collection("users").doc(decodedToken.uid).get();
-      if (ud.exists) callerRole = ud.data().role_id || null;
-      else {
-        const q = await db.collection("users").where("email", "==", (decodedToken.email || "").toLowerCase()).limit(1).get();
-        if (!q.empty) callerRole = q.docs[0].data().role_id || null;
-      }
-    } catch { /* role stays null → denied below unless CEO */ }
-    const isCeo = decodedToken.email === "m.alqumri@datalake.sa";
-    if (!(isCeo || ["ceo", "cto", "finance", "hr"].includes(callerRole))) {
-      res.status(403).json({ error: "Only CEO/CTO/finance/HR can resend a sign link." }); return;
-    }
-
-    try {
-      const { timesheet_id } = req.body || {};
-      if (!timesheet_id) { res.status(400).json({ error: "Missing timesheet_id" }); return; }
-      const tsRef = db.collection("timesheets").doc(timesheet_id);
-      const tsDoc = await tsRef.get();
-      if (!tsDoc.exists) { res.status(404).json({ error: "Timesheet not found" }); return; }
-      const ts = tsDoc.data();
-
-      if (ts.state === "CLIENT_SIGNED") { res.status(400).json({ error: "Timesheet is already signed — nothing to resend." }); return; }
-      if (ts.state !== "CTO_APPROVED") { res.status(400).json({ error: `Sign link can only be resent while awaiting signature; current state: ${ts.state}.` }); return; }
-      const clientTo = ts.client_approver_email || null;
-      if (!clientTo) { res.status(400).json({ error: "No client approver email on this timesheet — add a client contact to the project and re-approve." }); return; }
-      if (!ts.client_sign_token) { res.status(400).json({ error: "No sign token on this timesheet — re-approve to generate one." }); return; }
-
-      // Reuse the EXISTING token (resend, not re-issue) — never returned to the caller.
-      const signUrl = `https://datalake-production-sa.web.app/client/timesheet/${ts.client_sign_token}`;
-      const nowTS = admin.firestore.FieldValue.serverTimestamp();
-      const { getGmailClient, sendEmailRaw } = require("./lib/gmail");
-      const logRef = db.collection("email_log").doc();
-      const emailSubject = `Reminder: sign ${ts.engineer_name}'s timesheet — ${ts.period_label}`;
-      const emailBody = [
-        `Dear ${ts.client_approver_name || "Client Approver"},`,
-        ``,
-        `This is a reminder that ${ts.engineer_name}'s timesheet for ${ts.period_label} on ${ts.project_name} is approved and awaiting your signature.`,
-        `Total: ${ts.total_hours || 0} hours.`,
-        ``,
-        `Review and sign here (no login required):`,
-        signUrl,
-        ``,
-        `This link is unique to you — please do not forward it.`,
-        ``,
-        LEGAL_EMAIL_FOOTER,
-      ].join("\n");
-
-      await logRef.set({
-        log_id: logRef.id, to: clientTo, subject: emailSubject,
-        template_id: "timesheet_client_sign", related_entity_type: "TIMESHEET", related_entity_id: timesheet_id,
-        sign_url: signUrl, sent_by: decodedToken.email, created_at: nowTS, status: "PENDING", resend: true,
-      });
-
-      try {
-        const gmail = await getGmailClient();
-        const result = await sendEmailRaw(gmail, clientTo, emailSubject, emailBody);
-        const messageId = result?.data?.id || null;
-        await logRef.update({ status: "SENT", gmail_message_id: messageId, sent_at: nowTS });
-        await tsRef.update({
-          sign_link_status: "SENT", sign_link_url: signUrl, sign_link_to: clientTo,
-          sign_link_sent_at: nowTS, sign_link_email_log_id: logRef.id, sign_link_message_id: messageId,
-          sign_link_resend_count: admin.firestore.FieldValue.increment(1),
-          sign_link_last_resent_by: decodedToken.email,
-          // Re-extend the token TTL by another 30 days on resend.
-          sign_token_expires_at: admin.firestore.Timestamp.fromMillis(Date.now() + 30 * 24 * 3600 * 1000),
-        });
-        await db.collection("audit_log").add({
-          event: "TIMESHEET_SIGN_LINK_RESENT", timesheet_id, to: clientTo,
-          email_log_id: logRef.id, resent_by: decodedToken.email, status: "SENT", timestamp: nowTS,
-        });
-        res.status(200).json({ success: true, status: "SENT", message_id: messageId, to: clientTo });
-      } catch (sendErr) {
-        console.error(`[resendTimesheetSignLink] Gmail send failed for ${clientTo}:`, sendErr.message);
-        await logRef.update({ status: "FAILED", error: String(sendErr.message || sendErr).slice(0, 500), failed_at: nowTS });
-        await tsRef.update({
-          sign_link_status: "SEND_FAILED", sign_link_to: clientTo, sign_link_email_log_id: logRef.id,
-          sign_link_send_error: String(sendErr.message || sendErr).slice(0, 300),
-        });
-        await db.collection("audit_log").add({
-          event: "TIMESHEET_SIGN_LINK_RESENT", timesheet_id, to: clientTo,
-          email_log_id: logRef.id, resent_by: decodedToken.email, status: "FAILED", timestamp: nowTS,
-        });
-        res.status(502).json({ error: "Email send failed", detail: String(sendErr.message || sendErr).slice(0, 300) });
-      }
-    } catch (err) {
-      console.error("resendTimesheetSignLink error:", err);
-      res.status(500).json({ error: "Internal server error", detail: err.message });
-    }
+    // Deprecated 2026-06-25 — per-engineer client sign links are retired under the
+    // consolidated-only model. There is no individual link to resend; the client
+    // signs ONE monthly project_timesheet, resent from the CTO project-timesheet
+    // screen. Returns 410 so any stale caller gets a clear message, never a silent
+    // failure or a fabricated "sent".
+    res.status(410).json({
+      error: "Per-timesheet sign links are retired. The client now signs one consolidated monthly sheet — send or resend it from the project timesheet screen.",
+      deprecated: true,
+    });
   }
 );
 
