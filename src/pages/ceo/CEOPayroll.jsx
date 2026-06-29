@@ -180,7 +180,7 @@ export default function CEOPayroll() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <DollarSign size={22} color="#022873" /> Payroll
+            <DollarSign size={22} color="#1598CC" /> Payroll
           </h1>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)', marginTop: 4 }}>
             Datalake is the system of record. Create a run, get CEO sign-off, the platform generates payslips + WPS + GOSI.
@@ -190,7 +190,7 @@ export default function CEOPayroll() {
           {(userRole === 'ceo' || userRole === 'finance') && (
             <button
               onClick={() => setShowSettings(true)}
-              style={{ background: '#fff', color: '#022873', padding: '10px 14px', borderRadius: 8, border: '1px solid #022873', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
+              style={{ background: 'transparent', color: 'var(--text-primary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-primary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
             >
               <ShieldCheck size={15} /> GOSI Rates
             </button>
@@ -198,7 +198,7 @@ export default function CEOPayroll() {
           <button
             onClick={() => setShowCreate(true)}
             className="write-action"
-            style={{ background: '#022873', color: '#fff', padding: '10px 18px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
+            style={{ background: '#1598CC', color: '#fff', padding: '10px 18px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
           >
             <Plus size={16} /> Create Payroll Run
           </button>
@@ -206,15 +206,15 @@ export default function CEOPayroll() {
       </div>
 
       {showSettings && gosi && ops && (
-        <div onClick={() => setShowSettings(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(2,8,23,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div onClick={() => setShowSettings(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-primary)', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)', borderRadius: 14, padding: 24, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#022873' }}>Payroll &amp; Operations Settings</h2>
-              <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={20} /></button>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Payroll &amp; Operations Settings</h2>
+              <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)' }}><X size={20} /></button>
             </div>
 
-            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', margin: '14px 0 6px' }}>GOSI Rates (%)</h3>
-            <div style={{ fontSize: '0.76rem', color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', margin: '14px 0 6px' }}>GOSI Rates (%)</h3>
+            <div style={{ fontSize: '0.76rem', color: '#FCD34D', background: 'rgba(243,156,18,0.12)', border: '1px solid rgba(243,156,18,0.4)', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
               ⚠ Verify against current GOSI regulations with your accountant before real payroll.
             </div>
             {[
@@ -224,17 +224,17 @@ export default function CEOPayroll() {
               ['gosi_nonsaudi_employer_pct', 'Non-Saudi — employer'],
             ].map(([k, label]) => (
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <label style={{ fontSize: '0.85rem', color: '#334155' }}>{label}</label>
-                <input type="number" step="0.01" min="0" max="100" value={gosi[k] ?? ''} onChange={e => setGosi({ ...gosi, [k]: e.target.value === '' ? '' : Number(e.target.value) })} style={{ width: 110, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right' }} />
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{label}</label>
+                <input type="number" step="0.01" min="0" max="100" value={gosi[k] ?? ''} onChange={e => setGosi({ ...gosi, [k]: e.target.value === '' ? '' : Number(e.target.value) })} style={fieldStyle(110)} />
               </div>
             ))}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 6 }}>
-              <label style={{ fontSize: '0.85rem', color: '#334155' }}>WPS MOL number</label>
-              <input value={gosi.mol_number ?? ''} placeholder="establishment no." onChange={e => setGosi({ ...gosi, mol_number: e.target.value })} style={{ width: 150, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right' }} />
+              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>WPS MOL number</label>
+              <input value={gosi.mol_number ?? ''} placeholder="establishment no." onChange={e => setGosi({ ...gosi, mol_number: e.target.value })} style={fieldStyle(150)} />
             </div>
 
-            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', margin: '16px 0 8px' }}>Operations</h3>
+            <h3 style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', margin: '16px 0 8px' }}>Operations</h3>
             {[
               ['timesheet_window_open_day', 'Timesheet window — open day', 1, 28],
               ['timesheet_window_close_day', 'Timesheet window — close day', 1, 28],
@@ -242,14 +242,14 @@ export default function CEOPayroll() {
               ['payroll_auto_run_day', 'Payroll auto-run day of month', 1, 28],
             ].map(([k, label, min, max]) => (
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <label style={{ fontSize: '0.85rem', color: '#334155' }}>{label}</label>
-                <input type="number" step="1" min={min} max={max} value={ops[k] ?? ''} onChange={e => setOps({ ...ops, [k]: e.target.value === '' ? '' : Number(e.target.value) })} style={{ width: 110, padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right' }} />
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{label}</label>
+                <input type="number" step="1" min={min} max={max} value={ops[k] ?? ''} onChange={e => setOps({ ...ops, [k]: e.target.value === '' ? '' : Number(e.target.value) })} style={fieldStyle(110)} />
               </div>
             ))}
 
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              <button onClick={() => setShowSettings(false)} style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveSettings} disabled={savingSettings} style={{ flex: 1, padding: '11px', borderRadius: 8, border: 'none', background: '#022873', color: '#fff', fontWeight: 700, cursor: savingSettings ? 'default' : 'pointer' }}>{savingSettings ? 'Saving…' : 'Save Rates'}</button>
+              <button onClick={() => setShowSettings(false)} style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+              <button onClick={saveSettings} disabled={savingSettings} style={{ flex: 1, padding: '11px', borderRadius: 8, border: 'none', background: '#1598CC', color: '#fff', fontWeight: 700, cursor: savingSettings ? 'default' : 'pointer', fontFamily: 'inherit' }}>{savingSettings ? 'Saving…' : 'Save Rates'}</button>
             </div>
           </div>
         </div>
@@ -284,7 +284,7 @@ export default function CEOPayroll() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <button onClick={() => setActiveRunId(run.id)} style={{ background: 'transparent', color: '#022873', border: '1px solid #022873', borderRadius: 6, padding: '6px 12px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      <button onClick={() => setActiveRunId(run.id)} style={{ background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '6px 12px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                         Preview
                       </button>
                       <span className={stage === 'finance' ? 'badge badge-info' : 'badge badge-warning'}>
@@ -389,12 +389,13 @@ export default function CEOPayroll() {
           run={activeRun}
           onClose={() => setActiveRunId(null)}
           downloadFromPdf={downloadFromPdf}
+          verifySalary={verifySalary}
         />
       )}
 
       {showCreate && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }} onClick={() => !creating && setShowCreate(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-surface, #fff)', borderRadius: 12, padding: 24, width: 420, maxWidth: '100%' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }} onClick={() => !creating && setShowCreate(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-primary)', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)', borderRadius: 12, padding: 24, width: 420, maxWidth: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>Create Payroll Run</h3>
               <button onClick={() => !creating && setShowCreate(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
@@ -407,7 +408,7 @@ export default function CEOPayroll() {
               type="month"
               value={selectedMonth}
               onChange={e => setSelectedMonth(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--border-primary, #E5E7EB)', fontSize: '0.9rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--border-primary, #E5E7EB)', background: 'var(--bg-input)', color: 'var(--text-primary)', colorScheme: 'dark', fontSize: '0.9rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
             />
             {createError && (
               <div style={{ marginTop: 12, padding: 10, background: 'rgba(192,57,43,0.1)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 6, color: '#C0392B', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -427,10 +428,10 @@ export default function CEOPayroll() {
   )
 }
 
-function PayrollRunDetail({ run, onClose, downloadFromPdf }) {
+function PayrollRunDetail({ run, onClose, downloadFromPdf, verifySalary }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-surface, #fff)', borderRadius: 12, padding: 24, width: 880, maxWidth: '100%', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-secondary, #fff)', border: '1px solid var(--border-primary)', boxShadow: 'var(--shadow-elevated)', color: 'var(--text-primary)', borderRadius: 12, padding: 24, width: 880, maxWidth: '100%', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>{run.period || run.id}</h3>
@@ -575,8 +576,14 @@ function StatBox({ label, value, accent }) {
   )
 }
 
+// Themed form input — opaque, readable in the dark CEO/Finance portal (and any
+// future light theme) because it reads from the same tokens the rest uses.
+function fieldStyle(width) {
+  return { width, padding: '8px 10px', border: '1px solid var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)', borderRadius: 8, fontSize: '0.88rem', textAlign: 'right', fontFamily: 'inherit' }
+}
+
 function btn(kind) {
   const base = { padding: '6px 12px', borderRadius: 6, fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }
-  if (kind === 'primary') return { ...base, background: '#022873', color: '#fff', border: '1px solid #022873' }
-  return { ...base, background: 'transparent', color: '#022873', border: '1px solid var(--border-primary, #E5E7EB)' }
+  if (kind === 'primary') return { ...base, background: '#1598CC', color: '#fff', border: '1px solid #1598CC' }
+  return { ...base, background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border-primary, #E5E7EB)' }
 }
