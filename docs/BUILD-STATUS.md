@@ -56,6 +56,13 @@ All in-flight work across sessions was **committed in 2 clean commits** and **pu
   ways** — emailed secure token link (`/sign-timesheet/:id`) **and** client portal (`/client/timesheets`),
   typed-name+affirmation e-signature → immutable evidence → `CLIENT_SIGNED`. **All increments live.**
   *Remaining:* generate the invoice from a `CLIENT_SIGNED` timesheet (ties into the invoice close-out gap).
+- **Consolidated-only client sign-off (2026-06-25, built local — NOT deployed):** individual CTO
+  approval (`ctoApproveTimesheet`) **no longer sends a per-engineer client sign link / email / task** —
+  it is now an internal step (still writes the immutable approval snapshot + WORM PDF + Controller-AI
+  trigger). The client receives **one** consolidated monthly `project_timesheet` to sign, sent only by
+  `ctoSignProjectTimesheet`. `resendTimesheetSignLink` deprecated → returns 410. CTO Approvals UI shows a
+  "rolls up to the monthly client sheet" note instead of the resend button. Old `/client/timesheet/:token`
+  links already in inboxes still resolve; no new per-engineer links are created. *Needs functions + hosting deploy.*
 
 ### Payroll (Zoho-like suite)
 - **Deductions & Bonuses** (`/hr/deductions`): per-employee, categories (loan/advance/fine/
@@ -144,6 +151,21 @@ All in-flight work across sessions was **committed in 2 clean commits** and **pu
   `gs://datalake-production-sa.firebasestorage.app/firestore-backups/pre-twenty-migration-2026-06-19`.
 
 ---
+
+### Hiring & onboarding chain (DTLK-HIRE-ONB-001) — **P1 built local, NOT deployed**
+- **Plan confirmed (CEO 2026-06-24):** support both internal + client-deployed hires; two separate
+  signers for IT + ISO sign-off (names pending); full e-signature for IT-Use + DPA; gated P1–P5.
+- **The gap fixed in P1:** two disconnected state machines collided — the Talent Pool had no
+  "accepted/offer" state ("can't mark him accepted"), and `hireSequence.js` wrote `HIRE_INITIATED`/
+  `CONTRACT_SIGNED` states the HR UI couldn't render or move. **P1 reconciles them:** new
+  `OFFER_EXTENDED → OFFER_ACCEPTED / OFFER_DECLINED` lifecycle, the hire-exec states made first-class,
+  both hire paths supported in `ALLOWED_TRANSITIONS`. HR Talent Pool now has buttons:
+  Mark Selected → Extend Offer → **Mark Offer Accepted**, with an honest "ready for CEO hire initiation"
+  hint (no fake start-hiring button — the real contract still runs via the existing CEO `initiateHire`).
+  Build green, lint clean. *Needs functions + hosting deploy.*
+- **Blocked for later phases:** P2 doc-collection (token upload). P3 (sign IT-Use + DPA) and P4
+  (IT + ISO sign-off) need the **real IT-Use/DPA documents** (repo has only an unused NDA template +
+  4 ack-only policies) and the **two signer names**. P5 = unified person profile (application↔employee).
 
 ## 🟡 Open — needs your input
 - **GOSI rates + MOL number**: enter the *real* verified values in the Payroll Settings panel

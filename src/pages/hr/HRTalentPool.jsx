@@ -4,7 +4,16 @@ import { db, auth, UPDATE_CANDIDATE_STAGE_URL } from '../../lib/firebase'
 import { Search, Filter, User, ChevronDown, ChevronUp, Star, Clock, Briefcase, MapPin, FileText, ArrowRight, UserPlus } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
-const LIFECYCLE_STATES = ['APPLIED','SCREENED','SHORTLISTED','INTERVIEW_SCHEDULED','INTERVIEWED','SCORED','SELECTED','INTERVIEW_PREP','CLIENT_SUBMITTED','HIRED','ONBOARDING','ACTIVE_EMPLOYEE','REJECTED']
+const LIFECYCLE_STATES = ['APPLIED','SCREENED','SHORTLISTED','INTERVIEW_SCHEDULED','INTERVIEWED','SCORED','SELECTED','INTERVIEW_PREP','CLIENT_SUBMITTED','OFFER_EXTENDED','OFFER_ACCEPTED','OFFER_DECLINED','HIRE_INITIATED','CONTRACT_SIGNED','HIRED','ONBOARDING','ACTIVE_EMPLOYEE','REJECTED']
+
+// Human-readable labels — the raw enum is shouty; keep states recognizable in the UI.
+const STATE_LABEL = {
+  OFFER_EXTENDED:  'Offer Extended',
+  OFFER_ACCEPTED:  'Offer Accepted',
+  OFFER_DECLINED:  'Offer Declined',
+  HIRE_INITIATED:  'Hiring — Contract',
+  CONTRACT_SIGNED: 'Contract Signed',
+}
 
 const STATE_STYLE = {
   APPLIED:             { bg: '#e8f4fd', color: '#2C5F7C', border: '#b8d8eb' },
@@ -16,10 +25,30 @@ const STATE_STYLE = {
   SELECTED:            { bg: '#dcfce7', color: '#15803d', border: '#86efac' },
   INTERVIEW_PREP:      { bg: '#fce7f3', color: '#9d174d', border: '#f9a8d4' },
   CLIENT_SUBMITTED:    { bg: '#ede9fe', color: '#5b21b6', border: '#c4b5fd' },
+  OFFER_EXTENDED:      { bg: '#fff7ed', color: '#c2410c', border: '#fdba74' },
+  OFFER_ACCEPTED:      { bg: '#dcfce7', color: '#15803d', border: '#86efac' },
+  OFFER_DECLINED:      { bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' },
+  HIRE_INITIATED:      { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
+  CONTRACT_SIGNED:     { bg: '#cffafe', color: '#0e7490', border: '#67e8f9' },
   HIRED:               { bg: '#d1fae5', color: '#065f46', border: '#6ee7b7' },
   ONBOARDING:          { bg: '#cffafe', color: '#0e7490', border: '#67e8f9' },
   ACTIVE_EMPLOYEE:     { bg: '#d1fae5', color: '#065f46', border: '#34d399' },
   REJECTED:            { bg: '#fde8e8', color: '#C0392B', border: '#fca5a5' },
+}
+
+// HR manual stage actions — which transition buttons to show for a given state. The
+// server (updateCandidateStage + ALLOWED_TRANSITIONS) is authoritative and re-validates;
+// this only drives the UI. Supports BOTH hire types: internal → SELECTED extends an offer
+// directly; client-deployed → continues via Interview Prep → CLIENT_SUBMITTED then offer.
+// Navigation steps (Interview Prep, Convert to Employee) and CEO-owned hire initiation
+// (the contract sequence) are handled separately, not here.
+const STAGE_ACTIONS = {
+  APPLIED:          [{ next: 'SCREENED',       label: 'Mark Screened' }],
+  SCORED:           [{ next: 'SELECTED',       label: 'Mark Selected (passed technical)', primary: true }],
+  SELECTED:         [{ next: 'OFFER_EXTENDED', label: 'Extend Offer',        primary: true }],
+  CLIENT_SUBMITTED: [{ next: 'OFFER_EXTENDED', label: 'Extend Offer',        primary: true }],
+  OFFER_EXTENDED:   [{ next: 'OFFER_ACCEPTED', label: 'Mark Offer Accepted', primary: true },
+                     { next: 'OFFER_DECLINED', label: 'Offer Declined' }],
 }
 
 export default function HRTalentPool() {
@@ -82,6 +111,22 @@ export default function HRTalentPool() {
     return d.toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' })
   }
 
+  // Shared stage transition. The server (updateCandidateStage) re-validates against
+  // ALLOWED_TRANSITIONS and rejects anything illegal — this is just the trigger.
+  const advanceStage = async (candidateId, newState, notes) => {
+    setStageUpdating(candidateId); setStageError('')
+    try {
+      const token = await auth.currentUser.getIdToken()
+      const res = await fetch(UPDATE_CANDIDATE_STAGE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ candidate_id: candidateId, new_state: newState, notes }),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Stage update failed') }
+    } catch (err) { setStageError(err.message) }
+    setStageUpdating(null)
+  }
+
   const inp = { padding: '9px 14px', border: '1px solid #1e3050', borderRadius: 8, fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none', color: '#e2e8f0', background: '#0d1829' }
 
   return (
@@ -101,7 +146,7 @@ export default function HRTalentPool() {
         </div>
         <select style={{ ...inp, flex: '0 0 180px' }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           <option value="ALL">All Stages</option>
-          {LIFECYCLE_STATES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+          {LIFECYCLE_STATES.map(s => <option key={s} value={s}>{STATE_LABEL[s] || s.replace(/_/g, ' ')}</option>)}
         </select>
         <select style={{ ...inp, flex: '0 0 180px' }} value={filterJob} onChange={e => setFilterJob(e.target.value)}>
           <option value="ALL">All Jobs</option>
@@ -147,7 +192,7 @@ export default function HRTalentPool() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#e2e8f0' }}>{c.full_name || 'Unnamed'}</span>
                       <span style={{ fontFamily: 'monospace', fontSize: '0.65rem', color: '#475569', background: '#0d1829', padding: '1px 6px', borderRadius: 4 }}>{c.id}</span>
-                      <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: '0.65rem', fontWeight: 700, background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{(c.state || 'UNKNOWN').replace(/_/g, ' ')}</span>
+                      <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: '0.65rem', fontWeight: 700, background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{STATE_LABEL[c.state] || (c.state || 'UNKNOWN').replace(/_/g, ' ')}</span>
                       {c.hr_score && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.72rem', color: c.hr_score >= 70 ? '#27ae60' : '#E8913A', fontWeight: 700 }}><Star size={11} /> {c.hr_score}/100</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 12, fontSize: '0.75rem', color: '#64748b', marginTop: 2, flexWrap: 'wrap' }}>
@@ -186,22 +231,20 @@ export default function HRTalentPool() {
                           Go to Interview Prep <ArrowRight size={12} />
                         </Link>
                       )}
-                      {c.state === 'APPLIED' && (
+                      {(STAGE_ACTIONS[c.state] || []).map(act => (
                         <button
+                          key={act.next}
                           disabled={stageUpdating === c.id}
-                          onClick={async () => {
-                            setStageUpdating(c.id); setStageError('')
-                            try {
-                              const token = await auth.currentUser.getIdToken()
-                              const res = await fetch(UPDATE_CANDIDATE_STAGE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ candidate_id: c.id, new_state: 'SCREENED', notes: 'Manually screened via talent pool' }) })
-                              if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
-                            } catch (err) { setStageError(err.message) }
-                            setStageUpdating(null)
-                          }}
-                          style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #1e3050', background: 'transparent', color: '#94a3b8', cursor: stageUpdating === c.id ? 'default' : 'pointer', fontSize: '0.78rem', fontFamily: 'inherit' }}
+                          onClick={() => advanceStage(c.id, act.next, `Moved to ${act.next} via talent pool`)}
+                          style={{ padding: '7px 14px', borderRadius: 7, border: act.primary ? 'none' : '1px solid #1e3050', background: act.primary ? '#1598CC' : 'transparent', color: act.primary ? '#fff' : '#94a3b8', cursor: stageUpdating === c.id ? 'default' : 'pointer', fontSize: '0.78rem', fontWeight: act.primary ? 600 : 400, fontFamily: 'inherit' }}
                         >
-                          {stageUpdating === c.id ? 'Updating…' : 'Mark Screened'}
+                          {stageUpdating === c.id ? 'Updating…' : act.label}
                         </button>
+                      ))}
+                      {c.state === 'OFFER_ACCEPTED' && (
+                        <span style={{ fontSize: '0.74rem', color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          ✓ Offer accepted — ready for hire initiation (contract) by the CEO.
+                        </span>
                       )}
                       {c.state === 'HIRED' && (
                         <button
