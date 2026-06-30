@@ -1,9 +1,30 @@
 # Datalake Platform — Build Status
 
 _Single place to see what's built, what's live, and what's still open._
-_Last updated: 2026-06-23. Ground truth is always `git log` + the code; this is the human summary._
+_Last updated: 2026-06-30. Ground truth is always `git log` + the code; this is the human summary._
 
-## 📌 2026-06-23 consolidation (read this first)
+## 📌 2026-06-30 deploy — GRC/CRM consolidation is now LIVE (read this first)
+The committed consolidation at `main`==`origin/main`==`0ed677e` was **deployed to production**
+(functions + firestore rules + storage + hosting) from a re-authenticated local session
+(`m.alqumri@datalake.sa`). Root build green; deploy clean.
+- **NOW LIVE (this deploy):** GRC Document Library + GRC Compliance Agent (all 10 fns:
+  uploadGrcDocument, listGrcDocuments, downloadGrcDocument, getGrcChangeLog, extractGrcMetadata,
+  reindexGrcEmbeddings, grcAssistantChat, grcAuditReadiness, approveGrcProposal, grcReviewSweep —
+  all `me-central2`), plus the soft-delete/recycle-bin backend + WORM recovery and timesheet
+  validation that rode in the same 4 commits (`98476b6`, `cb9af26`, `19e855a`, `0ed677e`).
+- **Smoke-verified (honest signals, not assumed):** `listGrcDocuments` no-token → 401 (auth-gated);
+  `grcAssistantChat`/`reindexGrcEmbeddings` GET → 405 (POST-only handlers reached); `uploadGrcDocument`
+  OPTIONS → 204 (CORS preflight). No 404/500.
+- **DEFERRED manual step:** `reindexGrcEmbeddings` (one-time RAG index build) was **NOT run** — it
+  requires a CEO **Firebase ID token** (a gcloud OAuth token can't satisfy `verifyIdToken`), and there
+  are no GRC docs to index until the bulk upload happens. **Run it from the deployed GRC UI as CEO
+  AFTER uploading the GRC files.**
+- **NOT in this deploy (intentionally held):** the 7 newer timesheet/contract commits on
+  `feature/crm-phase-1` (`8b536b7 1103dd9 e15ca37 1e2bbae` + 3) — they post-date the approved scope and
+  await their own review/deploy. `main` was deployed, not the feature branch tip.
+- **Excluded from git:** `docs/interview-invite-abdullah-fauzy.html` (candidate PII), still untracked.
+
+## 📌 2026-06-23 consolidation (superseded by the 2026-06-30 deploy above)
 All in-flight work across sessions was **committed in 2 clean commits** and **pushed to
 `origin/feature/crm-phase-1`** (backup only — **NOT merged to `main`, so NOT auto-deployed**).
 - **LIVE in production now** (hosting + the two agent functions + agent rules): CRM **P1**
